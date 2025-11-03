@@ -21,6 +21,8 @@ A comprehensive browser extension for opendkp.com that provides intelligent auct
 - ✅ **Volume Control** - Adjustable volume slider (0-100%)
 - ✅ **Profile-Specific Sounds** - Each profile remembers its preferred sound
 
+![Audio Settings](assets/images/Audio.png)
+
 ### Text-to-Speech (TTS)
 - ✅ **Speech Announcements** - Announces auction completions with customizable messages
 - ✅ **Voice Selection** - Choose from available system voices
@@ -31,12 +33,17 @@ A comprehensive browser extension for opendkp.com that provides intelligent auct
   - `{itemName}` - Item name
 - ✅ **New Auction Readouts** - Speaks "New auction: Item Name" when auctions appear
 
+![TTS Settings](assets/images/Audio.png)
+
 ### Smart Notifications
 - ✅ **Smart Bidding Mode (Raider Profile)** - Only alerts when YOU win an auction you bid on
   - Automatically detects your characters from the page header
   - Only triggers notifications when your character wins
   - Perfect for raiders who only want to know about their own wins
   - Automatically enabled when Raider profile is selected
+
+![Smart Raider Mode](assets/images/SmartRaider.png)
+
 - ✅ **Quiet Hours** - Disable sound notifications during specified hours
   - Customizable start and end times
   - Visual alerts still work during quiet hours
@@ -44,6 +51,8 @@ A comprehensive browser extension for opendkp.com that provides intelligent auct
 - ✅ **Browser Notifications** - Desktop notifications with auction details
   - Shows winner, item, and bid amount
   - Click to view auction details
+
+![Smart Raid Leader Features](assets/images/SmartRaidLeader.png)
 
 ### RaidTick Integration (Raid Leader Only)
 - ✅ **Quick Copy-to-Clipboard** - Easily copy RaidTick file contents for OpenDKP import
@@ -54,6 +63,8 @@ A comprehensive browser extension for opendkp.com that provides intelligent auct
   - This generates a `RaidTick-YYYY-MM-DD_HH-MM-SS.txt` file
   - Use the extension to copy the file contents
   - Paste directly into OpenDKP to import your raid list
+
+![RaidTick Integration](assets/images/RaidTick.png)
 
 ### Loot Parser / EQ Log Monitoring (Raid Leader Only)
 - ✅ **EQ Log File Selection** - Select your EverQuest log file to monitor
@@ -69,6 +80,8 @@ A comprehensive browser extension for opendkp.com that provides intelligent auct
   - The parser monitors your EQ log file for messages containing your tag
   - Detected loot items are extracted and displayed in the extension popup
   - Copy buttons copy the item text to your clipboard so you can easily paste them into the Bidding Tool
+
+![Loot Parser](assets/images/LootParser.png)
 
 ### RaidTick Reminders (Raid Leader Only)
 - ✅ **Scheduled Reminders** - Set reminders for specific times (e.g., "Run /outputfile raidlist")
