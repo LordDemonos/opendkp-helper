@@ -1,18 +1,6 @@
 name: Publish to Firefox Add-ons
 
 on:
-  push:
-    branches:
-      - main
-      - master
-    paths:
-      - 'manifest.json'
-      - '**/*.js'
-      - '**/*.html'
-      - '**/*.json'
-      - '**/*.mp3'
-      - '**/*.wav'
-      - 'icons/**'
   release:
     types: [published]
   workflow_dispatch: # Allows manual triggering

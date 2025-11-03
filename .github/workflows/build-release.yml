@@ -13,18 +13,39 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
       
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
       
-      - name: Extract version
+      - name: Increment version before release
+        id: increment
+        run: |
+          echo "🔄 Incrementing version for release..."
+          NEW_VERSION=$(node scripts/increment-version.js)
+          echo "new_version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+          echo "New version: ${NEW_VERSION}"
+          
+          # Update version in all files
+          node scripts/update-version.js ${NEW_VERSION}
+          
+          # Commit the version update
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add manifest.json options.html
+          git commit -m "chore: increment version to ${NEW_VERSION} for release" || exit 0
+          git push || echo "Push failed (may already be committed)"
+      
+      - name: Extract final version
         id: version
         run: |
           VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync('manifest.json', 'utf8')).version)")
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Extension version: ${VERSION}"
+          echo "Release version: ${VERSION}"
       
       # Build Chrome Package
       - name: Build Chrome Package

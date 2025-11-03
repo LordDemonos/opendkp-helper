@@ -1,0 +1,80 @@
+name: Auto-Increment Version
+
+on:
+  push:
+    branches:
+      - master
+      - main
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+      - 'RELEASE_GUIDE.md'
+      - 'CHROME_STORE_SUBMISSION.md'
+
+jobs:
+  increment-version:
+    name: Increment Patch Version
+    runs-on: ubuntu-latest
+    # Skip if commit message contains [skip version]
+    if: "!contains(github.event.head_commit.message, '[skip version]')"
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Get current version
+        id: current
+        run: |
+          VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync('manifest.json', 'utf8')).version)")
+          echo "current=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Current version: ${VERSION}"
+      
+      - name: Increment patch version
+        id: increment
+        run: |
+          NEW_VERSION=$(node scripts/increment-version.js)
+          echo "new=${NEW_VERSION}" >> $GITHUB_OUTPUT
+          echo "New version: ${NEW_VERSION}"
+      
+      - name: Check if version changed
+        id: check
+        run: |
+          CURRENT="${{ steps.current.outputs.current }}"
+          NEW="${{ steps.increment.outputs.new }}"
+          if [ "$CURRENT" != "$NEW" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "🔄 Version needs updating: $CURRENT → $NEW"
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "ℹ️  Version unchanged (shouldn't happen)"
+          fi
+      
+      - name: Update version in all files
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          node scripts/update-version.js ${{ steps.increment.outputs.new }}
+      
+      - name: Commit and push version update
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add manifest.json options.html
+          
+          # Check if there are changes to commit
+          if git diff --staged --quiet; then
+            echo "⚠️  No changes to commit (version may have been updated in the same commit)"
+          else
+            git commit -m "chore: auto-increment version to ${{ steps.increment.outputs.new }} [skip version]"
+            git push
+            echo "✅ Version updated and pushed: ${{ steps.increment.outputs.new }}"
+          fi
+
