@@ -90,14 +90,47 @@ A comprehensive browser extension for opendkp.com that provides intelligent auct
 
 ## 📦 Installation
 
-### Option 1: Official Browser Stores (Recommended)
+### Option 1: Download from GitHub Releases (Recommended)
 
-- **Firefox**: Available on [Firefox Add-ons (AMO)](https://addons.mozilla.org/)
+Pre-built packages are available for both Chrome and Firefox on the [Releases](https://github.com/LordDemonos/opendkp-helper/releases) page.
+
+#### Chrome Installation:
+1. Download `opendkp-helper-v[X.X.X]-chrome.zip` from the latest release
+2. Extract the ZIP file to a folder (e.g., `opendkp-helper-chrome`)
+3. Open Chrome and navigate to `chrome://extensions`
+4. Enable **Developer mode** (toggle in top-right)
+5. Click **Load unpacked**
+6. Select the extracted folder
+7. The extension is now installed!
+
+#### Firefox Installation:
+1. Download `opendkp-helper-v[X.X.X]-firefox.zip` from the latest release
+2. Open Firefox and navigate to `about:debugging`
+3. Click **This Firefox** tab
+4. Click **Load Temporary Add-on...**
+5. Select the ZIP file you downloaded
+6. The extension is now installed!
+
+**Note:** Release packages are automatically built with the correct manifest configuration for each browser.
+
+### Option 2: Official Browser Stores
+
 - **Chrome**: Available on [Chrome Web Store](https://chrome.google.com/webstore/) (Coming Soon)
+- **Firefox**: Available on [Firefox Add-ons (AMO)](https://addons.mozilla.org/)
 
-### Option 2: Manual Installation (Development/Testing)
+### Option 3: Manual Installation from Source (Development/Testing)
 
 If you're building from source or testing a development version, you'll need to configure `manifest.json` differently for each browser:
+
+#### For Chrome:
+The `manifest.json` should use `background.service_worker`:
+```json
+{
+  "background": {
+    "service_worker": "background.js"
+  }
+}
+```
 
 #### For Firefox:
 The `manifest.json` should use `background.scripts`:
@@ -115,16 +148,6 @@ The `manifest.json` should use `background.scripts`:
 }
 ```
 
-#### For Chrome:
-The `manifest.json` should use `background.service_worker`:
-```json
-{
-  "background": {
-    "service_worker": "background.js"
-  }
-}
-```
-
 **Note**: The GitHub Actions workflows automatically handle this conversion when building packages. See [Building from Source](#-building-from-source) below.
 
 #### Installation Steps:
@@ -138,8 +161,8 @@ The `manifest.json` should use `background.service_worker`:
 2. **Edit `manifest.json`** based on your browser (see above)
 
 3. **Load the extension**:
-   - **Firefox**: Open `about:debugging` → "This Firefox" → "Load Temporary Add-on" → Select `manifest.json`
    - **Chrome**: Open `chrome://extensions` → Enable "Developer mode" → "Load unpacked" → Select the extension folder
+   - **Firefox**: Open `about:debugging` → "This Firefox" → "Load Temporary Add-on" → Select `manifest.json`
 
 ## 🚀 Quick Start
 
@@ -252,27 +275,42 @@ opendkp-helper/
 
 ## 🎨 Browser Compatibility
 
-- ✅ **Firefox 126.0+** (Manifest v3)
 - ✅ **Chrome/Edge 88+** (Manifest v3)
+- ✅ **Firefox 126.0+** (Manifest v3)
 
-**Note**: Both browsers require Manifest V3. Firefox uses `background.scripts` while Chrome requires `background.service_worker`. The extension automatically detects and uses the appropriate API based on the browser.
+**Note**: Both browsers require Manifest V3. Chrome uses `background.service_worker` while Firefox uses `background.scripts`. The extension automatically detects and uses the appropriate API based on the browser.
 
 ## 🔨 Building from Source
 
 The repository includes GitHub Actions workflows that automatically build browser-specific packages:
 
-- **Firefox**: `.github/workflows/publish-firefox.yml` - Builds and publishes to AMO
-- **Chrome**: `.github/workflows/publish-chrome.yml` - Builds a Chrome-ready package
+- **Release Builds**: `.github/workflows/build-release.yml` - Builds both Chrome and Firefox ZIP files for GitHub Releases
+- **Chrome Store**: `.github/workflows/publish-chrome.yml` - Builds and optionally uploads to Chrome Web Store
+- **Firefox Store**: `.github/workflows/publish-firefox.yml` - Builds and publishes to Firefox Add-ons (AMO)
 
-These workflows automatically:
+### Release Builds
+
+The `build-release.yml` workflow automatically:
+1. Triggers on new GitHub releases (or can be manually triggered)
+2. Builds both Chrome and Firefox packages with correct manifest configurations
+3. Attaches both ZIP files to the release
+
+**To create a new release:**
+1. Create a new release on GitHub (tagged with version number)
+2. The workflow will automatically build and attach both packages
+3. Users can download the appropriate ZIP for their browser
+
+### Store Builds
+
+Store-specific workflows:
 1. Configure `manifest.json` for the target browser (scripts vs service_worker)
 2. Package all necessary files
 3. Create ZIP files ready for store submission
 
 To build manually:
 
-1. **For Firefox**: The workflow sets `background.scripts` in manifest.json
-2. **For Chrome**: The workflow sets `background.service_worker` in manifest.json
+1. **For Chrome**: The workflow sets `background.service_worker` in manifest.json
+2. **For Firefox**: The workflow sets `background.scripts` in manifest.json
 
 When building from source, you must edit `manifest.json` manually (see [Installation](#-installation) above).
 
