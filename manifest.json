@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "OpenDKP Helper",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "A comprehensive helper extension for opendkp.com with auction alerts, RaidTick integration, and more",
   "permissions": [
     "activeTab",
