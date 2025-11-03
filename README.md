@@ -96,11 +96,11 @@ Pre-built packages are available for both Chrome and Firefox on the [Releases](h
 
 #### Chrome Installation:
 1. Download `opendkp-helper-v[X.X.X]-chrome.zip` from the latest release
-2. Extract the ZIP file to a folder (e.g., `opendkp-helper-chrome`)
+2. Extract the ZIP file (it will create a folder like `opendkp-helper-v[X.X.X]-chrome`)
 3. Open Chrome and navigate to `chrome://extensions`
 4. Enable **Developer mode** (toggle in top-right)
 5. Click **Load unpacked**
-6. Select the extracted folder
+6. Select the `opendkp-helper-v[X.X.X]-chrome` folder that was created when you extracted the ZIP
 7. The extension is now installed!
 
 #### Firefox Installation:
@@ -172,34 +172,43 @@ The `manifest.json` should use `background.scripts`:
    - Right-click the extension icon → "Options" or "Manage Extension"
    - Or click the extension icon and click "Settings"
 
-3. **Configure Basic Settings:**
-   - Choose your **Sound Profile** (Raid Leader, Raider)
-   - Select a **Notification Sound**
-   - Adjust **Volume** to your preference
-   - Enable **Browser Notifications** if desired
+3. **Choose Your Mode:**
+   - **Raid Leader Profile** - Full features including RaidTick and Loot Parser
+   - **Raider Profile** - Smart Bidding mode, only alerts when you win
+   
+   ![Mode Selection](assets/images/Mode.png)
 
 4. **For Raiders - Smart Bidding:**
    - Select **Raider Profile** (Smart Bidding is auto-enabled)
    - The extension will only alert when YOU win auctions you bid on
    - Your character names are automatically detected from the page
+   
+   ![Smart Raider Mode](assets/images/SmartRaider.png)
 
 5. **For Raid Leaders - Set Up RaidTick:**
    - Select **Raid Leader Profile**
    - Click "Copy RaidTick from file" to copy raid lists to clipboard
    - Or select your RaidTick folder in settings to browse files in popup
    - Configure **RaidTick Reminders** to get reminders to run `/outputfile raidlist`
+   
+   ![RaidTick Integration](assets/images/RaidTick.png)
 
 6. **For Raid Leaders - Set Up Loot Parser:**
    - Enable **Loot Parser** (visible in Raid Leader profile)
    - Select your EverQuest log file
    - Configure your loot tag (e.g., "FG" for Former Glory)
    - The parser will monitor your log and display loot events in the popup
+   
+   ![Loot Parser](assets/images/LootParser.png)
 
-7. **For Smart Features:**
+7. **Configure Audio & Visuals:**
    - Set up **Quiet Hours** to silence notifications during sleep hours
    - Configure **Text-to-Speech** if you want audio announcements
+   - Adjust volume and notification preferences
 
 8. **Save Settings** and start using!
+
+   ![Extension Popup](assets/images/Popup.png)
 
 ## ⚙️ Settings Reference
 
@@ -207,6 +216,8 @@ The `manifest.json` should use `background.scripts`:
 - **Sound Profile**: Choose Raid Leader, Raider
 - **Notification Sound**: Select from built-in or custom sounds
 - **Volume**: 0-100% volume slider
+
+![Audio Settings](assets/images/Audio.png)
 
 ### Text-to-Speech
 - **Enable Text-to-Speech**: Toggle TTS announcements
@@ -222,11 +233,15 @@ The `manifest.json` should use `background.scripts`:
 - **Maximum**: 3 custom sounds
 - **Size Limit**: Suggested ≤100 KB per file
 
+![Custom Sound Manager](assets/images/CustomSounds.png)
+
 ### Smart Notifications
 - **Smart Bidding Mode (Raider)**: Only alert when you win auctions you bid on (auto-enabled for Raider profile)
 - **Quiet Hours**: Disable sounds during specified hours
 - **Screen Flash**: Visual alert when auctions complete
 - **Browser Notifications**: Desktop notifications with details
+
+![Smart Raid Leader Features](assets/images/SmartRaidLeader.png)
 
 ### RaidTick Integration (Raid Leader Only)
 - **Copy RaidTick from file**: Quick button to select and copy RaidTick file contents to clipboard
@@ -243,6 +258,8 @@ The `manifest.json` should use `background.scripts`:
 - **Screen Flash**: Enable/disable screen flash alerts
 - **Browser Notifications**: Enable/disable desktop notifications
 - **Disable Visuals**: Global toggle to disable all visual alerts
+
+![Visual Settings](assets/images/Visuals.png)
 
 ## 🔧 File Structure
 

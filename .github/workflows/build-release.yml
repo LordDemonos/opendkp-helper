@@ -102,12 +102,24 @@ jobs:
           # Replace manifest with Chrome version
           cp manifest-chrome.json chrome-release/manifest.json
           
-          # Create Chrome ZIP
-          cd chrome-release
-          ZIP_NAME="opendkp-helper-v${{ steps.version.outputs.version }}-chrome.zip"
-          zip -r ../${ZIP_NAME} .
-          cd ..
+          # Create Chrome ZIP with folder structure
+          # This creates a folder inside the ZIP so extraction automatically creates its own folder
+          FOLDER_NAME="opendkp-helper-v${{ steps.version.outputs.version }}-chrome"
+          ZIP_NAME="${FOLDER_NAME}.zip"
+          
+          # Rename chrome-release to versioned folder name (from workspace root)
+          cd ${{ github.workspace }}
+          mv chrome-release ${FOLDER_NAME}
+          
+          # Create ZIP from the folder (this creates folder structure in ZIP)
+          zip -r ${ZIP_NAME} ${FOLDER_NAME}
+          
+          # Move ZIP to chrome-release directory for upload
+          mkdir -p chrome-release
           mv ${ZIP_NAME} chrome-release/
+          
+          # Clean up the folder (workflow will use the ZIP)
+          rm -rf ${FOLDER_NAME}
           
           echo "ZIP_NAME=${ZIP_NAME}" >> $GITHUB_OUTPUT
           echo "✅ Chrome package: ${ZIP_NAME}"
