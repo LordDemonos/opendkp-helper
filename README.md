@@ -11,6 +11,8 @@ A comprehensive browser extension for opendkp.com that provides intelligent auct
 - ✅ **Duplicate Prevention** - Prevents duplicate alerts for the same timer
 - ✅ **Progress Tracking** - Only alerts for auctions you've actually observed in progress
 
+![Auction Timer Monitoring](assets/images/AuctionTimers.png)
+
 ### Sound System
 - ✅ **Multiple Sound Profiles**
   - **Raid Leader Profile** - Authoritative sounds (Bell, Chime, Ding variations)
@@ -35,6 +37,8 @@ A comprehensive browser extension for opendkp.com that provides intelligent auct
 
 ![TTS Settings](assets/images/Audio.png)
 
+![Advanced TTS Settings](assets/images/AdvancedTTS.png)
+
 ### Smart Notifications
 - ✅ **Smart Bidding Mode (Raider Profile)** - Only alerts when YOU win an auction you bid on
   - Automatically detects your characters from the page header
@@ -53,6 +57,8 @@ A comprehensive browser extension for opendkp.com that provides intelligent auct
   - Click to view auction details
 
 ![Smart Raid Leader Features](assets/images/SmartRaidLeader.png)
+
+![Browser Notifications](assets/images/BrowserNotification.png)
 
 ### RaidTick Integration (Raid Leader Only)
 - ✅ **Quick Copy-to-Clipboard** - Easily copy RaidTick file contents for OpenDKP import
@@ -93,6 +99,10 @@ A comprehensive browser extension for opendkp.com that provides intelligent auct
   - Popup window
 - ✅ **5-Minute Boundaries** - Fires at :00 and :30 of each 5-minute interval
 - ✅ **Copy Button** - copies /outputfile raidlist to your clipboard so you can paste it into the game
+
+![RaidTick Reminder](assets/images/RaidlistReminder.png)
+
+![RaidTick Reminder Settings](assets/images/RaidTickReminderSettings.png)
 
 ### Other Features
 - ✅ **Settings Page** - Comprehensive options page with all settings
@@ -225,6 +235,9 @@ The `manifest.json` should use `background.scripts`:
 
 ## ⚙️ Settings Reference
 
+> 📸 **[View Full Settings Page Screenshot](assets/images/SettingsFull.png)** _(Large image - opens in new tab)_
+
+
 ### Audio Settings
 - **Sound Profile**: Choose Raid Leader, Raider
 - **Notification Sound**: Select from built-in or custom sounds
@@ -266,6 +279,8 @@ The `manifest.json` should use `background.scripts`:
 - **EQ Log File**: Select your EverQuest log file
 - **Loot Tag**: Configure the tag to search for in log messages (e.g., "FG")
 - **Monitoring Window**: Open dedicated window to monitor log activity
+
+![Upload Logs Reminder](assets/images/UploadLogsReminder.png)
 
 ### Visual Settings
 - **Screen Flash**: Enable/disable screen flash alerts

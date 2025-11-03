@@ -1121,11 +1121,34 @@ function saveRemindersPartial() {
         reminders: (currentSettings.reminders || []).slice(0,5),
         reminderPrefs: currentSettings.reminderPrefs || { flash: true, notifications: true, enabledDays: [0,1,2,3,4,5,6] }
       };
+      console.log('[Options] 📝 saveRemindersPartial called - saving to storage:', {
+        reminderCount: payload.reminders.length,
+        enabledReminderCount: payload.reminders.filter(r => r && r.enabled).length,
+        reminderDetails: payload.reminders.map(r => ({
+          id: r?.id,
+          enabled: r?.enabled,
+          start: r?.start,
+          end: r?.end,
+          message: r?.message
+        })),
+        reminderPrefs: payload.reminderPrefs,
+        timestamp: new Date().toISOString()
+      });
       try {
-        (api && api.storage ? api.storage.sync : chrome.storage.sync).set(payload, function(){});
-      } catch(_) {}
+        (api && api.storage ? api.storage.sync : chrome.storage.sync).set(payload, function(){
+          if (chrome && chrome.runtime && chrome.runtime.lastError) {
+            console.error('[Options] ❌ Error saving reminders to storage:', chrome.runtime.lastError.message);
+          } else {
+            console.log('[Options] ✅ Reminders saved to storage successfully');
+          }
+        });
+      } catch(e) {
+        console.error('[Options] ❌ Exception saving reminders:', e);
+      }
     }, 150);
-  } catch (_) {}
+  } catch (e) {
+    console.error('[Options] ❌ Exception in saveRemindersPartial:', e);
+  }
 }
 
 /**
@@ -2701,12 +2724,31 @@ function saveSettings() {
     reminderPrefs: currentSettings.reminderPrefs || { flash: true, notifications: true, enabledDays: [0,1,2,3,4,5,6] }
   };
   
+  console.log('[Options] 📝 saveSettings called - saving to storage:', {
+    soundProfile: newSettings.soundProfile,
+    reminderCount: (newSettings.reminders || []).length,
+    enabledReminderCount: (newSettings.reminders || []).filter(r => r && r.enabled).length,
+    reminderDetails: (newSettings.reminders || []).map(r => ({
+      id: r?.id,
+      enabled: r?.enabled,
+      start: r?.start,
+      end: r?.end,
+      message: r?.message
+    })),
+    reminderPrefs: newSettings.reminderPrefs,
+    timestamp: new Date().toISOString()
+  });
+  
   chrome.storage.sync.set(newSettings, function() {
     if (chrome.runtime.lastError) {
-      console.error('[SaveSettings] Error:', chrome.runtime.lastError.message);
+      console.error('[Options] ❌ Error saving settings:', chrome.runtime.lastError.message);
       showStatus('Error saving settings: ' + chrome.runtime.lastError.message, 'error');
     } else {
-      console.log('[SaveSettings] Saved:', newSettings);
+      console.log('[Options] ✅ Settings saved successfully to storage:', {
+        reminderCount: (newSettings.reminders || []).length,
+        enabledReminderCount: (newSettings.reminders || []).filter(r => r && r.enabled).length,
+        soundProfile: newSettings.soundProfile
+      });
       showStatus('Settings saved successfully!', 'success');
       currentSettings = newSettings;
       // Immediately reflect profile-dependent UI without full refresh

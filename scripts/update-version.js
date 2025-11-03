@@ -32,8 +32,9 @@ const filesToUpdate = [
   {
     file: 'options.html',
     patterns: [
-      { pattern: /OpenDKP Helper v\d+\.\d+\.\d+/g, replacement: `OpenDKP Helper v${newVersion}` },
-      { pattern: /OpenDKP Helper v\d+\.\d+/g, replacement: `OpenDKP Helper v${newVersion}` } // Fallback for old format
+      // Match "OpenDKP Helper v" followed by any version number (1-4 parts) to handle edge cases
+      // This will match v1.2.3, v1.2.3.4, v1.2, etc. and replace with the correct newVersion
+      { pattern: /OpenDKP Helper v[\d.]+/g, replacement: `OpenDKP Helper v${newVersion}` }
     ]
   }
 ];

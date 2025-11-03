@@ -1,7 +1,8 @@
 // Background script for Firefox compatibility
 // This ensures the browser API is available
 
-console.log('Background script loaded - Firefox compatibility');
+console.log('🔵 Background script loaded - Firefox compatibility');
+console.log('🔵 Background script executing at:', new Date().toISOString());
 
 // Reminder scheduler
 (function(){
@@ -16,7 +17,18 @@ console.log('Background script loaded - Firefox compatibility');
 
   function loadSettings() {
     try {
+      console.log('[ODKP Reminder] 🔄 loadSettings called - fetching from storage...');
       api.storage.sync.get(['reminders','reminderPrefs','soundProfile']).then((s)=>{
+        console.log('[ODKP Reminder] 📦 Raw storage response:', {
+          hasReminders: !!s.reminders,
+          remindersType: Array.isArray(s.reminders) ? 'array' : typeof s.reminders,
+          remindersLength: Array.isArray(s.reminders) ? s.reminders.length : 'N/A',
+          hasReminderPrefs: !!s.reminderPrefs,
+          reminderPrefs: s.reminderPrefs,
+          soundProfile: s.soundProfile,
+          timestamp: new Date().toISOString()
+        });
+        
         cached.reminders = Array.isArray(s.reminders) ? s.reminders : [];
         cached.reminderPrefs = s.reminderPrefs || { flash: true, notifications: true, enabledDays: [0,1,2,3,4,5,6] };
         // Ensure enabledDays is an array with valid values
@@ -24,28 +36,41 @@ console.log('Background script loaded - Firefox compatibility');
           cached.reminderPrefs.enabledDays = [0,1,2,3,4,5,6]; // Default to all days
         }
         cached.soundProfile = s.soundProfile || 'raidleader';
+        
         // Don't clear fired boundary tracking on settings load - only clear when reminders are actually changed
         // This prevents losing tracking if service worker restarts between boundaries
         // lastFiredBoundary = {}; // REMOVED - let boundary tracking persist across service worker restarts
         const enabledReminders = cached.reminders.filter(r => r && r.enabled);
-        console.log('[ODKP Reminder] Settings loaded:', {
+        
+        console.log('[ODKP Reminder] ✅ Settings loaded and cached:', {
           totalReminders: cached.reminders.length,
           enabledReminders: enabledReminders.length,
           profile: cached.soundProfile,
           enabledDays: cached.reminderPrefs.enabledDays,
           reminderDetails: enabledReminders.map(r => ({
             id: r.id,
+            enabled: r.enabled,
             start: r.start,
             end: r.end,
             message: r.message,
             lastAckTs: r.lastAckTs ? new Date(r.lastAckTs).toLocaleString() : 'none'
-          }))
+          })),
+          allReminderIds: cached.reminders.map(r => r?.id),
+          timestamp: new Date().toISOString()
+        });
+        
+        // After loading, verify what will happen on next tick
+        console.log('[ODKP Reminder] 🔍 Post-load state check:', {
+          soundProfileMatches: cached.soundProfile === 'raidleader',
+          willCheckReminders: cached.soundProfile === 'raidleader' && enabledReminders.length > 0,
+          todayDayOfWeek: new Date().getDay(),
+          enabledDaysIncludesToday: cached.reminderPrefs.enabledDays.includes(new Date().getDay())
         });
       }).catch((e)=>{
-        console.warn('[ODKP Reminder] Error loading settings:', e);
+        console.error('[ODKP Reminder] ❌ Error loading settings:', e);
       });
     } catch(e) {
-      console.warn('[ODKP Reminder] Error in loadSettings:', e);
+      console.error('[ODKP Reminder] ❌ Exception in loadSettings:', e);
     }
   }
 
@@ -197,18 +222,42 @@ console.log('Background script loaded - Firefox compatibility');
     const ts = Date.now();
     
     try {
-      console.log('[ODKP Reminder] Tick at', hm, '- minute:', minute, '- profile:', cached.soundProfile);
+      console.log('[ODKP Reminder] ⏰ onTick() called at', hm, '- minute:', minute);
+      console.log('[ODKP Reminder] 📊 Current cached state in onTick():', {
+        soundProfile: cached.soundProfile,
+        reminderCount: (cached.reminders || []).length,
+        enabledReminderCount: (cached.reminders || []).filter(r => r && r.enabled).length,
+        reminderIds: (cached.reminders || []).map(r => r?.id),
+        reminderEnabledFlags: (cached.reminders || []).map(r => ({ id: r?.id, enabled: r?.enabled })),
+        reminderPrefs: cached.reminderPrefs,
+        timestamp: new Date().toISOString()
+      });
     } catch(_) {}
     
     if (cached.soundProfile !== 'raidleader') {
-      try { console.log('[ODKP Reminder] Skipping - not raidleader profile'); } catch(_) {}
+      try { 
+        console.log('[ODKP Reminder] ⏭️ Skipping - not raidleader profile (current:', cached.soundProfile, ')'); 
+      } catch(_) {}
       return; // only raid leader
     }
     
     // Check if reminders are enabled
     const enabledReminders = (cached.reminders || []).filter(r => r && r.enabled);
+    console.log('[ODKP Reminder] 🔍 Reminder filtering check:', {
+      totalReminders: (cached.reminders || []).length,
+      enabledReminders: enabledReminders.length,
+      allReminders: (cached.reminders || []).map(r => ({
+        id: r?.id,
+        enabled: r?.enabled,
+        start: r?.start,
+        end: r?.end
+      }))
+    });
+    
     if (enabledReminders.length === 0) {
-      try { console.log('[ODKP Reminder] No enabled reminders configured'); } catch(_) {}
+      try { 
+        console.log('[ODKP Reminder] ⏭️ No enabled reminders configured (total reminders:', (cached.reminders || []).length, ')'); 
+      } catch(_) {}
       return;
     }
     
@@ -299,8 +348,20 @@ console.log('Background script loaded - Firefox compatibility');
   }
 
   function ensureTicker() {
+    console.log('[ODKP Reminder] 🔧 ensureTicker called - current cached state:', {
+      soundProfile: cached.soundProfile,
+      reminderCount: (cached.reminders || []).length,
+      enabledReminderCount: (cached.reminders || []).filter(r => r && r.enabled).length,
+      reminderIds: (cached.reminders || []).map(r => r?.id),
+      timestamp: new Date().toISOString()
+    });
+    
     // Clear any existing interval
-    if (tickId) clearInterval(tickId);
+    if (tickId) {
+      console.log('[ODKP Reminder] 🧹 Clearing existing setInterval ticker');
+      clearInterval(tickId);
+      tickId = null;
+    }
     
     // Use Chrome alarms API for reliable scheduling (works even when service worker is suspended)
     // This is especially important for Chrome Manifest V3 service workers
@@ -314,40 +375,106 @@ console.log('Background script loaded - Firefox compatibility');
         // Set up alarm to fire every minute (Chrome minimum is 1 minute)
         // For reminders that fire at 5-minute boundaries (:00, :05, :10, etc.), 
         // checking every minute is sufficient
-        alarmsAPI.create('reminder-ticker', { periodInMinutes: 1 });
+        try {
+          alarmsAPI.create('reminder-ticker', { periodInMinutes: 1 });
+          console.log('[ODKP Reminder] ✅ Alarm "reminder-ticker" created successfully - will fire every minute');
+          // Verify alarm was created
+          alarmsAPI.get('reminder-ticker').then((alarm) => {
+            if (alarm) {
+              console.log('[ODKP Reminder] ✅ Verified alarm exists:', {
+                name: alarm.name,
+                periodInMinutes: alarm.periodInMinutes,
+                scheduledTime: alarm.scheduledTime ? new Date(alarm.scheduledTime).toISOString() : 'N/A'
+              });
+            } else {
+              console.warn('[ODKP Reminder] ⚠️ Alarm creation returned no alarm object');
+            }
+          }).catch((e) => {
+            console.warn('[ODKP Reminder] ⚠️ Could not verify alarm:', e);
+          });
+        } catch (createErr) {
+          console.error('[ODKP Reminder] ❌ Failed to create alarm:', createErr);
+          throw createErr;
+        }
         
-        console.log('[ODKP Reminder] Ticker started using alarms API - will check every minute');
-      } catch(e) {
-        console.warn('[ODKP Reminder] Failed to use alarms API, falling back to setInterval:', e);
+        console.log('[ODKP Reminder] 🔍 Ticker will check with state:', {
+          soundProfile: cached.soundProfile,
+          willProcessReminders: cached.soundProfile === 'raidleader',
+          enabledReminderCount: (cached.reminders || []).filter(r => r && r.enabled).length
+        });
+    } catch(e) {
+        console.warn('[ODKP Reminder] ❌ Failed to use alarms API, falling back to setInterval:', e);
         // Fallback to setInterval if alarms API fails
         tickId = setInterval(onTick, 30*1000);
+        console.log('[ODKP Reminder] ✅ Fallback setInterval ticker started (every 30s)');
       }
     } else {
       // Fallback for browsers without alarms API (shouldn't happen in Chrome/Firefox)
-      console.log('[ODKP Reminder] Alarms API not available, using setInterval');
+      console.warn('[ODKP Reminder] ⚠️ Alarms API not available, using setInterval');
       tickId = setInterval(onTick, 30*1000);
+      console.log('[ODKP Reminder] ✅ setInterval ticker started (every 30s)');
     }
     
     // Don't run onTick() immediately - let it fire naturally at the next 5-minute boundary
     // Running immediately can cause reminders to fire right when enabled (undesired behavior)
     // The alarm will wake the service worker at the next minute boundary
-    console.log('[ODKP Reminder] Ticker configured - will check at next minute boundary');
+    console.log('[ODKP Reminder] 📅 Ticker configured - will check at next minute boundary');
   }
 
   // Set up alarm listener once during initialization
   // Ensure alarms API is available (Chrome provides it via chrome.alarms, Firefox via browser.alarms)
+  // IMPORTANT: This listener is set up BEFORE loadSettings() completes
+  // The listener will use cached state when onTick() is called
+    console.log('[ODKP Reminder] 🎯 Setting up alarm listener BEFORE loadSettings (listener uses cached state)');
   const alarmsAPIInit = api.alarms || (typeof chrome !== 'undefined' && chrome.alarms) || (typeof browser !== 'undefined' && browser.alarms);
+  console.log('[ODKP Reminder] 🔍 Alarms API check:', {
+    api: api.alarms ? 'api.alarms' : (typeof chrome !== 'undefined' && chrome.alarms ? 'chrome.alarms' : (typeof browser !== 'undefined' && browser.alarms ? 'browser.alarms' : 'NOT FOUND')),
+    hasAlarms: !!alarmsAPIInit,
+    hasOnAlarm: !!(alarmsAPIInit && alarmsAPIInit.onAlarm),
+    hasCreate: !!(alarmsAPIInit && alarmsAPIInit.create),
+    hasGet: !!(alarmsAPIInit && alarmsAPIInit.get),
+    timestamp: new Date().toISOString()
+  });
+  
   if (alarmsAPIInit && alarmsAPIInit.onAlarm) {
-    alarmsAPIInit.onAlarm.addListener((alarm) => {
-      if (alarm.name === 'reminder-ticker') {
-        onTick();
-      } else if (alarm.name === 'service-worker-keepalive') {
-        // Keep service worker alive - this alarm fires every ~4 minutes
-        // Chrome terminates service workers after 5 minutes of inactivity
-        console.log('[ODKP Reminder] Service worker keepalive ping');
-        // Do nothing, just being called keeps us alive
+    console.log('[ODKP Reminder] 🎯 Alarms API available, registering onAlarm listener');
+    try {
+      alarmsAPIInit.onAlarm.addListener((alarm) => {
+        console.log('[ODKP Reminder] 🔔 Alarm fired:', alarm.name, 'at', new Date().toISOString());
+        if (alarm.name === 'reminder-ticker') {
+          console.log('[ODKP Reminder] ⏰ reminder-ticker alarm triggered - calling onTick()');
+          onTick();
+        } else if (alarm.name === 'service-worker-keepalive') {
+          // Keep service worker alive - this alarm fires every ~4 minutes
+          // Chrome terminates service workers after 5 minutes of inactivity
+          console.log('[ODKP Reminder] 💓 Service worker keepalive ping');
+          // Do nothing, just being called keeps us alive
+        } else {
+          console.log('[ODKP Reminder] ℹ️ Unknown alarm fired:', alarm.name);
+        }
+      });
+      console.log('[ODKP Reminder] ✅ Alarm listener registered successfully');
+      
+      // Test: try to list all alarms to verify API works
+      try {
+        alarmsAPIInit.getAll().then((alarms) => {
+          console.log('[ODKP Reminder] 📋 Current alarms:', alarms.map(a => ({
+            name: a.name,
+            periodInMinutes: a.periodInMinutes,
+            scheduledTime: a.scheduledTime ? new Date(a.scheduledTime).toISOString() : 'N/A'
+          })));
+        }).catch((e) => {
+          console.warn('[ODKP Reminder] ⚠️ Could not list alarms:', e);
+        });
+      } catch(e) {
+        console.warn('[ODKP Reminder] ⚠️ Could not list alarms (sync):', e);
       }
-    });
+    } catch (listenerErr) {
+      console.error('[ODKP Reminder] ❌ Failed to register alarm listener:', listenerErr);
+    }
+  } else {
+    console.error('[ODKP Reminder] ❌ Cannot set up alarm listener - alarms API not available or missing onAlarm');
+    console.error('[ODKP Reminder] ❌ This is likely a permissions issue - check manifest.json has "alarms" permission');
   }
 
   // Set up keepalive alarm to prevent service worker from being terminated
@@ -383,15 +510,44 @@ console.log('Background script loaded - Firefox compatibility');
   }
 
   try {
-    console.log('[ODKP Reminder] Initializing reminder scheduler...');
+    console.log('[ODKP Reminder] 🚀 Initializing reminder scheduler...');
+    console.log('[ODKP Reminder] 📋 Initialization order: loadSettings() → ensureTicker()');
+    console.log('[ODKP Reminder] 🌐 Browser API:', {
+      hasAlarms: !!(api.alarms || (typeof chrome !== 'undefined' && chrome.alarms) || (typeof browser !== 'undefined' && browser.alarms)),
+      apiType: typeof browser !== 'undefined' ? 'browser' : 'chrome',
+      hasStorage: !!api.storage,
+      hasStorageSync: !!(api.storage && api.storage.sync),
+      timestamp: new Date().toISOString()
+    });
     loadSettings();
+    // Note: ensureTicker() is called immediately after loadSettings(), 
+    // but loadSettings() is async. This means ensureTicker() might run before
+    // cached state is populated. This could be the issue.
+    console.log('[ODKP Reminder] ⚠️ Calling ensureTicker() immediately after loadSettings() (loadSettings is async!)');
     ensureTicker();
     (api.storage && api.storage.onChanged) && api.storage.onChanged.addListener((changes, area)=>{
+      console.log('[ODKP Reminder] 🔔 storage.onChanged event fired:', {
+        area: area,
+        changedKeys: Object.keys(changes),
+        hasReminders: !!changes.reminders,
+        hasReminderPrefs: !!changes.reminderPrefs,
+        hasSoundProfile: !!changes.soundProfile,
+        reminderNewValue: changes.reminders ? {
+          isArray: Array.isArray(changes.reminders.newValue),
+          length: Array.isArray(changes.reminders.newValue) ? changes.reminders.newValue.length : 'N/A',
+          enabledCount: Array.isArray(changes.reminders.newValue) ? changes.reminders.newValue.filter(r => r && r.enabled).length : 'N/A'
+        } : 'N/A',
+        timestamp: new Date().toISOString()
+      });
+      
       if (area === 'sync' && (changes.reminders || changes.reminderPrefs || changes.soundProfile)) {
-        console.log('[ODKP Reminder] Settings changed, reloading...', Object.keys(changes));
+        console.log('[ODKP Reminder] ✅ Relevant changes detected - reloading settings...');
         loadSettings();
         // Ensure ticker is still running after settings reload
+        console.log('[ODKP Reminder] 🔄 Calling ensureTicker after settings change...');
         ensureTicker();
+      } else {
+        console.log('[ODKP Reminder] ⏭️ Changes not relevant to reminders - skipping reload');
       }
     });
     // Clean up window tracking when windows/tabs are closed manually

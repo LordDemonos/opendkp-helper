@@ -1164,7 +1164,7 @@
       speechSynthesis.onvoiceschanged = () => {
         if (!voicesChangedFired) {
           voicesChangedFired = true;
-          selectVoice();
+        selectVoice();
         }
         speechSynthesis.onvoiceschanged = null; // Clean up
       };
@@ -1173,8 +1173,8 @@
         if (!voicesChangedFired) {
           selectVoice(); // Will check hasSpoken flag internally
         }
-        if (speechSynthesis.onvoiceschanged) {
-          speechSynthesis.onvoiceschanged = null;
+          if (speechSynthesis.onvoiceschanged) {
+            speechSynthesis.onvoiceschanged = null;
         }
       }, 100);
     }
