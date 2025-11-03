@@ -4,6 +4,28 @@
  * Handles settings management, sound testing, and configuration
  */
 
+// Sanitization utilities for safe HTML manipulation
+function escapeHtml(text) {
+  if (text === null || text === undefined) {
+    return '';
+  }
+  const div = document.createElement('div');
+  div.textContent = String(text);
+  return div.innerHTML;
+}
+
+function escapeHtmlAttr(value) {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 // Default settings
 const api = typeof browser !== 'undefined' ? browser : chrome;
 
@@ -222,20 +244,16 @@ document.addEventListener('DOMContentLoaded', function() {
   try {
     const isFirefox = (typeof browser !== 'undefined' && navigator.userAgent.includes('Firefox'));
     if (isFirefox) {
+      // Firefox: Show pop-out window UI
       const ffAlt = document.getElementById('ffRaidTickAlt');
-      const folderRow = document.getElementById('raidTickFolderRow');
-      const raidTickEnabledRow = document.getElementById('raidTickEnabled')?.closest('.setting-row');
-      if (ffAlt) ffAlt.style.display = 'block';
-      if (folderRow) folderRow.style.display = 'none';
-      if (raidTickEnabledRow) raidTickEnabledRow.style.display = 'none';
-      const selectFolderBtn = document.getElementById('selectFolder');
-      const clearFolderBtn = document.getElementById('clearFolder');
-      if (selectFolderBtn) selectFolderBtn.style.display = 'none';
-      if (clearFolderBtn) clearFolderBtn.style.display = 'none';
+      const ffWindow = document.getElementById('ffRaidTickWindow');
+      if (ffAlt) ffAlt.style.display = 'none';
+      if (ffWindow) ffWindow.style.display = 'block';
 
-      const ffCopyBtn = document.getElementById('ffCopyFromFile');
-      if (ffCopyBtn) {
-        ffCopyBtn.addEventListener('click', function() {
+      // Firefox: Set up "Copy RaidTick from file" button (opens pop-out window)
+      const ffCopyBtnWindow = document.getElementById('ffCopyFromFileWindow');
+      if (ffCopyBtnWindow) {
+        ffCopyBtnWindow.addEventListener('click', function() {
           try {
             if (typeof browser !== 'undefined' && browser.windows && browser.runtime) {
               browser.windows.create({
@@ -249,32 +267,95 @@ document.addEventListener('DOMContentLoaded', function() {
               input.accept = '.txt';
               input.style.display = 'none';
               document.body.appendChild(input);
-              input.addEventListener('change', async () => {
-                const file = input.files && input.files[0];
-                if (!file) { document.body.removeChild(input); return; }
-                const text = await file.text();
-                await navigator.clipboard.writeText(text);
-                showStatus('Copied file to clipboard!', 'success');
-                document.body.removeChild(input);
-              }, { once: true });
               input.click();
+              input.onchange = function(e) {
+                const file = e.target.files[0];
+                if (file) {
+                  const reader = new FileReader();
+                  reader.onload = function(e) {
+                    navigator.clipboard.writeText(e.target.result).then(() => {
+                      showStatus('Copied to clipboard!', 'success');
+                    });
+                  };
+                  reader.readAsText(file);
+                }
+                document.body.removeChild(input);
+              };
             }
-          } catch (e) {
-            console.error('FF copy window failed:', e);
-            showStatus('Error: ' + e.message, 'error');
+          } catch (error) {
+            console.error('Error opening copy window:', error);
+            showStatus('Error opening file picker: ' + error.message, 'error');
           }
         });
       }
 
-      // Loot monitor description + button
+      // Firefox: Loot monitor description + button
       const ffLoot = document.getElementById('ffLootExplain');
       if (ffLoot) ffLoot.style.display = 'block';
       const ffOpenLootBtn = document.getElementById('ffOpenLootMonitor');
       if (ffOpenLootBtn) {
         ffOpenLootBtn.addEventListener('click', async function(){
-          if (typeof browser !== 'undefined') {
-            const win = await browser.windows.create({ url: browser.runtime.getURL('eqlog-monitor.html'), type: 'popup', width: 520, height: 360 });
-            await browser.storage.sync.set({ eqLogMonitoring: true, eqLogMonitorWindowId: win.id });
+          try {
+            if (typeof browser !== 'undefined' && browser.windows && browser.runtime) {
+              const win = await browser.windows.create({ 
+                url: browser.runtime.getURL('eqlog-monitor.html'), 
+                type: 'popup', 
+                width: 520, 
+                height: 360 
+              });
+              await browser.storage.sync.set({ 
+                eqLogMonitoring: true, 
+                eqLogMonitorWindowId: win.id 
+              });
+            } else {
+              showStatus('Error: Firefox API not available', 'error');
+            }
+          } catch (error) {
+            console.error('Error opening loot monitor:', error);
+            showStatus('Error opening loot monitor: ' + error.message, 'error');
+          }
+        });
+      }
+    } else {
+      // Chrome/Edge: Show file copy button (same UI as Firefox, but different implementation)
+      const ffAlt = document.getElementById('ffRaidTickAlt');
+      const ffWindow = document.getElementById('ffRaidTickWindow');
+      if (ffAlt) ffAlt.style.display = 'block';
+      if (ffWindow) ffWindow.style.display = 'none';
+
+      const ffCopyBtn = document.getElementById('ffCopyFromFile');
+      if (ffCopyBtn) {
+        ffCopyBtn.addEventListener('click', function() {
+          // Chrome: Use direct file picker (same function as popup button)
+          copyRaidTickFileFromPicker();
+        });
+      }
+
+      // Chrome: Loot monitor description + button (can use same monitor window as Firefox)
+      const ffLoot = document.getElementById('ffLootExplain');
+      if (ffLoot) ffLoot.style.display = 'block';
+      const ffOpenLootBtn = document.getElementById('ffOpenLootMonitor');
+      if (ffOpenLootBtn) {
+        ffOpenLootBtn.addEventListener('click', async function(){
+          try {
+            // Chrome: Use chrome API (should work for both Chrome and Firefox, but we're in Chrome branch)
+            if (typeof chrome !== 'undefined' && chrome.windows && chrome.runtime) {
+              const win = await chrome.windows.create({ 
+                url: chrome.runtime.getURL('eqlog-monitor.html'), 
+                type: 'popup', 
+                width: 520, 
+                height: 360 
+              });
+              await chrome.storage.sync.set({ 
+                eqLogMonitoring: true, 
+                eqLogMonitorWindowId: win.id 
+              });
+            } else {
+              showStatus('Error: Chrome API not available', 'error');
+            }
+          } catch (error) {
+            console.error('Error opening loot monitor:', error);
+            showStatus('Error opening loot monitor: ' + error.message, 'error');
           }
         });
       }
@@ -542,7 +623,10 @@ function testTTSVoice() {
     }
   }
   
-  utterance.rate = voiceSpeed;
+  // Chrome's Speech Synthesis API caps rate at 2.0x, Firefox supports higher
+  const isFirefox = (typeof browser !== 'undefined' && navigator.userAgent.includes('Firefox'));
+  const maxRate = isFirefox ? 2.5 : 2.0;
+  utterance.rate = Math.min(voiceSpeed, maxRate);
   utterance.volume = 0.8;
   
   speechSynthesis.speak(utterance);
@@ -571,6 +655,10 @@ function initializePage() {
  */
 function loadSettings() {
   chrome.storage.sync.get(['darkMode', ...Object.keys(DEFAULT_SETTINGS)], function(settings) {
+    // Ensure Chrome defaults to Raid Leader mode if no profile is set
+    if (!settings.soundProfile && typeof chrome !== 'undefined' && !navigator.userAgent.includes('Firefox')) {
+      settings.soundProfile = 'raidleader';
+    }
     currentSettings = { ...DEFAULT_SETTINGS, ...settings };
     console.log('[LoadSettings] Loaded from storage:', {
       volume: currentSettings.volume,
@@ -725,10 +813,23 @@ function setupEventListeners() {
   });
   
   const voiceSpeedEl = document.getElementById('voiceSpeed');
-  if (voiceSpeedEl) voiceSpeedEl.addEventListener('input', function() {
-    currentSettings.voiceSpeed = parseFloat(this.value);
-    document.getElementById('speedDisplay').textContent = this.value + 'x';
-  });
+  if (voiceSpeedEl) {
+    // Chrome's Speech Synthesis API caps rate at 2.0x, Firefox supports up to 2.5x
+    const isFirefox = (typeof browser !== 'undefined' && navigator.userAgent.includes('Firefox'));
+    const maxSpeed = isFirefox ? 2.5 : 2.0;
+    voiceSpeedEl.max = maxSpeed;
+    
+    voiceSpeedEl.addEventListener('input', function() {
+      const value = parseFloat(this.value);
+      // Cap at browser's maximum supported rate
+      const cappedValue = Math.min(value, maxSpeed);
+      if (value !== cappedValue) {
+        this.value = cappedValue;
+      }
+      currentSettings.voiceSpeed = cappedValue;
+      document.getElementById('speedDisplay').textContent = cappedValue + 'x';
+    });
+  }
   
   const testVoiceEl = document.getElementById('testVoice');
   if (testVoiceEl) testVoiceEl.addEventListener('click', testTTSVoice);
@@ -778,13 +879,8 @@ function setupEventListeners() {
   const customSoundFileEl = document.getElementById('customSoundFile');
   if (customSoundFileEl) customSoundFileEl.addEventListener('change', handleCustomSoundUpload);
   
-       // RaidTick folder selection
-       const selectFolderEl = document.getElementById('selectFolder'); if (selectFolderEl) selectFolderEl.addEventListener('click', selectRaidTickFolder);
-       const clearFolderEl = document.getElementById('clearFolder'); if (clearFolderEl) clearFolderEl.addEventListener('click', clearRaidTickFolder);
+       // RaidTick folder input (for Firefox fallback - not used in Chrome)
        const folderInputEl = document.getElementById('folderInput'); if (folderInputEl) folderInputEl.addEventListener('change', handleFolderInputChange);
-  const raidTickEnabledEl = document.getElementById('raidTickEnabled'); if (raidTickEnabledEl) raidTickEnabledEl.addEventListener('change', function() {
-    currentSettings.raidTickEnabled = this.checked;
-  });
   
   // Custom sound name
   const customSoundNameEl = document.getElementById('customSoundName');
@@ -1252,13 +1348,18 @@ function refreshCustomSoundManager() {
       row.style.justifyContent = 'space-between';
       row.style.gap = '8px';
       const displayName = (rec.name && rec.name.length) ? rec.name : '(unnamed)';
+      // Escape user-controlled data for safe HTML
+      const escapedName = escapeHtml(displayName);
+      const escapedNameAttr = escapeHtmlAttr(rec.name || '');
+      const escapedSize = escapeHtml(String(Math.round(size/1024)));
+      
       row.innerHTML = `
         <div style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-          <strong>${displayName}</strong> <span style="color:#666;">(${Math.round(size/1024)} KB)</span>
+          <strong>${escapedName}</strong> <span style="color:#666;">(${escapedSize} KB)</span>
         </div>
         <div style="display:flex; gap:6px;">
-          <button class="btn btn-secondary" data-action="rename" data-name="${rec.name}">Rename</button>
-          <button class="btn" style="background:#dc3545; border-color:#dc3545;" data-action="delete" data-name="${rec.name}">Delete</button>
+          <button class="btn btn-secondary" data-action="rename" data-name="${escapedNameAttr}">Rename</button>
+          <button class="btn" style="background:#dc3545; border-color:#dc3545;" data-action="delete" data-name="${escapedNameAttr}">Delete</button>
         </div>`;
       listEl.appendChild(row);
     });
@@ -1440,9 +1541,52 @@ function saveCustomSound() {
       size: lastUploadedBlob ? lastUploadedBlob.size : (lastUploadedArrayBuffer?.byteLength || 0),
       type: lastUploadedType
     });
+    // Save to IndexedDB (works in both Chrome and Firefox)
     saveSoundToDB(nameToSave, bytesForStorage, lastUploadedType)
     .then(() => {
-      console.log('[SoundSave] Saved to DB:', nameToSave);
+      console.log('[SoundSave] Saved to IndexedDB:', nameToSave);
+      
+      // ALSO save to chrome.storage.local for Chrome (allows direct content script access)
+      const isChrome = typeof chrome !== 'undefined' && typeof browser === 'undefined';
+      if (isChrome && chrome.storage && chrome.storage.local) {
+        // Convert to ArrayBuffer if needed, then to base64 for storage
+        const toArrayBuffer = (data) => {
+          if (data instanceof ArrayBuffer) return Promise.resolve(data);
+          if (data instanceof Blob) return data.arrayBuffer();
+          return Promise.reject(new Error('Unsupported format'));
+        };
+        
+        toArrayBuffer(bytesForStorage)
+        .then(arrayBuffer => {
+          // Convert ArrayBuffer to base64 for storage
+          const bytes = new Uint8Array(arrayBuffer);
+          let binary = '';
+          for (let i = 0; i < bytes.length; i++) {
+            binary += String.fromCharCode(bytes[i]);
+          }
+          const base64 = btoa(binary);
+          
+          // Store in chrome.storage.local with key pattern: customSound_{name}
+          const storageKey = `customSound_${nameToSave}`;
+          chrome.storage.local.set({
+            [storageKey]: {
+              data: base64,
+              type: lastUploadedType || 'audio/mpeg',
+              name: nameToSave
+            }
+          }, () => {
+            if (chrome.runtime.lastError) {
+              console.warn('[SoundSave] Error saving to chrome.storage.local:', chrome.runtime.lastError);
+            } else {
+              console.log('[SoundSave] Saved to chrome.storage.local:', nameToSave);
+            }
+          });
+        })
+        .catch(err => {
+          console.warn('[SoundSave] Error converting for chrome.storage.local:', err);
+        });
+      }
+      
       updateCustomSoundOptions();
       // If Notification Sound dropdown currently has a built-in selected, auto-select the new custom by name
       try {
@@ -1576,47 +1720,159 @@ function checkNotificationStatus() {
     browserNotifications: currentSettings.browserNotifications
   };
   
-  let message = '=== Notification Status ===\n\n';
-  message += `Browser Support: ${status.supported ? '✅ Yes' : '❌ No'}\n`;
-  
-  if (status.supported) {
-    message += `Permission: ${status.permission}\n`;
-    message += `Permission Status: ${status.permission === 'granted' ? '✅ Granted' : status.permission === 'denied' ? '❌ Denied' : '⚠️ Not Requested'}\n`;
-    
-    message += '\n=== Notification Settings ===\n\n';
-    message += `Browser Notifications: ${status.browserNotifications ? '✅ Enabled' : '❌ Disabled'}\n`;
-    
-    message += '\n=== Expected Behavior ===\n\n';
-    
-    if (status.permission === 'granted' && status.browserNotifications) {
-      message += '✅ Desktop notifications will appear\n';
-    } else if (status.permission !== 'granted') {
-      message += '⚠️ Desktop notifications NOT configured\n';
-      message += '   → Click "Request Notification Permission" button\n';
-    } else if (!status.browserNotifications) {
-      message += '⚠️ Desktop notifications disabled in settings\n';
-      message += '   → Enable "Browser Notifications" checkbox\n';
+  // Test if we can actually create a notification
+  let testResult = null;
+  if (status.supported && status.permission === 'granted') {
+    try {
+      const api = typeof browser !== 'undefined' ? browser : chrome;
+      const iconUrl = api.runtime.getURL('icons/icon-48.png');
+      const testNotification = new Notification('Test Notification', {
+        body: 'If you see this, notifications are working!',
+        icon: iconUrl,
+        tag: 'opendkp-status-test',
+        silent: false
+      });
+      
+      let notificationShown = false;
+      let notificationError = null;
+      
+      testNotification.onshow = () => {
+        notificationShown = true;
+        console.log('[StatusCheck] ✅ Test notification shown event fired');
+      };
+      
+      testNotification.onerror = (e) => {
+        notificationError = e;
+        console.error('[StatusCheck] ❌ Test notification error event:', e);
+      };
+      
+      // Wait a moment to see if events fire, then update the display
+      setTimeout(() => {
+        testNotification.close();
+        testResult = {
+          created: true,
+          shown: notificationShown,
+          error: notificationError
+        };
+        console.log('[StatusCheck] Test notification result:', testResult);
+        
+        // Update the status display with the test result
+        updateStatusWithTestResult(statusDiv, contentDiv, status, testResult);
+      }, 1500);
+    } catch (e) {
+      testResult = {
+        created: false,
+        error: e.message
+      };
+      console.error('[StatusCheck] Failed to create test notification:', e);
     }
-    
-    message += '\n=== Quick Fix ===\n\n';
-    if (status.permission !== 'granted') {
-      message += '1. Click "Request Notification Permission"\n';
-    }
-    if (!status.browserNotifications) {
-      message += '2. Check "Browser Notifications" checkbox\n';
-    }
-    if (status.permission === 'granted' && status.browserNotifications) {
-      message += '✅ All notification settings are correct!\n';
-    } else {
-      message += '3. Save settings\n';
-      message += '4. Reload the extension and page\n';
-    }
-  } else {
-    message += '\n❌ Your browser does not support notifications\n';
-    message += 'Please use a modern browser (Chrome, Firefox, Edge)\n';
   }
   
-  contentDiv.textContent = message;
+  // Helper function to update status display with test result
+  function updateStatusWithTestResult(statusDiv, contentDiv, status, testResult) {
+    let message = '=== Notification Status ===\n\n';
+    message += `Browser Support: ${status.supported ? '✅ Yes' : '❌ No'}\n`;
+    
+    if (status.supported) {
+      message += `Permission: ${status.permission}\n`;
+      message += `Permission Status: ${status.permission === 'granted' ? '✅ Granted' : status.permission === 'denied' ? '❌ Denied' : '⚠️ Not Requested'}\n`;
+      
+      // Check if Chrome notifications might be blocked
+      const isChrome = typeof chrome !== 'undefined' && !navigator.userAgent.includes('Firefox');
+      if (isChrome && status.permission === 'granted') {
+        message += '\n=== Chrome-Specific Checks ===\n\n';
+        message += '⚠️ If notifications aren\'t appearing:\n';
+        message += '1. Check Chrome\'s notification center (bell icon 🔔 in address bar)\n';
+        message += '   → Notifications might be going there instead of banners\n';
+        message += '2. Chrome Settings → Privacy and security → Site Settings → Notifications\n';
+        message += '   → Ensure "Sites can ask to send notifications" is enabled\n';
+        message += '   → Check that your extension URL is in "Allow" list\n';
+        message += '3. Try: chrome://settings/content/notifications\n';
+        message += '4. Check Windows Settings → System → Notifications → Chrome\n';
+        message += '   → Ensure "Banners" and "Sounds" are enabled\n';
+        message += '5. Check if Focus Assist (Windows) or Do Not Disturb is active\n';
+        message += '6. Try clicking the bell icon 🔔 in Chrome\'s address bar\n';
+        message += '   → Notifications might be there but not showing as banners\n';
+      }
+      
+      message += '\n=== Notification Settings ===\n\n';
+      message += `Browser Notifications: ${status.browserNotifications ? '✅ Enabled' : '❌ Disabled'}\n`;
+      
+      message += '\n=== Test Notification Result ===\n\n';
+      if (testResult) {
+        if (testResult.created && !testResult.error) {
+          message += `✅ Test notification created successfully\n`;
+          if (testResult.shown) {
+            message += `✅ Notification "shown" event fired (notification appeared)\n`;
+          } else {
+            message += `❌ Notification created but "shown" event did NOT fire\n`;
+            message += `   → This means notifications are being BLOCKED\n`;
+            message += `   → Check Chrome Settings → Site Settings → Notifications\n`;
+            message += `   → Check Windows Settings → Notifications → Chrome\n`;
+            message += `   → Disable Focus Assist / Do Not Disturb\n`;
+          }
+          if (testResult.error) {
+            message += `❌ Notification error event: ${testResult.error}\n`;
+          }
+        } else {
+          message += `❌ Failed to create test notification\n`;
+          if (testResult.error) {
+            message += `   Error: ${testResult.error}\n`;
+          }
+        }
+      } else {
+        message += `⚠️ Test notification running... (should update shortly)\n`;
+      }
+      
+      message += '\n=== Expected Behavior ===\n\n';
+      
+      if (status.permission === 'granted' && status.browserNotifications) {
+        message += '✅ Desktop notifications should appear\n';
+        if (testResult && testResult.created && !testResult.shown) {
+          message += '❌ BUT: Notification created but not appearing\n';
+          message += '   → DEFINITELY blocked by Chrome or Windows settings\n';
+        }
+      } else if (status.permission !== 'granted') {
+        message += '⚠️ Desktop notifications NOT configured\n';
+        message += '   → Click "Request Notification Permission" button\n';
+      } else if (!status.browserNotifications) {
+        message += '⚠️ Desktop notifications disabled in settings\n';
+        message += '   → Enable "Browser Notifications" checkbox\n';
+      }
+      
+      message += '\n=== Quick Fix ===\n\n';
+      if (status.permission !== 'granted') {
+        message += '1. Click "Request Notification Permission"\n';
+      }
+      if (!status.browserNotifications) {
+        message += '2. Check "Browser Notifications" checkbox\n';
+      }
+      if (status.permission === 'granted' && status.browserNotifications && testResult && !testResult.shown) {
+        message += '3. ⚠️ CRITICAL: Permission granted but notifications blocked:\n';
+        message += '   → Chrome: chrome://settings/content/notifications\n';
+        message += '   → Windows: Settings → System → Notifications → Chrome\n';
+        message += '   → Disable Focus Assist / Do Not Disturb\n';
+        message += '   → Check Chrome\'s notification center (bell icon)\n';
+      }
+      if (status.permission === 'granted' && status.browserNotifications && (!testResult || testResult.shown)) {
+        message += '✅ All notification settings are correct!\n';
+      }
+    } else {
+      message += '\n❌ Your browser does not support notifications\n';
+      message += 'Please use a modern browser (Chrome, Firefox, Edge)\n';
+    }
+    
+    contentDiv.textContent = message;
+  }
+  
+  // Initial display (will be updated after test completes if permission is granted)
+  if (status.permission === 'granted' && status.supported) {
+    // Show initial message, will be updated by test result
+    updateStatusWithTestResult(statusDiv, contentDiv, status, null);
+  } else {
+    // Show immediate result if no test needed
+    updateStatusWithTestResult(statusDiv, contentDiv, status, testResult);
+  }
   statusDiv.style.display = 'block';
 }
 
@@ -1899,7 +2155,11 @@ function testCustomTemplate() {
     }
   }
   
-  utterance.rate = parseFloat(document.getElementById('voiceSpeed').value);
+  // Chrome's Speech Synthesis API caps rate at 2.0x, Firefox supports higher
+  const isFirefox = (typeof browser !== 'undefined' && navigator.userAgent.includes('Firefox'));
+  const maxRate = isFirefox ? 2.5 : 2.0;
+  const voiceSpeed = parseFloat(document.getElementById('voiceSpeed').value);
+  utterance.rate = Math.min(voiceSpeed, maxRate);
   utterance.volume = 0.8;
   
   speechSynthesis.speak(utterance);
@@ -1996,7 +2256,11 @@ function testTTSForNotification(context) {
     }
   }
   
-  utterance.rate = parseFloat(document.getElementById('voiceSpeed').value);
+  // Chrome's Speech Synthesis API caps rate at 2.0x, Firefox supports higher
+  const isFirefox = (typeof browser !== 'undefined' && navigator.userAgent.includes('Firefox'));
+  const maxRate = isFirefox ? 2.5 : 2.0;
+  const voiceSpeed = parseFloat(document.getElementById('voiceSpeed').value);
+  utterance.rate = Math.min(voiceSpeed, maxRate);
   utterance.volume = 0.8;
   
   console.log('TTS Test: Speaking with rate:', utterance.rate, 'volume:', utterance.volume);
@@ -2016,41 +2280,176 @@ function testNotification(type) {
     console.log('[TestNotification] Quiet Hours active → suppressing sound and TTS');
   }
 
+  // 0) Always run flash first (before notifications)
+  try { 
+    if (document.getElementById('flashScreen').checked) { 
+      flashScreen(); 
+    } 
+  } catch (e) { 
+    console.error('[TestNotification] Flash screen error:', e);
+  }
+
   // 1) Always run visuals first (flash + desktop notification) regardless of Quiet Hours
-  if (document.getElementById('browserNotifications').checked) {
-    let message, body;
+  const browserNotificationsChecked = document.getElementById('browserNotifications').checked;
+  console.log('[TestNotification] Browser notifications enabled:', browserNotificationsChecked);
+  
+  if (browserNotificationsChecked) {
+    let message, details;
     switch (type) {
       case 'single':
         message = 'Auction Timer Complete!';
-        body = 'Item: Epic Sword\nWinner: TestPlayer\nBid: 1000';
+        details = ['Item: Epic Sword', 'Winner: TestPlayer', 'Bid: 1000'];
         break;
       case 'rolloff':
         message = 'Roll-off Required!';
-        body = 'Item: Rare Potion\nBid Amount: 500\nRoll-off Participants: Player1, Player2, Player3';
+        details = ['Item: Rare Potion', 'Bid Amount: 500', 'Roll-off Participants: Player1, Player2, Player3'];
         break;
       case 'multi':
         message = 'Multiple Winners!';
-        body = 'Item: Common Item x 2\nWinners: Player1, Player2\nBid Amount: 100';
+        details = ['Item: Common Item x 2', 'Quantity: 2', 'Winners: Player1, Player2', 'Bid Amount: 100'];
         break;
     }
+    
+    console.log('[TestNotification] Notification type:', type);
+    console.log('[TestNotification] Message:', message);
+    console.log('[TestNotification] Details:', details);
+    
+    // Get proper icon URL for extension context
+    const api = typeof browser !== 'undefined' ? browser : chrome;
+    const iconUrl = api.runtime.getURL('icons/icon-48.png');
+    console.log('[TestNotification] Icon URL:', iconUrl);
+    console.log('[TestNotification] Notification API available:', typeof Notification !== 'undefined');
+    console.log('[TestNotification] Current permission:', Notification.permission);
+    
+    // Check if we're on an extension page (Chrome blocks web Notification API from extension pages)
+    const isExtensionPage = window.location.protocol === 'chrome-extension:' || 
+                           window.location.protocol === 'moz-extension:' ||
+                           window.location.href.includes('chrome-extension://') ||
+                           window.location.href.includes('moz-extension://');
+    
+    console.log('[TestNotification] Is extension page:', isExtensionPage, 'Protocol:', window.location.protocol);
+    
+    // Try Chrome's notifications API first for extension pages
+    if (isExtensionPage && typeof chrome !== 'undefined' && chrome.notifications) {
+      console.log('[TestNotification] Using chrome.notifications API (extension page)');
+      try {
+        chrome.notifications.create('opendkp-test-' + Date.now(), {
+          type: 'basic',
+          iconUrl: iconUrl,
+          title: message,
+          message: details.join('\n')
+        }, (notificationId) => {
+          if (chrome.runtime.lastError) {
+            console.error('[TestNotification] ❌ chrome.notifications error:', chrome.runtime.lastError.message);
+            showStatus('Error creating notification: ' + chrome.runtime.lastError.message, 'error');
+          } else {
+            console.log('[TestNotification] ✅ Chrome notification created:', notificationId);
+            showStatus('✅ Test notification sent! (Using Chrome notifications API)', 'success');
+            
+            // Auto-close after 5 seconds
+            setTimeout(() => {
+              chrome.notifications.clear(notificationId, (wasCleared) => {
+                console.log('[TestNotification] Notification cleared:', wasCleared);
+              });
+            }, 5000);
+          }
+        });
+        // Continue to sound/TTS code below, don't return early
+      } catch (e) {
+        console.error('[TestNotification] ❌ chrome.notifications creation error:', e);
+        // Fall through to web Notification API
+      }
+    }
+    
+    // Use web Notification API (works on regular pages, blocked on extension pages)
     try {
       if (Notification.permission === 'granted') {
-        new Notification(message, { body, icon: 'icons/icon-48.png', tag: 'opendkp-test' });
-      } else if (Notification.permission !== 'denied') {
-        Notification.requestPermission().then(permission => {
-          if (permission === 'granted') {
-            new Notification(message, { body, icon: 'icons/icon-48.png', tag: 'opendkp-test' });
+        console.log('[TestNotification] ✅ Permission granted, creating notification...');
+        const notification = new Notification(message, {
+          body: details.join('\n'),
+          icon: iconUrl,
+          tag: 'opendkp-test'
+        });
+        console.log('[TestNotification] ✅ Notification created:', notification);
+        
+        notification.onerror = (e) => {
+          console.error('[TestNotification] ❌ Notification error event:', e);
+        };
+        notification.onclick = () => {
+          console.log('[TestNotification] 📌 Notification clicked');
+          notification.close();
+        };
+        notification.onshow = () => {
+          console.log('[TestNotification] 👁️ Notification shown');
+          // If shown event fires but user doesn't see it, might be in notification center
+          const isChrome = typeof chrome !== 'undefined' && !navigator.userAgent.includes('Firefox');
+          if (isChrome) {
+            console.log('[TestNotification] 💡 Chrome notification shown - check notification center (bell icon) if you don\'t see a banner');
+            showStatus('Notification created! If you don\'t see a banner, check Chrome\'s notification center (bell icon 🔔)', 'info');
           }
-        }).catch(() => {});
+        };
+        notification.onclose = () => {
+          console.log('[TestNotification] 🔒 Notification closed');
+        };
+      } else if (Notification.permission === 'denied') {
+        console.warn('[TestNotification] ❌ Notification permission denied');
+        showStatus('Notification permission denied. Please enable in browser settings.', 'error');
+      } else {
+        console.log('[TestNotification] ⚠️ Permission not yet requested, requesting...');
+        Notification.requestPermission().then(permission => {
+          console.log('[TestNotification] Permission request result:', permission);
+          if (permission === 'granted') {
+            console.log('[TestNotification] ✅ Permission granted after request, creating notification...');
+            const notification = new Notification(message, {
+              body: details.join('\n'),
+              icon: iconUrl,
+              tag: 'opendkp-test'
+            });
+            console.log('[TestNotification] ✅ Notification created:', notification);
+            
+            notification.onerror = (e) => {
+              console.error('[TestNotification] ❌ Notification error event:', e);
+            };
+            notification.onclick = () => {
+              console.log('[TestNotification] 📌 Notification clicked');
+            };
+            notification.onshow = () => {
+              console.log('[TestNotification] 👁️ Notification shown');
+            };
+            notification.onclose = () => {
+              console.log('[TestNotification] 🔒 Notification closed');
+            };
+          } else {
+            console.warn('[TestNotification] ❌ Permission denied after request:', permission);
+            showStatus('Notification permission denied: ' + permission, 'warning');
+          }
+        }).catch(err => {
+          console.error('[TestNotification] ❌ Notification permission request error:', err);
+          showStatus('Error requesting notification permission: ' + err.message, 'error');
+        });
       }
-    } catch (e) { console.warn('Notification error:', e); }
+    } catch (e) {
+      console.error('[TestNotification] ❌ Notification creation error:', e);
+      console.error('[TestNotification] Error stack:', e.stack);
+      if (isExtensionPage) {
+        showStatus('❌ Chrome blocks web notifications from extension pages. Notifications work on opendkp.com!', 'error');
+      } else {
+        showStatus('Error creating notification: ' + e.message, 'error');
+      }
+    }
+  } else {
+    console.log('[TestNotification] ⚠️ Browser notifications disabled in settings (sound and TTS will still work)');
+    // Don't show warning - tests should work even if notifications are disabled
+    // showStatus('Browser notifications are disabled. Enable them in settings first.', 'warning');
   }
-  try { if (document.getElementById('flashScreen').checked) { flashScreen(); } } catch (_) {}
 
   // If quiet hours are active, stop here (visuals already shown)
-  if (inQuiet) return;
+  if (inQuiet) {
+    console.log('[TestNotification] Quiet hours active, skipping sound and TTS');
+    return;
+  }
 
-  // 2) Sound + TTS only when NOT in quiet hours
+  // 2) Sound + TTS always run (not blocked by visual settings) - only quiet hours block them
   const soundType = document.getElementById('soundType').value;
   let sound = null;
   
@@ -2634,20 +3033,99 @@ function generateRealWarcraftSound(filename) {
  */
 async function selectRaidTickFolder() {
   try {
-    console.log('Attempting to select RaidTick folder...');
+    console.log('Attempting to copy RaidTick file...');
     
     // Check if File System Access API is supported (Chrome/Edge)
     if ('showDirectoryPicker' in window) {
-      console.log('Using File System Access API (Chrome/Edge)');
-      await selectFolderWithFileSystemAPI();
+      // Chrome: Open file picker to copy file content
+      console.log('Using file picker (Chrome/Edge)');
+      await copyRaidTickFileFromPicker();
     } else {
-      console.log('Using file input method (Firefox/Safari)');
+      // Firefox: Use existing file copy tool
+      console.log('Using file copy tool (Firefox/Safari)');
       await selectFolderWithFileInput();
     }
     
   } catch (error) {
-    console.error('Error selecting folder:', error);
-    showStatus('Error selecting folder: ' + error.message, 'error');
+    console.error('Error copying file:', error);
+    showStatus('Error copying file: ' + error.message, 'error');
+  }
+}
+
+/**
+ * Copy RaidTick file from file picker (Chrome/Edge)
+ */
+async function copyRaidTickFileFromPicker() {
+  try {
+    // Create file input
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.txt';
+    input.style.display = 'none';
+    document.body.appendChild(input);
+    
+    input.addEventListener('change', async function() {
+      const file = input.files && input.files[0];
+      if (!file) {
+        document.body.removeChild(input);
+        return;
+      }
+      
+      try {
+        // Read file content
+        const content = await file.text();
+        
+        // Count data lines (excluding header)
+        const lines = content.split('\n');
+        const dataLines = lines.filter(line => 
+          line.trim() && 
+          !line.includes('RaidTick') && 
+          !line.includes('Date:') && 
+          !line.includes('Time:')
+        );
+        const lineCount = dataLines.length;
+        
+        // Copy to clipboard - use execCommand as fallback for better focus handling
+        try {
+          // Try modern clipboard API first
+          await navigator.clipboard.writeText(content);
+        } catch (clipError) {
+          // Fallback: Use legacy execCommand (works better with file picker)
+          console.log('Clipboard API failed, using execCommand fallback:', clipError.message);
+          const textArea = document.createElement('textarea');
+          textArea.value = content;
+          textArea.style.position = 'fixed';
+          textArea.style.left = '-999999px';
+          textArea.style.top = '-999999px';
+          document.body.appendChild(textArea);
+          textArea.focus();
+          textArea.select();
+          
+          try {
+            const successful = document.execCommand('copy');
+            if (!successful) {
+              throw new Error('execCommand copy failed');
+            }
+          } finally {
+            document.body.removeChild(textArea);
+          }
+        }
+        
+        // Show success message in notification area
+        showStatus(`✅ File copied to clipboard! ${lineCount} lines copied (excluding header)`, 'success');
+      } catch (error) {
+        console.error('Error copying file:', error);
+        showStatus('❌ Failed to copy file: ' + escapeHtml(error.message), 'error');
+      } finally {
+        document.body.removeChild(input);
+      }
+    }, { once: true });
+    
+    // Trigger file picker
+    input.click();
+  } catch (error) {
+    console.error('Error opening file picker:', error);
+    showStatus('Error opening file picker: ' + escapeHtml(error.message), 'error');
   }
 }
 
@@ -2669,6 +3147,18 @@ async function selectFolderWithFileSystemAPI() {
     // Update UI
     document.getElementById('raidTickFolder').value = folderHandle.name;
     document.getElementById('clearFolder').style.display = 'inline-block';
+    
+    // Enable RaidTick monitoring automatically when folder is selected
+    currentSettings.raidTickEnabled = true;
+    if (document.getElementById('raidTickEnabled')) {
+      document.getElementById('raidTickEnabled').checked = true;
+    }
+    
+    // Save folder selection and enabled status
+    chrome.storage.sync.set({
+      raidTickFolder: currentSettings.raidTickFolder,
+      raidTickEnabled: true
+    });
     
     showStatus('RaidTick folder selected successfully!', 'success');
     
@@ -2740,7 +3230,8 @@ async function scanRaidTickFilesFromFileList(files) {
     console.log('Scanning RaidTick files from file list...');
     
     const raidTickFiles = [];
-    const raidTickRegex = /^RaidTick-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.txt$/;
+    // Match RaidTick files with flexible time format (accepts both single and double digit seconds)
+    const raidTickRegex = /^RaidTick-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{1,2}\.txt$/;
     
     for (const file of files) {
       if (raidTickRegex.test(file.name)) {
@@ -2829,21 +3320,171 @@ function clearRaidTickFolder() {
 async function scanRaidTickFiles(folderHandle) {
   try {
     const raidTickFiles = [];
-    const raidTickPattern = /^RaidTick-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.txt$/;
+    // Match RaidTick files with flexible time format (accepts both single and double digit seconds)
+    // Examples: RaidTick-2025-10-31_23-43-30.txt OR RaidTick-2025-10-31_21-23-3.txt
+    const raidTickPattern = /^RaidTick-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{1,2}\.txt$/;
     
-    // Get all files in the folder
+    // Get all files in the folder and read their content for popup access
+    console.log('Scanning folder for RaidTick files...');
+    let fileCount = 0;
     for await (const [name, handle] of folderHandle.entries()) {
-      if (handle.kind === 'file' && raidTickPattern.test(name)) {
-        raidTickFiles.push({
-          name: name,
-          handle: handle,
-          date: extractDateFromFilename(name)
-        });
+      if (handle.kind === 'file') {
+        fileCount++;
+        if (raidTickPattern.test(name)) {
+          console.log(`Found RaidTick file: ${name}`);
+          try {
+            const file = await handle.getFile();
+            // Read file content as text (RaidTick files are small text files)
+            const fileContent = await file.text();
+            const date = extractDateFromFilename(name);
+            const dateStr = formatDateForStorage(date);
+            raidTickFiles.push({
+              name: name,
+              date: date,
+              size: file.size,
+              dateStr: dateStr,
+              content: fileContent // Store file content for popup copy buttons
+            });
+            console.log(`  - Processed: ${name}, date: ${dateStr}, size: ${file.size}, content length: ${fileContent.length}`);
+          } catch (error) {
+            console.error(`Error reading file ${name}:`, error);
+          }
+        }
       }
     }
+    console.log(`Scanned ${fileCount} total files, found ${raidTickFiles.length} RaidTick files`);
     
     console.log(`Found ${raidTickFiles.length} RaidTick files:`, raidTickFiles);
     showStatus(`Found ${raidTickFiles.length} RaidTick files in folder`, 'success');
+    
+    // Store file metadata for popup access
+    currentSettings.raidTickFileList = raidTickFiles;
+    
+    // Save to storage so popup can display files with copy buttons
+    if (raidTickFiles.length === 0) {
+      console.warn('No RaidTick files found - nothing to save');
+      showStatus('No RaidTick files found in selected folder', 'warning');
+      return raidTickFiles;
+    }
+    
+    // Prepare files for storage
+    // Note: Chrome storage.sync has a 102KB quota limit, so we store file content
+    // but might need to limit if there are too many large files
+    const filesForStorage = raidTickFiles.map(f => {
+      const fileData = {
+        name: f.name,
+        size: f.size,
+        dateStr: f.dateStr || formatDateForStorage(f.date),
+        date: f.date ? f.date.toISOString() : new Date().toISOString(),
+        content: f.content || '' // Store file content for copy buttons
+      };
+      console.log('Preparing file for storage:', fileData.name, 'size:', fileData.size, 'content length:', fileData.content.length);
+      return fileData;
+    });
+    
+    // Calculate total size
+    const totalSize = filesForStorage.reduce((sum, f) => sum + (f.content ? f.content.length : 0), 0);
+    console.log(`Total file content size: ${totalSize} bytes (${(totalSize / 1024).toFixed(2)} KB)`);
+    
+    // Chrome storage.sync has 102KB limit per item, but we can store multiple items
+    // However, each file is part of raidTickFileList, so we need to keep total under quota
+    // Strategy: Store content for smaller files first, skip content only if truly necessary
+    let finalFilesForStorage = filesForStorage;
+    const QUOTA_LIMIT = 100000; // 100KB safety limit (102KB is actual limit)
+    
+    if (totalSize > QUOTA_LIMIT) {
+      console.warn(`Warning: Total content size (${(totalSize / 1024).toFixed(2)} KB) exceeds safety limit`);
+      // Try to store content for as many files as possible, prioritizing smaller files
+      // Sort files by size (smallest first) and include content until we hit the limit
+      const sortedFiles = [...filesForStorage].sort((a, b) => (a.content ? a.content.length : 0) - (b.content ? b.content.length : 0));
+      let accumulatedSize = 0;
+      
+      finalFilesForStorage = filesForStorage.map(f => {
+        const contentSize = f.content ? f.content.length : 0;
+        // Include content if it won't push us over the limit
+        if (accumulatedSize + contentSize <= QUOTA_LIMIT && contentSize > 0) {
+          accumulatedSize += contentSize;
+          return f; // Keep content
+        } else {
+          // Skip content for this file
+          return {
+            name: f.name,
+            size: f.size,
+            dateStr: f.dateStr,
+            date: f.date,
+            content: '' // Content too large or quota exceeded
+          };
+        }
+      });
+      
+      console.log(`Storing ${finalFilesForStorage.filter(f => f.content).length} files with content, ${finalFilesForStorage.filter(f => !f.content).length} without content`);
+    }
+    
+    console.log(`Saving ${finalFilesForStorage.length} files to storage...`);
+    
+    // Save to storage (with or without content depending on size)
+    try {
+      chrome.storage.sync.set({
+        raidTickFileList: finalFilesForStorage,
+        raidTickEnabled: true,
+        raidTickFolder: currentSettings.raidTickFolder
+      }, function() {
+        if (chrome.runtime.lastError) {
+          console.error('❌ Storage API error:', chrome.runtime.lastError.message);
+          console.error('Error details:', chrome.runtime.lastError);
+          showStatus('❌ Error saving files: ' + chrome.runtime.lastError.message, 'error');
+          
+          // Try saving without content as fallback if we haven't already
+          if (finalFilesForStorage[0] && finalFilesForStorage[0].content) {
+            console.log('Attempting to save files without content as fallback...');
+            const filesMinimal = finalFilesForStorage.map(f => ({
+              name: f.name,
+              size: f.size,
+              dateStr: f.dateStr,
+              date: f.date
+              // No content
+            }));
+            chrome.storage.sync.set({
+              raidTickFileList: filesMinimal,
+              raidTickEnabled: true,
+              raidTickFolder: currentSettings.raidTickFolder
+            }, function() {
+              if (chrome.runtime.lastError) {
+                console.error('❌ Fallback save also failed:', chrome.runtime.lastError.message);
+                showStatus('❌ Failed to save files - storage quota exceeded?', 'error');
+              } else {
+                console.log('✅ Saved files without content (content will be loaded on-demand)');
+                showStatus('✅ Saved ' + filesMinimal.length + ' files (content on-demand)', 'success');
+              }
+            });
+          }
+        } else {
+          console.log(`✅ Successfully saved ${finalFilesForStorage.length} RaidTick files to storage`);
+          console.log('Sample file:', {
+            name: finalFilesForStorage[0].name,
+            size: finalFilesForStorage[0].size,
+            hasContent: !!finalFilesForStorage[0].content,
+            contentLength: finalFilesForStorage[0].content ? finalFilesForStorage[0].content.length : 0
+          });
+          showStatus(`✅ Saved ${finalFilesForStorage.length} files - ready for popup!`, 'success');
+          
+          // Verify save by reading back
+          chrome.storage.sync.get(['raidTickFileList'], function(result) {
+            if (chrome.runtime.lastError) {
+              console.error('❌ Verification read error:', chrome.runtime.lastError.message);
+            } else if (result.raidTickFileList) {
+              console.log(`✅ Verification: Found ${result.raidTickFileList.length} files in storage`);
+              console.log('First file in storage:', result.raidTickFileList[0]);
+            } else {
+              console.error('❌ Verification failed: No files in storage');
+            }
+          });
+        }
+      });
+    } catch (error) {
+      console.error('❌ Storage API exception:', error);
+      showStatus('❌ Error saving files: ' + error.message, 'error');
+    }
     
     return raidTickFiles;
     
@@ -2855,16 +3496,32 @@ async function scanRaidTickFiles(folderHandle) {
 }
 
 /**
+ * Format date for storage (YYYY-MM-DD)
+ */
+function formatDateForStorage(date) {
+  const d = (date instanceof Date) ? date : new Date(date);
+  if (isNaN(d.getTime())) {
+    return new Date().toISOString().split('T')[0];
+  }
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/**
  * Extract date from RaidTick filename
  */
 function extractDateFromFilename(filename) {
-  const match = filename.match(/RaidTick-(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})\.txt$/);
+  // Match RaidTick files with flexible time format (accepts both single and double digit seconds)
+  const match = filename.match(/RaidTick-(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{1,2})\.txt$/);
   if (match) {
-    const [, year, month, day, hour, minute, second] = match;
-    // Create date in UTC to avoid timezone conversion issues
-    return new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+    const [, year, month, day] = match;
+    // Create date in local timezone (not UTC) to match popup's formatDate() which uses local time
+    return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
   }
-  return null;
+  // Fallback to today if pattern doesn't match
+  return new Date();
 }
 
 /**

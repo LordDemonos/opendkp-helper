@@ -15,8 +15,8 @@ A comprehensive browser extension for opendkp.com that provides intelligent auct
 - ✅ **Multiple Sound Profiles**
   - **Raid Leader Profile** - Authoritative sounds (Bell, Chime, Ding variations)
   - **Raider Profile** - Gentle sounds (Chime, Ding, Bell)
-  - **Custom Profile** - Full control over sound selection
-- ✅ **Built-in Sounds** - Bell, Chime, Ding (4 variations), Hotel Bell, Warcraft sounds (Job's Done, Work Complete)
+- ✅ **Built-in Sounds** - Bell, Chime (hotel bell sound), Ding (4 variations), Warcraft sounds (Job's Done, Work Complete)
+  - Note: The "Chime" option plays the hotel bell sound (hotel.mp3 file)
 - ✅ **Custom Sound Upload** - Upload your own MP3, WAV, or OGG files (up to 3 custom sounds)
 - ✅ **Volume Control** - Adjustable volume slider (0-100%)
 - ✅ **Profile-Specific Sounds** - Each profile remembers its preferred sound
@@ -24,13 +24,12 @@ A comprehensive browser extension for opendkp.com that provides intelligent auct
 ### Text-to-Speech (TTS)
 - ✅ **Speech Announcements** - Announces auction completions with customizable messages
 - ✅ **Voice Selection** - Choose from available system voices
-- ✅ **Speed Control** - Adjustable voice speed (0.5x - 2.5x)
+- ✅ **Speed Control** - Adjustable voice speed (0.5x - 2.0x)
 - ✅ **Custom Templates** - Create custom TTS messages with placeholders:
   - `{winner}` - Winner's name
   - `{bidAmount}` - Bid amount
   - `{itemName}` - Item name
 - ✅ **New Auction Readouts** - Speaks "New auction: Item Name" when auctions appear
-- ✅ **Time Windows** - Configure when TTS is active
 
 ### Smart Notifications
 - ✅ **Smart Bidding Mode (Raider Profile)** - Only alerts when YOU win an auction you bid on
@@ -45,12 +44,10 @@ A comprehensive browser extension for opendkp.com that provides intelligent auct
 - ✅ **Browser Notifications** - Desktop notifications with auction details
   - Shows winner, item, and bid amount
   - Click to view auction details
-- ✅ **Notification Types** - Control which notification types are active
 
 ### RaidTick Integration (Raid Leader Only)
 - ✅ **Quick Copy-to-Clipboard** - Easily copy RaidTick file contents for OpenDKP import
 - ✅ **File Browser** - Select your RaidTick folder or pick files individually
-- ✅ **Date Navigation** - Browse RaidTick files by date in the popup
 - ✅ **Automatic Parsing** - Extracts raid list data and copies to clipboard
 - ✅ **How It Works**:
   - In-game, type `/outputfile raidlist` (requires Zeal)
@@ -71,7 +68,7 @@ A comprehensive browser extension for opendkp.com that provides intelligent auct
   - In-game, type your identifier before pressing 'Link Loot' (Zeal feature)
   - The parser monitors your EQ log file for messages containing your tag
   - Detected loot items are extracted and displayed in the extension popup
-  - Perfect for tracking raid loot distribution
+  - Copy buttons copy the item text to your clipboard so you can easily paste them into the Bidding Tool
 
 ### RaidTick Reminders (Raid Leader Only)
 - ✅ **Scheduled Reminders** - Set reminders for specific times (e.g., "Run /outputfile raidlist")
@@ -82,55 +79,78 @@ A comprehensive browser extension for opendkp.com that provides intelligent auct
   - Browser notifications
   - Popup window
 - ✅ **5-Minute Boundaries** - Fires at :00 and :30 of each 5-minute interval
+- ✅ **Copy Button** - copies /outputfile raidlist to your clipboard so you can paste it into the game
 
 ### Other Features
 - ✅ **Settings Page** - Comprehensive options page with all settings
 - ✅ **Dark Mode** - Dark theme for easier viewing
-- ✅ **Cross-Browser** - Works in Firefox and Chrome/Edge (with manifest adjustments)
+- ✅ **Cross-Browser** - Works in Firefox and Chrome
 - ✅ **Persistent Storage** - All settings saved and synced across browser instances
 - ✅ **Test Functions** - Test sounds, notifications, and TTS before saving
 
 ## 📦 Installation
 
-### Firefox
+### Option 1: Official Browser Stores (Recommended)
 
-1. **Download or clone this repository**
+- **Firefox**: Available on [Firefox Add-ons (AMO)](https://addons.mozilla.org/)
+- **Chrome**: Available on [Chrome Web Store](https://chrome.google.com/webstore/) (Coming Soon)
 
-2. **Load the extension:**
-   - Open Firefox and navigate to `about:debugging`
-   - Click "This Firefox"
-   - Click "Load Temporary Add-on..."
-   - Select the `manifest.json` file from the extension folder
+### Option 2: Manual Installation (Development/Testing)
 
-3. **For permanent installation:**
-   - Package the extension (zip all files except development files)
-   - Load as temporary add-on
-   - Or use Firefox's developer tools to sign and publish
+If you're building from source or testing a development version, you'll need to configure `manifest.json` differently for each browser:
 
-### Chrome/Edge
+#### For Firefox:
+The `manifest.json` should use `background.scripts`:
+```json
+{
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "opendkp-helper@opendkp.com",
+      "strict_min_version": "126.0"
+    }
+  }
+}
+```
 
-1. **Download or clone this repository**
+#### For Chrome:
+The `manifest.json` should use `background.service_worker`:
+```json
+{
+  "background": {
+    "service_worker": "background.js"
+  }
+}
+```
 
-2. **Update manifest.json:**
-   - Change `manifest_version` to 2 (if needed)
-   - Adjust permissions structure if necessary
+**Note**: The GitHub Actions workflows automatically handle this conversion when building packages. See [Building from Source](#-building-from-source) below.
 
-3. **Load the extension:**
-   - Open Chrome and navigate to `chrome://extensions`
-   - Enable "Developer mode"
-   - Click "Load unpacked"
-   - Select the extension folder
+#### Installation Steps:
+
+1. **Download or clone the repository**
+   ```bash
+   git clone https://github.com/LordDemonos/opendkp-helper.git
+   cd opendkp-helper
+   ```
+
+2. **Edit `manifest.json`** based on your browser (see above)
+
+3. **Load the extension**:
+   - **Firefox**: Open `about:debugging` → "This Firefox" → "Load Temporary Add-on" → Select `manifest.json`
+   - **Chrome**: Open `chrome://extensions` → Enable "Developer mode" → "Load unpacked" → Select the extension folder
 
 ## 🚀 Quick Start
 
-1. **Install the extension** (see Installation above)
+1. **Install the extension** (see [Installation](#-installation) above) 
 
 2. **Open Settings:**
    - Right-click the extension icon → "Options" or "Manage Extension"
    - Or click the extension icon and click "Settings"
 
 3. **Configure Basic Settings:**
-   - Choose your **Sound Profile** (Raid Leader, Raider, or Custom)
+   - Choose your **Sound Profile** (Raid Leader, Raider)
    - Select a **Notification Sound**
    - Adjust **Volume** to your preference
    - Enable **Browser Notifications** if desired
@@ -161,7 +181,7 @@ A comprehensive browser extension for opendkp.com that provides intelligent auct
 ## ⚙️ Settings Reference
 
 ### Audio Settings
-- **Sound Profile**: Choose Raid Leader, Raider, or Custom
+- **Sound Profile**: Choose Raid Leader, Raider
 - **Notification Sound**: Select from built-in or custom sounds
 - **Volume**: 0-100% volume slider
 
@@ -204,7 +224,7 @@ A comprehensive browser extension for opendkp.com that provides intelligent auct
 ## 🔧 File Structure
 
 ```
-opendkp-timer-alert/
+opendkp-helper/
 ├── manifest.json              # Extension manifest
 ├── background.js              # Background script (reminders)
 ├── content.js                 # Main content script (timer monitoring)
@@ -232,71 +252,29 @@ opendkp-timer-alert/
 
 ## 🎨 Browser Compatibility
 
-- ✅ **Firefox 91.0+** (Manifest v3)
-- ✅ **Chrome/Edge** (with manifest adjustments)
+- ✅ **Firefox 126.0+** (Manifest v3)
+- ✅ **Chrome/Edge 88+** (Manifest v3)
 
-## 📝 Usage Tips
+**Note**: Both browsers require Manifest V3. Firefox uses `background.scripts` while Chrome requires `background.service_worker`. The extension automatically detects and uses the appropriate API based on the browser.
 
-1. **Test Notifications**: Use the test buttons in the settings page to verify sounds and notifications work
+## 🔨 Building from Source
 
-2. **Smart Bidding (Raider Profile)**: Automatically enabled for Raiders - only alerts when YOU win auctions you bid on. The extension detects your character names from the page header.
+The repository includes GitHub Actions workflows that automatically build browser-specific packages:
 
-3. **RaidTick**: For Raid Leaders - quickly copy RaidTick file contents to clipboard. Generate files in-game with `/outputfile raidlist` (requires Zeal), then use the extension to copy and paste into OpenDKP.
+- **Firefox**: `.github/workflows/publish-firefox.yml` - Builds and publishes to AMO
+- **Chrome**: `.github/workflows/publish-chrome.yml` - Builds a Chrome-ready package
 
-4. **Loot Parser**: For Raid Leaders - monitors your EQ log file for loot messages. Configure your tag, and the extension will extract and display loot items in the popup.
+These workflows automatically:
+1. Configure `manifest.json` for the target browser (scripts vs service_worker)
+2. Package all necessary files
+3. Create ZIP files ready for store submission
 
-5. **Quiet Hours**: Set this if you don't want to be woken up by notifications during sleep hours
+To build manually:
 
-6. **Custom Sounds**: Keep file sizes small (≤100 KB) for quick loading and better performance
+1. **For Firefox**: The workflow sets `background.scripts` in manifest.json
+2. **For Chrome**: The workflow sets `background.service_worker` in manifest.json
 
-7. **TTS Templates**: Use placeholders like `{winner}`, `{bidAmount}`, `{itemName}` to customize announcements
-
-8. **RaidTick Reminders**: Set reminders for tasks like "Run /outputfile raidlist" and they'll fire every 5 minutes during your configured times
-
-9. **Smart Bidding for Raiders**: When using Raider profile, you'll only get notified about auctions YOU win. Perfect for focusing on your own bids without distractions from other auctions
-
-## 🐛 Troubleshooting
-
-### No Sound Plays
-- Check volume slider in settings
-- Verify browser/system volume is enabled
-- Test with the "Test Sound" button
-- Check browser console for errors
-
-### Notifications Not Working
-- Check "Browser Notifications" is enabled in settings
-- Verify browser notification permissions (click "Check Notification Status")
-- Test with the notification test buttons
-
-### Timers Not Detected
-- Ensure you're on an opendkp.com page
-- Check browser console for errors
-- Verify the page has loaded completely
-
-### Smart Bidding Not Working
-- Ensure you're using Raider Profile (Smart Bidding is auto-enabled for Raiders)
-- Check that your character name appears in the page header
-- The extension only alerts when YOUR character wins an auction you bid on
-- Verify the extension can read the page content
-
-### TTS Not Speaking
-- Verify "Enable Text-to-Speech" is checked
-- Select a voice from the dropdown
-- Test with the "Test Voice" button
-- Check voice speed settings
-
-### RaidTick Not Working
-- Ensure you're in Raid Leader profile
-- Verify you're selecting RaidTick .txt files (format: `RaidTick-YYYY-MM-DD_HH-MM-SS.txt`)
-- Try using "Copy RaidTick from file" button for quick access
-- If browsing by date, ensure folder is selected in settings
-
-### Loot Parser Not Working
-- Ensure you're in Raid Leader profile
-- Verify EQ log file is selected and being updated
-- Check that your loot tag is configured correctly
-- Ensure log messages contain your tag (e.g., "FG Item1|Item2")
-- Try manually refreshing or reopening the monitoring window
+When building from source, you must edit `manifest.json` manually (see [Installation](#-installation) above).
 
 ## 🔐 Permissions
 
@@ -323,15 +301,29 @@ Contributions welcome! When adding features:
 2. Add settings to the options page
 3. Include test functions where applicable
 4. Update this README with new features
-5. Test on both Firefox and Chrome if possible
+5. **Test on both Firefox and Chrome** - The extension uses different manifest configurations:
+   - Firefox: Uses `background.scripts`
+   - Chrome: Uses `background.service_worker`
+6. Ensure cross-browser compatibility - The code handles browser differences automatically (e.g., `chrome` vs `browser` API)
 
 ## 🆘 Support
 
 For issues, questions, or feature requests:
 - Check the browser console for error messages
-- Review the Troubleshooting section above
 - Test individual features using the test buttons in settings
+- Issues, Pull Requests, and Suggestions are welcome!
 
+### Common Issues
+
+**Extension not loading after manual installation:**
+- Ensure `manifest.json` uses the correct `background` format for your browser (see [Installation](#-installation))
+- Check the browser console for errors (F12 → Console)
+- Verify all required files are present (see [File Structure](#-file-structure))
+
+**RaidTick reminders not working in Chrome:**
+- Chrome requires `background.service_worker` (not `scripts`) in manifest.json
+- Ensure the extension is reloaded after changing manifest.json
+- Check background script console: `chrome://extensions` → Developer mode → Extension details → Service worker
 ---
 
 **Note**: This extension is specifically designed for opendkp.com. If the site updates its markup, some features may need adjustments.

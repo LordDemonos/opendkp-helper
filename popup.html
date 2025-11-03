@@ -10,6 +10,8 @@
       font-size: 14px;
       margin: 0;
       background: #f8f9fa;
+      border-radius: 8px;
+      overflow: hidden;
     }
     
     .header {
@@ -144,59 +146,6 @@
       border-radius: 6px;
       font-size: 12px;
       color: #1976d2;
-    }
-    
-    .raidTick-section {
-      margin-top: 16px;
-      padding: 12px;
-      background: #f0f8ff;
-      border-radius: 6px;
-      border: 1px solid #2196f3;
-    }
-    
-    .raidTick-section h3 {
-      margin: 0 0 12px 0;
-      font-size: 14px;
-      color: #1976d2;
-    }
-    
-    .date-navigation {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 12px;
-    }
-    
-    .date-navigation span {
-      font-weight: 500;
-      color: #333;
-    }
-    
-    .btn-small {
-      padding: 6px 10px;
-      font-size: 12px;
-    }
-    
-    .file-list {
-      margin-bottom: 12px;
-    }
-    
-    .file-item {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 8px;
-      margin-bottom: 6px;
-      background: white;
-      border-radius: 4px;
-      border: 1px solid #e0e0e0;
-    }
-    
-    .file-name {
-      font-size: 12px;
-      color: #333;
-      flex: 1;
-      margin-right: 8px;
     }
     
     .empty-state {
@@ -336,15 +285,6 @@
       color: #a5d6a7;
     }
     
-    body.dark-mode .raidTick-section {
-      background: #2d2d2d;
-      border-color: #555;
-    }
-    
-    body.dark-mode .raidTick-section h3 {
-      color: #e0e0e0;
-    }
-    
     body.dark-mode .eq-log-section {
       background: #2d2d2d;
       border-color: #555;
@@ -385,10 +325,6 @@
       color: #e0e0e0;
     }
     
-    body.dark-mode .date-navigation span {
-      color: #e0e0e0;
-    }
-    
     body.dark-mode .btn {
       background: #444;
       color: #e0e0e0;
@@ -403,14 +339,24 @@
       background: #333;
     }
     
-    body.dark-mode .file-item {
-      background: #333;
-      border-color: #555;
-      color: #e0e0e0;
+    body.dark-mode .btn-primary {
+      background: #1976d2;
+      color: white;
+      border-color: #1976d2;
     }
     
-    body.dark-mode .file-item:hover {
+    body.dark-mode .btn-primary:hover {
+      background: #1565c0;
+    }
+    
+    body.dark-mode .btn-secondary {
       background: #444;
+      color: #e0e0e0;
+      border-color: #666;
+    }
+    
+    body.dark-mode .btn-secondary:hover {
+      background: #555;
     }
     
     body.dark-mode .empty-state {
@@ -427,6 +373,20 @@
       color: #e0e0e0;
     }
     
+    /* Volume slider and text in dark mode */
+    body.dark-mode .volume-inline {
+      color: #e0e0e0;
+    }
+    
+    body.dark-mode #volumePct {
+      color: #64b5f6 !important;
+    }
+    
+    /* Folder and file path text in dark mode */
+    body.dark-mode #eqLogFilePath {
+      color: #b0b0b0;
+    }
+    
     body.dark-mode #eqLogDebugLog {
       background: #333;
       border-color: #555;
@@ -436,6 +396,17 @@
     body.dark-mode #eqLogDebugLog .debug-content > div {
       background: #444;
       color: #e0e0e0;
+    }
+    
+    /* Status text elements in dark mode */
+    body.dark-mode .status small {
+      color: #b0b0b0;
+    }
+    
+    /* Small helper text in dark mode */
+    body.dark-mode .description,
+    body.dark-mode div[style*="font-size: 10px"] {
+      color: #b0b0b0 !important;
     }
   </style>
 </head>
@@ -462,25 +433,11 @@
     <div id="statusText">Checking status...</div>
   </div>
   
-  <div id="raidTickSection" class="raidTick-section" style="display: none;">
-    <h3>📁 RaidTick Files</h3>
-    <div class="date-navigation">
-      <button id="prevDate" class="btn btn-small">‹</button>
-      <span id="currentDate">Today</span>
-      <button id="nextDate" class="btn btn-small">›</button>
-    </div>
-    <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-      <button id="raidTickRescan" class="btn btn-small">Rescan</button>
-      <input id="raidTickFolderInput" type="file" multiple style="display:none;" webkitdirectory>
-    </div>
-    <div id="raidTickFiles" class="file-list">
-      <div class="empty-state">No RaidTick files for this day.</div>
-    </div>
-    <div id="raidTickDebugLog" style="margin-top: 8px; padding: 6px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; max-height: 100px; overflow-y: auto; font-size: 11px; font-family: monospace; display: none;"></div>
-  </div>
   
   <div id="eqLogSection" class="eq-log-section" style="display: none;">
-    <div style="margin-bottom: 12px;"><h3>⚔️ Loot Parser</h3></div>
+    <div style="margin-bottom: 12px;">
+      <h3>⚔️ Loot Parser</h3>
+    </div>
     <div id="eqLogEvents" class="eq-log-events">
       <div class="empty-state">No loot events captured yet.</div>
     </div>
@@ -488,6 +445,6 @@
   
   <div class="info" id="quickInfo" style="display:none;"></div>
   
-  <script src="popup-firefox.js"></script>
+  <script src="popup-loader.js"></script>
 </body>
 </html>

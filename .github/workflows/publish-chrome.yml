@@ -1,0 +1,133 @@
+name: Build Chrome Extension for Web Store
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'manifest.json'
+      - '**/*.js'
+      - '**/*.html'
+      - '**/*.json'
+      - '**/*.mp3'
+      - '**/*.wav'
+      - 'icons/**'
+  release:
+    types: [published]
+  workflow_dispatch: # Allows manual triggering
+
+jobs:
+  build:
+    name: Build Chrome Extension Package
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure manifest for Chrome
+        run: |
+          # Ensure manifest.json uses service_worker (not scripts) for Chrome
+          # Remove scripts array if present, set service_worker
+          node -e "
+          const fs = require('fs');
+          const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
+          
+          // Remove scripts array if it exists
+          if (manifest.background && manifest.background.scripts) {
+            delete manifest.background.scripts;
+          }
+          
+          // Ensure service_worker is set
+          if (!manifest.background) {
+            manifest.background = {};
+          }
+          manifest.background.service_worker = 'background.js';
+          
+          // Note: browser_specific_settings is Firefox-specific and Chrome ignores it
+          // We keep it in the manifest for consistency, Chrome will just ignore it
+          
+          fs.writeFileSync('manifest.json', JSON.stringify(manifest, null, 2) + '\n');
+          console.log('Chrome manifest configured: background.service_worker =', manifest.background.service_worker);
+          "
+      
+      - name: Package extension
+        run: |
+          # Create a clean package excluding dev files
+          mkdir -p chrome-package
+          
+          # Copy necessary files (exclude dev files per .gitignore)
+          mkdir -p package-build
+          
+          # Copy all files except those in .gitignore
+          rsync -av \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='node_modules' \
+            --exclude='*.md' \
+            --exclude='README.md' \
+            --exclude='package.json' \
+            --exclude='test_audio.html' \
+            --exclude='test_audio.js' \
+            --exclude='.gitignore' \
+            --exclude='.DS_Store' \
+            --exclude='*.log' \
+            --exclude='*.tmp' \
+            --exclude='*.bak' \
+            --exclude='popup-firefox.js' \
+            ./ package-build/
+          
+          # Extract version from manifest.json for filename (read from configured manifest)
+          VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync('manifest.json', 'utf8')).version)")
+          
+          # Create ZIP file for Chrome Web Store submission
+          cd package-build
+          ZIP_NAME="opendkp-helper-v${VERSION}-chrome.zip"
+          zip -r ../chrome-package/${ZIP_NAME} .
+          cd ..
+          
+          echo "Chrome extension packaged successfully"
+          ls -lh chrome-package/
+          
+          # Store ZIP name for use in upload step
+          echo "ZIP_NAME=${ZIP_NAME}" >> $GITHUB_ENV
+      
+      - name: Upload Chrome extension package
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-extension-package
+          path: chrome-package/*.zip
+          retention-days: 30
+      
+      - name: Upload to Chrome Web Store (if credentials configured)
+        # Only run if Chrome Web Store credentials are configured
+        # Set these secrets in GitHub repo settings: Settings > Secrets and variables > Actions
+        if: ${{ secrets.CHROME_EXTENSION_ID != '' }}
+        uses: fregante/chrome-webstore-upload@v1
+        with:
+          extension-id: ${{ secrets.CHROME_EXTENSION_ID }}
+          client-id: ${{ secrets.CHROME_CLIENT_ID }}
+          client-secret: ${{ secrets.CHROME_CLIENT_SECRET }}
+          refresh-token: ${{ secrets.CHROME_REFRESH_TOKEN }}
+          zip-file: chrome-package/${{ env.ZIP_NAME }}
+      
+      - name: Output package info
+        run: |
+          echo "✅ Chrome extension packaged successfully!"
+          echo ""
+          echo "📦 Package saved as GitHub artifact: chrome-extension-package"
+          echo ""
+          echo "To enable automatic upload to Chrome Web Store:"
+          echo "1. Set up OAuth credentials in Google Cloud Console"
+          echo "2. Add these secrets to your GitHub repository:"
+          echo "   - CHROME_EXTENSION_ID (your extension ID from Chrome Web Store)"
+          echo "   - CHROME_CLIENT_ID (from Google Cloud Console)"
+          echo "   - CHROME_CLIENT_SECRET (from Google Cloud Console)"
+          echo "   - CHROME_REFRESH_TOKEN (OAuth refresh token)"
+          echo ""
+          echo "📚 Documentation: https://developer.chrome.com/webstore/using_webstore_api"
+          echo ""
+          echo "⚠️  Note: Even with auto-upload, Chrome Web Store requires manual review"
+          echo "   Check your Developer Dashboard to publish after upload"
+

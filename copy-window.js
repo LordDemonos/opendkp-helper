@@ -56,7 +56,13 @@
     }, 50);
   }
 
-  document.addEventListener('DOMContentLoaded', init);
+  document.addEventListener('DOMContentLoaded', function() {
+    init();
+    // Fallback auto-close if nothing happens (moved from inline script in HTML)
+    setTimeout(() => { 
+      window.close(); 
+    }, 120000); // 2 minutes safeguard
+  });
 })();
 
 

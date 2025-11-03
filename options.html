@@ -381,6 +381,18 @@
             background: #555 !important;
         }
         
+        /* Override for test buttons in preview section - use teal color */
+        body.dark-mode .preview-buttons .test-button {
+            background: #0f6674 !important;
+            border-color: #0f6674 !important;
+        }
+        
+        body.dark-mode .preview-buttons .test-button:hover {
+            background: #0c5460 !important;
+            border-color: #0c5460 !important;
+            box-shadow: 0 2px 4px rgba(15,102,116,0.4) !important;
+        }
+        
         body.dark-mode .preview-buttons button.btn-secondary {
             background: #6c757d !important;
             border-color: #6c757d !important;
@@ -567,6 +579,19 @@
             border-color: #666;
         }
         
+        body.dark-mode input[type="text"],
+        body.dark-mode input[type="time"] {
+            background: #444;
+            color: #e0e0e0;
+            border-color: #666;
+        }
+        
+        body.dark-mode textarea {
+            background: #444;
+            color: #e0e0e0;
+            border-color: #666;
+        }
+        
         body.dark-mode input[type="file"] {
             color: #e0e0e0;
         }
@@ -637,10 +662,26 @@
                 <span style="color:#888;">(Requires <a href="https://github.com/CoastalRedwood/Zeal/releases" target="_blank" rel="noopener" style="color:#1976d2; text-decoration:underline;">Zeal</a>.)</span>
             </div>
             <br>
-            <div class="setting-row">
-                <button id="ffCopyFromFile" class="btn btn-primary" title="Open a small window to pick a RaidTick .txt and copy it to the clipboard">Copy RaidTick from file</button>
+            
+            <!-- Chrome: Use file copy tool (same as Firefox, but opens picker directly) -->
+            <div id="ffRaidTickAlt" style="display: none;">
+                <!-- Chrome: Opens file picker directly, copies to clipboard -->
+                <div class="setting-row">
+                    <button id="ffCopyFromFile" class="btn btn-primary" title="Pick a RaidTick .txt file and copy it to the clipboard">Copy RaidTick from file</button>
+                </div>
+                <div class="description">Opens a file picker to select a RaidTick .txt file and copies its contents to your clipboard.</div>
             </div>
-            <div class="description">The helper window automatically closes after copying.</div>
+            
+            <!-- Firefox: Use pop-out window (different implementation) -->
+            <div id="ffRaidTickWindow" style="display: none;">
+                <!-- Firefox: Opens a small window that auto-closes after copying -->
+                <div class="setting-row">
+                    <button id="ffCopyFromFileWindow" class="btn btn-primary" title="Open a small window to pick a RaidTick .txt and copy it to the clipboard">Copy RaidTick from file</button>
+                </div>
+                <div class="description">The helper window automatically closes after copying.</div>
+            </div>
+            
+            <input type="file" id="folderInput" multiple webkitdirectory style="display: none;">
 
             <!-- Bundled: RaidTick Reminders (visible for Raid Leader only) -->
             <div id="raidTickReminders" style="display:none; margin-top:12px;">
@@ -742,7 +783,7 @@
             <div class="setting-row" id="ttsSpeedSettings" style="display: none;">
                 <label for="voiceSpeed">Voice Speed:</label>
                 <div style="display: flex; align-items: center;">
-                    <input type="range" id="voiceSpeed" min="0.5" max="2" step="0.1" value="1" style="margin-left: 15px;">
+                    <input type="range" id="voiceSpeed" min="0.5" max="2.5" step="0.1" value="1" style="margin-left: 15px;">
                     <span class="speed-display" id="speedDisplay">1.0x</span>
                     <button class="test-button" id="testVoice">Test Voice</button>
                 </div>
@@ -908,13 +949,13 @@
                 <span>Test different notification types to see how they'll appear:</span>
             </div>
             <div class="preview-buttons">
-                <button class="btn btn-secondary" id="testSingleWinner">Test Single Winner</button>
-                <button class="btn btn-secondary" id="testRollOff">Test Roll-off</button>
-                <button class="btn btn-secondary" id="testMultiWinner">Test Multiple Winners</button>
+                <button class="test-button" id="testSingleWinner">Test Single Winner</button>
+                <button class="test-button" id="testRollOff">Test Roll-off</button>
+                <button class="test-button" id="testMultiWinner">Test Multiple Winners</button>
             </div>
             
             <div class="preview-buttons" style="margin-top: 15px;">
-                <button class="btn btn-primary" id="notificationPermission">Check Notification Status</button>
+                <button class="test-button" id="notificationPermission">Check Notification Status</button>
             </div>
             
             <div id="notificationStatus" style="margin-top: 15px; padding: 10px; background: #f0f0f0; border-radius: 4px; display: none; font-family: monospace; font-size: 12px;">
@@ -929,9 +970,9 @@
         <!-- Footer -->
         <div class="footer">
             <div class="footer-content">
-                <span class="footer-text">OpenDKP Helper v1.0.0</span>
+                <span class="footer-text">OpenDKP Helper v1.20</span>
                 <span class="footer-separator">•</span>
-                <a href="https://github.com/LordDemonos/opendkp-helper-firefox" target="_blank" rel="noopener" class="footer-link">GitHub</a>
+                <a href="https://github.com/LordDemonos/opendkp-helper" target="_blank" rel="noopener" class="footer-link">GitHub</a>
                 <span class="footer-separator">•</span>
                 <span class="footer-text">Xanax &lt;Former Glory&gt; </span>
             </div>

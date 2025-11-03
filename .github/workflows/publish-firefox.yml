@@ -1,0 +1,124 @@
+name: Publish to Firefox Add-ons
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'manifest.json'
+      - '**/*.js'
+      - '**/*.html'
+      - '**/*.json'
+      - '**/*.mp3'
+      - '**/*.wav'
+      - 'icons/**'
+  release:
+    types: [published]
+  workflow_dispatch: # Allows manual triggering
+
+jobs:
+  publish:
+    name: Build and Publish to AMO
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install web-ext
+        run: npm install -g web-ext
+      
+      - name: Configure manifest for Firefox
+        run: |
+          # Ensure manifest.json uses scripts (not service_worker) for Firefox
+          # Remove service_worker if present, ensure scripts is set
+          node -e "
+          const fs = require('fs');
+          const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
+          
+          // Remove service_worker if it exists
+          if (manifest.background && manifest.background.service_worker) {
+            delete manifest.background.service_worker;
+          }
+          
+          // Ensure scripts array exists
+          if (!manifest.background) {
+            manifest.background = {};
+          }
+          if (!manifest.background.scripts || !Array.isArray(manifest.background.scripts)) {
+            manifest.background.scripts = ['background.js'];
+          }
+          
+          fs.writeFileSync('manifest.json', JSON.stringify(manifest, null, 2) + '\n');
+          console.log('Firefox manifest configured: background.scripts =', manifest.background.scripts);
+          "
+      
+      - name: Package extension
+        run: |
+          # Create a clean package excluding dev files
+          mkdir -p web-ext-artifacts
+          
+          # Copy necessary files (exclude dev files per .gitignore)
+          mkdir -p package-build
+          
+          # Copy all files except those in .gitignore
+          rsync -av \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='node_modules' \
+            --exclude='*.md' \
+            --exclude='README.md' \
+            --exclude='package.json' \
+            --exclude='test_audio.html' \
+            --exclude='test_audio.js' \
+            --exclude='.gitignore' \
+            --exclude='.DS_Store' \
+            --exclude='*.log' \
+            --exclude='*.tmp' \
+            --exclude='*.bak' \
+            ./ package-build/
+          
+          # Create ZIP file
+          cd package-build
+          zip -r ../web-ext-artifacts/opendkp-helper-firefox.zip .
+          cd ..
+          
+          echo "Extension packaged successfully"
+          ls -lh web-ext-artifacts/
+      
+      - name: Sign and publish to AMO
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+          AMO_CHANNEL: ${{ secrets.AMO_CHANNEL || 'unlisted' }} # unlisted or listed
+        run: |
+          # Validate extension first
+          web-ext lint --source-dir package-build/ || echo "Linting warnings (non-blocking)"
+          
+          # Sign and submit to AMO
+          web-ext sign \
+            --source-dir package-build/ \
+            --api-key "$AMO_JWT_ISSUER" \
+            --api-secret "$AMO_JWT_SECRET" \
+            --channel "$AMO_CHANNEL" \
+            --artifacts-dir web-ext-artifacts/
+      
+      - name: Upload signed extension
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-extension
+          path: web-ext-artifacts/*.xpi
+          retention-days: 30
+      
+      - name: Output submission info
+        run: |
+          echo "Extension submitted to Firefox Add-ons!"
+          echo "Channel: ${{ secrets.AMO_CHANNEL || 'unlisted' }}"
+          echo "Check your AMO developer dashboard for review status"
+

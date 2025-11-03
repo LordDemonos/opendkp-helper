@@ -1,13 +1,36 @@
 // Popup script for OpenDKP Helper - Firefox Compatible
 
+// Sanitization utilities for safe HTML manipulation
+function escapeHtml(text) {
+  if (text === null || text === undefined) {
+    return '';
+  }
+  const div = document.createElement('div');
+  div.textContent = String(text);
+  return div.innerHTML;
+}
+
+function escapeHtmlAttr(value) {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 // Customizable popup text - modify this before production
 const POPUP_QUICK_ACTIONS_TEXT = `Quick Actions:
 • Click "Open Settings" to configure RaidTick integration
 • Use date navigation to browse RaidTick files
 • Click "Copy" to copy file contents to clipboard`;
 
-document.addEventListener('DOMContentLoaded', function() {
-  console.log('Firefox-compatible popup loaded');
+// Initialize function - can be called on DOMContentLoaded or directly if DOM already loaded
+function initializePopup() {
+  console.log('Firefox-compatible popup initializing...');
   
   // Initialize popup
   
@@ -151,10 +174,10 @@ document.addEventListener('DOMContentLoaded', function() {
           statusDiv.className = 'status active';
           const url = new URL(currentTab.url);
           const domain = url.hostname;
-          statusText.innerHTML = `✅ ${domain}<br><small>Profile: ${profile} | Sound: ${soundType} | Volume: ${volume}%</small>${extrasHtml}`;
+          statusText.innerHTML = `✅ ${escapeHtml(domain)}<br><small>Profile: ${escapeHtml(profile)} | Sound: ${escapeHtml(soundType)} | Volume: ${escapeHtml(String(volume))}%</small>${extrasHtml}`;
         } else {
           statusDiv.className = 'status inactive';
-          statusText.innerHTML = `⚠️ Not on OpenDKP page<br><small>Profile: ${profile} | Sound: ${soundType} | Volume: ${volume}%</small>${extrasHtml}`;
+          statusText.innerHTML = `⚠️ Not on OpenDKP page<br><small>Profile: ${escapeHtml(profile)} | Sound: ${escapeHtml(soundType)} | Volume: ${escapeHtml(String(volume))}%</small>${extrasHtml}`;
         }
       }
     }).catch(function(error) {
@@ -190,12 +213,18 @@ document.addEventListener('DOMContentLoaded', function() {
       if (openLootMonitorBtn) openLootMonitorBtn.style.display = isRaidLeader && isFirefox ? 'inline-flex' : 'none';
     } catch(_) {}
 
-    if (isRaidLeader && settings.eqLogFile) {
-      console.log('Showing EQ Log section (Raid Leader profile)');
-      document.getElementById('eqLogSection').style.display = 'block';
+    if (isRaidLeader) {
+      // Initialize parser for Raid Leaders - section will show when events exist
+      console.log('Initializing EQ Log parser (Raid Leader profile)');
+      const eqSection = document.getElementById('eqLogSection');
+      if (eqSection) {
+        // Start hidden - will be shown by displayEQLogEvents() if events exist
+        eqSection.style.display = 'none';
+        eqSection.setAttribute('data-raid-leader', 'true');
+      }
       initializeEQLogParser(settings);
     } else {
-      console.log('Hiding EQ Log section (not Raid Leader or no file configured)');
+      console.log('Hiding EQ Log section (not Raid Leader)');
       document.getElementById('eqLogSection').style.display = 'none';
     }
     
@@ -400,15 +429,31 @@ document.addEventListener('DOMContentLoaded', function() {
       }
       // Refresh loot events immediately when updated by helper window
       if (changes.eqLogEvents) {
-        console.log('eqLogEvents updated, refreshing list');
-        displayEQLogEvents();
-      }
-      if (changes.eqLogFileMeta) {
-        console.log('eqLogFileMeta updated');
-        if (eqLogSettings) {
-          eqLogSettings.fileName = (changes.eqLogFileMeta.newValue || {}).name;
+        console.log('[EQ Log Storage] eqLogEvents updated, refreshing list', changes.eqLogEvents.newValue?.length || 0, 'events');
+        // Reload events from storage before displaying
+        if (eqLogSettings && typeof eqLogSettings === 'object') {
+          eqLogSettings.events = changes.eqLogEvents.newValue || [];
+          console.log('[EQ Log Storage] Updated eqLogSettings.events, now has', eqLogSettings.events.length, 'events');
+          // Always call displayEQLogEvents to update UI (it will hide section if not monitoring and no events)
+          if (typeof displayEQLogEvents === 'function') {
+            displayEQLogEvents();
+          } else {
+            console.warn('[EQ Log Storage] displayEQLogEvents not available yet, will be called on next popup open');
+          }
+        } else {
+          console.warn('[EQ Log Storage] eqLogSettings not initialized yet, cannot update events. Will be loaded on next popup open.');
         }
-        updateFileNameDisplay();
+      }
+      // Update monitoring status when monitor window is opened/closed
+      if (changes.eqLogMonitoring) {
+        console.log('[EQ Log Storage] Monitoring status changed:', changes.eqLogMonitoring.newValue);
+        if (eqLogSettings && typeof eqLogSettings === 'object') {
+          eqLogSettings.monitoring = changes.eqLogMonitoring.newValue || false;
+          // Refresh display to show/hide section based on monitoring status
+          if (typeof displayEQLogEvents === 'function') {
+            displayEQLogEvents();
+          }
+        }
       }
 
       // Reflect general settings (profile, sound, volume) without reopening popup
@@ -443,14 +488,17 @@ document.addEventListener('DOMContentLoaded', function() {
       await rescanRaidTickFromFiles(files);
     });
   }
-  prevDateBtn.addEventListener('click', function() {
-    navigateToPrevDate();
-  });
+  if (prevDateBtn) {
+    prevDateBtn.addEventListener('click', function() {
+      navigateToPrevDate();
+    });
+  }
   
-  nextDateBtn.addEventListener('click', function() {
-    navigateToNextDate();
-  });
-  
+  if (nextDateBtn) {
+    nextDateBtn.addEventListener('click', function() {
+      navigateToNextDate();
+    });
+  }
   
   /**
    * Load RaidTick files for the current selected date
@@ -559,17 +607,26 @@ document.addEventListener('DOMContentLoaded', function() {
    * Display RaidTick files in the UI
    */
   function displayRaidTickFiles(files) {
-    const filesHtml = files.map(file => `
-      <div class="file-item">
-        <div class="file-name">${file.name}</div>
-        <button class="btn btn-small copy-btn" data-filename="${file.name}">Copy</button>
-      </div>
-    `).join('');
-    
-    raidTickFilesDiv.innerHTML = filesHtml;
-    
-    // Add click listeners to copy buttons
-    raidTickFilesDiv.querySelectorAll('.copy-btn').forEach(btn => {
+    // Use DOM API for safer HTML generation with file names
+    raidTickFilesDiv.innerHTML = ''; // Clear first
+    files.forEach(file => {
+      const item = document.createElement('div');
+      item.className = 'file-item';
+      
+      const name = document.createElement('div');
+      name.className = 'file-name';
+      name.textContent = file.name; // Safe: textContent escapes automatically
+      
+      const btn = document.createElement('button');
+      btn.className = 'btn btn-small copy-btn';
+      btn.textContent = 'Copy';
+      btn.dataset.filename = escapeHtmlAttr(file.name); // Safe: escape attribute value
+      
+      item.appendChild(name);
+      item.appendChild(btn);
+      raidTickFilesDiv.appendChild(item);
+      
+      // Add click listener
       btn.addEventListener('click', function() {
         const filename = this.dataset.filename;
         copyFileToClipboard(filename);
@@ -585,8 +642,8 @@ document.addEventListener('DOMContentLoaded', function() {
     currentDateSpan.textContent = today;
     
     // Always enable navigation buttons - allow browsing any date
-    prevDateBtn.disabled = false;
-    nextDateBtn.disabled = false;
+    if (prevDateBtn) prevDateBtn.disabled = false;
+    if (nextDateBtn) nextDateBtn.disabled = false;
   }
   
   /**
@@ -666,7 +723,7 @@ document.addEventListener('DOMContentLoaded', function() {
             statusDiv.className = 'status success';
             statusText.innerHTML = `
               ✅ File copied to clipboard!<br>
-              <small>${lineCount} lines copied (excluding header)</small>
+              <small>${escapeHtml(String(lineCount))} lines copied (excluding header)</small>
             `;
             
             // Show success feedback on button
@@ -723,7 +780,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const lineCount = dataLines.length;
                 const originalStatus = statusText.innerHTML;
                 statusDiv.className = 'status success';
-                statusText.innerHTML = `✅ File copied to clipboard!<br><small>${lineCount} lines copied (excluding header)</small>`;
+                statusText.innerHTML = `✅ File copied to clipboard!<br><small>${escapeHtml(String(lineCount))} lines copied (excluding header)</small>`;
                 setTimeout(() => {
                   statusDiv.className = originalStatus.includes('OpenDKP') ? 'status active' : 'status inactive';
                   statusText.innerHTML = originalStatus;
@@ -758,7 +815,14 @@ document.addEventListener('DOMContentLoaded', function() {
    */
   
   let eqLogMonitoringInterval = null;
-  let eqLogSettings = {};
+  // Initialize eqLogSettings early to avoid "before initialization" errors
+  let eqLogSettings = {
+    enabled: false,
+    fileHandle: null,
+    tag: 'FG',
+    events: [],
+    monitoring: false
+  };
   
   /**
    * Debug logging function - shows messages in popup UI
@@ -812,6 +876,12 @@ document.addEventListener('DOMContentLoaded', function() {
     // Load saved events and tag from storage
     const storedData = await browser.storage.sync.get(['eqLogEvents', 'eqLogTag','eqLogFileMeta']);
     
+    console.log('[EQ Log Init] Loaded from storage:', {
+      eventsCount: storedData.eqLogEvents?.length || 0,
+      tag: storedData.eqLogTag || 'not set',
+      sampleEvents: storedData.eqLogEvents?.slice(0, 3).map(e => ({ date: e.date, items: e.items?.length || 0, timestamp: e.timestamp })) || []
+    });
+    
     eqLogSettings = {
       enabled: isRaidLeader, // Always enabled for Raid Leader, disabled for Raider
       fileHandle: null, // Will be set when user selects file in popup
@@ -819,6 +889,13 @@ document.addEventListener('DOMContentLoaded', function() {
       events: storedData.eqLogEvents || [],
       monitoring: settings.eqLogMonitoring || false
     };
+    
+    console.log('[EQ Log Init] Initialized eqLogSettings:', {
+      enabled: eqLogSettings.enabled,
+      tag: eqLogSettings.tag,
+      eventsCount: eqLogSettings.events.length,
+      monitoring: eqLogSettings.monitoring
+    });
     
     // Update UI
     const tagInput = document.getElementById('eqLogTag');
@@ -833,135 +910,10 @@ document.addEventListener('DOMContentLoaded', function() {
     checkAndClearOldEvents();
     
     // Load and display existing events
+    console.log('[EQ Log Init] Calling displayEQLogEvents()...');
     displayEQLogEvents();
     
-    // Set up file selection
-    const fileInput = document.getElementById('eqLogFileInput');
-    const selectBtn = document.getElementById('selectEQLogFile');
-    if (fileInput && selectBtn) {
-      debugLog('File input and button found, setting up...');
-      
-      // Check if file input already has a file (popup may have closed during file selection)
-      // Do this check both immediately and after delays to catch various timing scenarios
-      const recoverFileFromInput = () => {
-        debugLog(`Checking file input... Has files: ${fileInput.files ? fileInput.files.length : 0}`);
-        
-        if (fileInput.files && fileInput.files.length > 0) {
-          const file = fileInput.files[0];
-          debugLog(`Found file in input: ${file.name} (${file.size} bytes)`);
-          debugLog(`Current handle: ${eqLogSettings.fileHandle ? eqLogSettings.fileHandle.name + ' exists' : 'NONE'}`);
-          
-          // Only recover if we don't already have a handle, or if the file is different
-          if (!eqLogSettings.fileHandle || eqLogSettings.fileHandle.name !== file.name) {
-            debugLog(`Recovering file: ${file.name}`, 'success');
-            // Store file handle immediately
-            eqLogSettings.fileHandle = file;
-            updateFileNameDisplay();
-            
-            // Show feedback
-            if (statusDiv && statusText) {
-              const originalStatus = statusText.innerHTML;
-              statusDiv.className = 'status success';
-              statusText.innerHTML = `✅ Log file restored: ${file.name}`;
-              setTimeout(() => {
-                if (statusText && statusDiv) {
-                  statusDiv.className = originalStatus.includes('OpenDKP') ? 'status active' : 'status inactive';
-                  statusText.innerHTML = originalStatus;
-                }
-              }, 2000);
-            }
-            return true;
-          } else {
-            debugLog('File already stored, skipping recovery');
-          }
-        } else {
-          debugLog('File input has no files');
-        }
-        return false;
-      };
-      
-      debugLog('Starting file recovery checks...');
-      // Check immediately
-      recoverFileFromInput();
-      
-      // Also check after brief delays (file input might not be ready immediately)
-      setTimeout(() => {
-        debugLog('Recovery check at 100ms...');
-        recoverFileFromInput();
-      }, 100);
-      setTimeout(() => {
-        debugLog('Recovery check at 300ms...');
-        recoverFileFromInput();
-      }, 300);
-      setTimeout(() => {
-        debugLog('Recovery check at 500ms...');
-        recoverFileFromInput();
-      }, 500);
-      
-      selectBtn.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        // Firefox: open tiny loot window; Chrome can keep file input behavior
-        if (typeof browser !== 'undefined' && navigator.userAgent.includes('Firefox')) {
-          debugLog('Opening loot picker window (Firefox)', 'success');
-          browser.windows.create({
-            url: browser.runtime.getURL('eqlog-window.html'),
-            type: 'popup', width: 480, height: 280
-          });
-        } else {
-          try { fileInput.click(); } catch(_) {}
-        }
-      });
-      
-      // Use both 'change' and 'input' events for better compatibility
-      fileInput.addEventListener('change', (e) => {
-        debugLog('CHANGE event fired on file input!', 'success');
-        e.preventDefault();
-        e.stopPropagation();
-        handleEQLogFileSelection(e);
-      });
-      fileInput.addEventListener('input', (e) => {
-        debugLog('INPUT event fired on file input!', 'success');
-        e.preventDefault();
-        e.stopPropagation();
-        handleEQLogFileSelection(e);
-      });
-      
-      // Also listen for focus events as a fallback
-      fileInput.addEventListener('focus', () => {
-        debugLog('File input FOCUSED');
-        // Check if file exists when input is focused (might happen after dialog closes)
-        setTimeout(() => {
-          debugLog('Checking file input after focus...');
-          if (fileInput.files && fileInput.files.length > 0 && !eqLogSettings.fileHandle) {
-            debugLog('File found on focus, recovering...', 'success');
-            recoverFileFromInput();
-          }
-        }, 200);
-      });
-      
-      // Add a more aggressive recovery mechanism
-      // Check for files every 500ms for the first 5 seconds after popup opens
-      let recoveryAttempts = 0;
-      const maxRecoveryAttempts = 10;
-      const recoveryInterval = setInterval(() => {
-        recoveryAttempts++;
-        debugLog(`Recovery attempt ${recoveryAttempts}/${maxRecoveryAttempts}...`);
-        
-        if (fileInput.files && fileInput.files.length > 0) {
-          debugLog(`File found during recovery attempt ${recoveryAttempts}!`, 'success');
-          recoverFileFromInput();
-          clearInterval(recoveryInterval);
-        } else if (recoveryAttempts >= maxRecoveryAttempts) {
-          debugLog('Recovery attempts exhausted', 'error');
-          clearInterval(recoveryInterval);
-        }
-      }, 500);
-      
-      debugLog('All event listeners attached');
-    } else {
-      debugLog('ERROR: File input or button not found!', 'error');
-    }
+    // File selection is handled by the monitor window - no button needed
     
     // Set up tag input
     if (tagInput) {
@@ -1067,7 +1019,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (statusDiv && statusText) {
       const originalStatus = statusText.innerHTML;
       statusDiv.className = 'status success';
-      statusText.innerHTML = `✅ Log file selected: ${file.name}`;
+      statusText.innerHTML = `✅ Log file selected: ${escapeHtml(file.name)}`;
       setTimeout(() => {
         if (statusText && statusDiv) {
           statusDiv.className = originalStatus.includes('OpenDKP') ? 'status active' : 'status inactive';
@@ -1198,21 +1150,41 @@ document.addEventListener('DOMContentLoaded', function() {
       // Find the last matching line (search from end backwards)
       const lines = content.split('\n');
       let lastMatchingLine = null;
+      let linesChecked = 0;
+      let lastNonMatchingLine = null; // For debugging
       
       for (let i = lines.length - 1; i >= 0; i--) {
         const line = lines[i].trim();
-        if (line && detectLootLine(line, eqLogSettings.tag)) {
+        if (!line) continue;
+        linesChecked++;
+        if (linesChecked <= 10) { // Log first 10 non-empty lines for debugging
+          console.log(`[EQ Log Scan] Line ${i}:`, line.substring(0, 100));
+        }
+        if (detectLootLine(line, eqLogSettings.tag)) {
+          console.log(`[EQ Log Scan] ✅ MATCHED line ${i} with tag "${eqLogSettings.tag}":`, line.substring(0, 100));
           lastMatchingLine = line;
           break;
+        } else if (line.includes('tells the raid') || line.includes('tell the raid')) {
+          // Log potential matches that didn't match for debugging
+          if (!lastNonMatchingLine && linesChecked <= 20) {
+            lastNonMatchingLine = line;
+            console.log(`[EQ Log Scan] ⚠️ Potential loot line (tag mismatch):`, line.substring(0, 100));
+          }
         }
       }
+      
+      console.log(`[EQ Log Scan] Checked ${linesChecked} lines, found:`, lastMatchingLine ? 'YES' : 'NO');
       
       if (!lastMatchingLine) {
         // No matching line found
         if (!silent) {
           const originalStatus = statusText.innerHTML;
           statusDiv.className = 'status inactive';
-          statusText.innerHTML = `ℹ️ No loot lines found with tag: ${eqLogSettings.tag}`;
+          let message = `ℹ️ No loot lines found with tag: ${escapeHtml(eqLogSettings.tag)}`;
+          if (lastNonMatchingLine) {
+            message += `<br><small style="color:#888;">Found potential line but tag didn't match</small>`;
+          }
+          statusText.innerHTML = message;
           setTimeout(() => {
             statusText.innerHTML = originalStatus;
           }, 3000);
@@ -1229,7 +1201,9 @@ document.addEventListener('DOMContentLoaded', function() {
       
       // Parse the line
       const items = extractItems(lastMatchingLine, eqLogSettings.tag);
-      console.log('Extracted items:', items);
+      console.log('[EQ Log Scan] Extracted items:', items);
+      console.log('[EQ Log Scan] Tag used:', eqLogSettings.tag);
+      console.log('[EQ Log Scan] Items count:', items?.length || 0);
       
       if (!items || items.length === 0) {
         if (!silent) {
@@ -1280,15 +1254,19 @@ document.addEventListener('DOMContentLoaded', function() {
       };
       
       // Add to events
+      console.log('[EQ Log Scan] Creating event:', { id: event.id, timestamp: event.timestamp, items: event.items.length, date: event.date });
       eqLogSettings.events.push(event);
+      console.log('[EQ Log Scan] Total events in memory:', eqLogSettings.events.length);
       await saveEQLogEvents();
+      console.log('[EQ Log Scan] Saved to storage, displaying...');
       displayEQLogEvents();
+      console.log('[EQ Log Scan] Display updated');
       
       // Show success feedback
       if (!silent && statusDiv && statusText) {
         const originalStatus = statusText.innerHTML;
         statusDiv.className = 'status success';
-        statusText.innerHTML = `✅ Found ${items.length} items from last loot line!`;
+        statusText.innerHTML = `✅ Found ${escapeHtml(String(items.length))} items from last loot line!`;
         setTimeout(() => {
           statusDiv.className = originalStatus.includes('OpenDKP') ? 'status active' : 'status inactive';
           statusText.innerHTML = originalStatus;
@@ -1305,7 +1283,7 @@ document.addEventListener('DOMContentLoaded', function() {
       if (!silent && statusDiv && statusText) {
         const originalStatus = statusText.innerHTML;
         statusDiv.className = 'status inactive';
-        statusText.innerHTML = '❌ Error: ' + (error.message || 'Failed to read log file');
+        statusText.innerHTML = '❌ Error: ' + escapeHtml(error.message || 'Failed to read log file');
         setTimeout(() => {
           statusDiv.className = originalStatus.includes('OpenDKP') ? 'status active' : 'status inactive';
           statusText.innerHTML = originalStatus;
@@ -1327,24 +1305,14 @@ document.addEventListener('DOMContentLoaded', function() {
    */
   function detectLootLine(line, tag) {
     if (!tag || !line) return false;
-    
-    // Case-insensitive search for tag
-    const lowerLine = line.toLowerCase();
-    const lowerTag = tag.toLowerCase();
-    
-    const tagIndex = lowerLine.indexOf(lowerTag);
-    if (tagIndex === -1) return false;
-    
-    // Tag must appear before any delimiter (pipe or comma)
-    const pipeIndex = lowerLine.indexOf('|');
-    const commaIndex = lowerLine.indexOf(',');
-    
-    // If pipe exists and tag is after it, invalid
-    if (pipeIndex !== -1 && tagIndex > pipeIndex) return false;
-    // If comma exists and tag is after it, invalid
-    if (commaIndex !== -1 && tagIndex > commaIndex) return false;
-    
-    return true;
+    // Try to match the standard EQ log format: [timestamp] name tells the raid, 'message'
+    const m = line.match(/^\[[^\]]+\]\s.*?(?:tells the raid|tell the raid|tell your party|tells your party|say),\s*'(.*)'\s*$/i);
+    if (!m) return false;
+    const quoted = m[1];
+    if (!quoted) return false;
+    // Check if quoted text starts with the tag (case-insensitive, word boundary)
+    const re = new RegExp('^\s*' + tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
+    return re.test(quoted);
   }
   
   /**
@@ -1353,63 +1321,23 @@ document.addEventListener('DOMContentLoaded', function() {
    */
   function extractItems(line, tag) {
     if (!line || !tag) return [];
-    
-    // Find tag position (case-insensitive)
-    const lowerLine = line.toLowerCase();
-    const lowerTag = tag.toLowerCase();
-    let tagIndex = lowerLine.indexOf(lowerTag);
-    
-    if (tagIndex === -1) return [];
-    
-    // Find the text after the tag, extract until closing quote or end
-    // Look for the quote that contains the tag
-    const afterTag = line.substring(tagIndex);
-    
-    // Find opening quote before tag
-    let startIndex = line.lastIndexOf("'", tagIndex);
-    // Find closing quote AFTER the tag (start search after tag ends)
-    let endIndex = line.indexOf("'", tagIndex + tag.length);
-    
-    let lootText = '';
-    
-    // If quotes are found and properly positioned, extract text between them (after the\ tag)
-    if (startIndex !== -1 && endIndex !== -1) {
-      // Extract text after the tag within the quotes
-      lootText = line.substring(tagIndex + tag.length, endIndex).trim();
-    } else {
-      // If no quotes found, try to extract from tag to end of line
-      const afterTagText = line.substring(tagIndex + tag.length).trim();
-      lootText = afterTagText;
-    }
-    
-    if (!lootText) return [];
-    
-    // Detect delimiter: prefer pipe if both are present, otherwise use whichever is found
-    const hasPipe = lootText.includes('|');
-    const hasComma = lootText.includes(',');
-    
+    // Match the standard EQ log format: [timestamp] name tells the raid, 'message'
+    const m = line.match(/^\[[^\]]+\]\s.*?(?:tells the raid|tell the raid|tell your party|tells your party|say),\s*'(.*)'\s*$/i);
+    if (!m) return [];
+    const quoted = m[1];
+    if (!quoted) return [];
+    // Remove tag from start of quoted text
+    const after = quoted.replace(new RegExp('^\n?\r?\t?\uFEFF?\s*' + tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*', 'i'), '').trim();
+    if (!after) return [];
+    const hasPipe = after.includes('|');
+    const hasComma = after.includes(',');
     let items = [];
-    
     if (!hasPipe && !hasComma) {
-      // No delimiter found - treat as single item
-      items = [lootText.trim()];
+      items = [after];
     } else {
-      // Split by detected delimiter (prefer pipe if both are present)
-      const delimiter = hasPipe ? '|' : ',';
-      items = lootText.split(delimiter).map(item => item.trim());
+      items = after.split(hasPipe ? '|' : ',').map(s => s.trim());
     }
-    
-    // Clean up items: remove tag if present and filter out empty items
-    return items
-      .map(item => {
-        // Remove tag if it appears in the item (at start or anywhere)
-        return item.replace(new RegExp('^' + tag + '\\s*', 'gi'), '').trim();
-      })
-      .filter(item => {
-        // Filter out empty items and items that only contain the tag
-        const cleanItem = item.replace(new RegExp(tag, 'gi'), '').trim();
-        return cleanItem && cleanItem.length > 0;
-      });
+    return items.filter(Boolean);
   }
   
   /**
@@ -1444,14 +1372,51 @@ document.addEventListener('DOMContentLoaded', function() {
    * Display EQ log events
    */
   function displayEQLogEvents() {
+    console.log('[EQ Log Display] ===== displayEQLogEvents() called =====');
     const eventsContainer = document.getElementById('eqLogEvents');
-    if (!eventsContainer) return;
+    if (!eventsContainer) {
+      console.error('[EQ Log Display] ❌ eventsContainer not found - element #eqLogEvents missing!');
+      return;
+    }
+    console.log('[EQ Log Display] ✅ eventsContainer found');
+    
     const eqSection = document.getElementById('eqLogSection');
+    if (!eqSection) {
+      console.error('[EQ Log Display] ❌ eqSection not found - element #eqLogSection missing!');
+      return;
+    }
+    console.log('[EQ Log Display] ✅ eqSection found, current display:', eqSection.style.display);
+    
+    // Ensure eqLogSettings.events is always an array
+    if (!eqLogSettings || !Array.isArray(eqLogSettings.events)) {
+      console.warn('[EQ Log Display] eqLogSettings.events not initialized, initializing to empty array');
+      if (!eqLogSettings) {
+        eqLogSettings = {};
+      }
+      eqLogSettings.events = [];
+    }
+    
+    console.log('[EQ Log Display] Total events in memory:', eqLogSettings.events.length);
+    if (eqLogSettings.events.length > 0) {
+      console.log('[EQ Log Display] Sample events:', eqLogSettings.events.slice(0, 3).map(e => ({
+        date: e.date,
+        itemsCount: e.items?.length || 0,
+        timestamp: e.timestamp,
+        hasItems: !!e.items
+      })));
+    }
     
     // Filter to today's events and sort by timestamp (newest first)
     const today = formatDate(new Date());
+    console.log('[EQ Log Display] Today date:', today);
     const todaysEvents = eqLogSettings.events
-      .filter(event => event.date === today)
+      .filter(event => {
+        const matches = event.date === today;
+        if (!matches && eqLogSettings.events.length <= 10) {
+          console.log('[EQ Log Display] Event filtered out (not today):', { date: event.date, today, timestamp: event.timestamp });
+        }
+        return matches;
+      })
       .sort((a, b) => {
         // Sort by event ID (which includes timestamp), newest first
         // Since timestamps are strings like "Mon Oct 27 22:57:16 2025", just reverse array
@@ -1460,12 +1425,37 @@ document.addEventListener('DOMContentLoaded', function() {
       })
       .reverse();
     
+    console.log('[EQ Log Display] Today\'s events:', todaysEvents.length);
+    if (todaysEvents.length > 0) {
+      console.log('[EQ Log Display] First event:', { id: todaysEvents[0].id, items: todaysEvents[0].items?.length || 0, timestamp: todaysEvents[0].timestamp });
+    }
+    
     if (todaysEvents.length === 0) {
       eventsContainer.innerHTML = '<div class="empty-state">No loot events captured yet.</div>';
-      if (eqSection) eqSection.style.display = 'none';
+      // Hide section when there are no events AND not monitoring
+      if (eqSection) {
+        const isRaidLeader = eqSection.getAttribute('data-raid-leader') === 'true';
+        const isMonitoring = eqLogSettings.monitoring || false;
+        // Only show section if actively monitoring, otherwise hide it
+        if (isRaidLeader && isMonitoring) {
+          // Keep section visible but show empty state when monitoring
+          eqSection.style.display = 'block';
+        } else {
+          // Hide section when not monitoring and no events
+          eqSection.style.display = 'none';
+        }
+      }
+      console.log('[EQ Log Display] No events today, monitoring:', eqLogSettings.monitoring);
       return;
     }
-    if (eqSection) eqSection.style.display = 'block';
+    // Always show section when events exist
+    if (eqSection) {
+      eqSection.style.display = 'block';
+      // Ensure it's marked as raid leader section if events exist
+      if (eqSection.getAttribute('data-raid-leader') !== 'true') {
+        eqSection.setAttribute('data-raid-leader', 'true');
+      }
+    }
     
     // Limit to 50 most recent events
     const displayEvents = todaysEvents.slice(0, 50);
@@ -1497,11 +1487,15 @@ document.addEventListener('DOMContentLoaded', function() {
       createItemButton(item, event.id, index)
     ).join('');
     
+    // Escape event ID and timestamp for safe HTML
+    const eventId = escapeHtmlAttr(String(event.id));
+    const timestamp = escapeHtml(event.timestamp || '');
+    
     return `
-      <div class="eq-log-event" data-event-id="${event.id}">
+      <div class="eq-log-event" data-event-id="${eventId}">
         <div class="eq-log-event-header">
-          <span class="eq-log-event-timestamp">${event.timestamp}</span>
-          <button class="eq-log-event-close" data-event-id="${event.id}" title="Remove">×</button>
+          <span class="eq-log-event-timestamp">${timestamp}</span>
+          <button class="eq-log-event-close" data-event-id="${eventId}" title="Remove">×</button>
         </div>
         <div class="eq-log-items">
           ${itemsHtml}
@@ -1514,10 +1508,16 @@ document.addEventListener('DOMContentLoaded', function() {
    * Create HTML for an item copy button
    */
   function createItemButton(item, eventId, itemIndex) {
+    // Escape all values for safe HTML
+    const escapedItem = escapeHtml(item);
+    const escapedItemAttr = escapeHtmlAttr(item);
+    const escapedEventId = escapeHtmlAttr(String(eventId));
+    const escapedItemIndex = escapeHtmlAttr(String(itemIndex));
+    
     return `
       <div class="eq-log-item">
-        <span class="eq-log-item-name">${escapeHtml(item)}</span>
-        <button class="btn btn-small eq-log-item-copy" data-item="${escapeHtml(item)}" data-event-id="${eventId}" data-item-index="${itemIndex}">Copy</button>
+        <span class="eq-log-item-name">${escapedItem}</span>
+        <button class="btn btn-small eq-log-item-copy" data-item="${escapedItemAttr}" data-event-id="${escapedEventId}" data-item-index="${escapedItemIndex}">Copy</button>
       </div>
     `;
   }
@@ -1578,4 +1578,12 @@ document.addEventListener('DOMContentLoaded', function() {
     div.textContent = text;
     return div.innerHTML;
   }
-});
+}
+
+// Initialize when DOM is ready or immediately if already loaded
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initializePopup);
+} else {
+  // DOM already loaded, initialize immediately
+  initializePopup();
+}
