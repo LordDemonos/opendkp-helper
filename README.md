@@ -235,7 +235,11 @@ The `manifest.json` should use `background.scripts`:
 
 ## ⚙️ Settings Reference
 
-> 📸 **[View Full Settings Page Screenshot](assets/images/SettingsFull.png)** _(Large image - opens in new tab)_
+<a href="assets/images/SettingsFull.png" target="_blank">
+  <img src="assets/images/SettingsFull-thumb.png" alt="Full Settings Page (click to view full size)" style="max-width: 100%; height: auto; border: 1px solid #ccc;" />
+</a>
+
+<p><em>Click the image above to view the full-size settings page screenshot.</em></p>
 
 
 ### Audio Settings
