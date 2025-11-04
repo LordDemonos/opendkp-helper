@@ -1,4 +1,4 @@
-name: Publish to Firefox Add-ons
+name: Publish to Firefox Add-ons (AMO)
 
 on:
   release:
