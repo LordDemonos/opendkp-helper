@@ -8,8 +8,10 @@ console.log('🔵 Background script executing at:', new Date().toISOString());
 (function(){
   // Get browser API - Chrome uses chrome.*, Firefox uses browser.*
   const api = typeof browser !== 'undefined' ? browser : chrome;
+  const isFirefox = typeof browser !== 'undefined';
   let cached = { reminders: [], reminderPrefs: { flash: true, notifications: true }, soundProfile: 'raidleader' };
   let tickId = null;
+  let settingsLoadedAt = 0; // Track when settings were last loaded (for Firefox suspension detection)
   // Track last fired boundary per reminder to prevent duplicate fires within same 5-min window
   let lastFiredBoundary = {}; // remId -> "HH:MM" of last 5-min boundary we fired for
   // Track open reminder windows by reminder ID
@@ -18,7 +20,7 @@ console.log('🔵 Background script executing at:', new Date().toISOString());
   function loadSettings() {
     try {
       console.log('[ODKP Reminder] 🔄 loadSettings called - fetching from storage...');
-      api.storage.sync.get(['reminders','reminderPrefs','soundProfile']).then((s)=>{
+      return api.storage.sync.get(['reminders','reminderPrefs','soundProfile']).then((s)=>{
         console.log('[ODKP Reminder] 📦 Raw storage response:', {
           hasReminders: !!s.reminders,
           remindersType: Array.isArray(s.reminders) ? 'array' : typeof s.reminders,
@@ -66,11 +68,19 @@ console.log('🔵 Background script executing at:', new Date().toISOString());
           todayDayOfWeek: new Date().getDay(),
           enabledDaysIncludesToday: cached.reminderPrefs.enabledDays.includes(new Date().getDay())
         });
+        
+        // Track when settings were loaded (for Firefox suspension detection)
+        settingsLoadedAt = Date.now();
+        
+        // Return resolved promise to allow chaining
+        return Promise.resolve();
       }).catch((e)=>{
         console.error('[ODKP Reminder] ❌ Error loading settings:', e);
+        return Promise.reject(e);
       });
     } catch(e) {
       console.error('[ODKP Reminder] ❌ Exception in loadSettings:', e);
+      return Promise.reject(e);
     }
   }
 
@@ -442,13 +452,67 @@ console.log('🔵 Background script executing at:', new Date().toISOString());
       alarmsAPIInit.onAlarm.addListener((alarm) => {
         console.log('[ODKP Reminder] 🔔 Alarm fired:', alarm.name, 'at', new Date().toISOString());
         if (alarm.name === 'reminder-ticker') {
-          console.log('[ODKP Reminder] ⏰ reminder-ticker alarm triggered - calling onTick()');
-          onTick();
+          console.log('[ODKP Reminder] ⏰ reminder-ticker alarm triggered');
+          
+          // CRITICAL: In Firefox, background scripts can be suspended and lose state
+          // When woken by an alarm, we must ensure settings are loaded
+          // Check if settings are actually loaded (not just initialized with defaults)
+          const hasValidSettings = cached.reminders && 
+                                   Array.isArray(cached.reminders) && 
+                                   cached.reminders.length > 0 && 
+                                   cached.soundProfile;
+          
+          // Also check if we have reminderPrefs (indicates real load, not just defaults)
+          const hasRealSettings = cached.reminderPrefs && 
+                                 (cached.reminderPrefs.flash !== undefined || 
+                                  cached.reminderPrefs.notifications !== undefined);
+          
+          // In Firefox, if settings were never loaded (settingsLoadedAt === 0) or it's been
+          // more than 30 seconds since last load, reload them (script might have been suspended)
+          const settingsStale = isFirefox && (settingsLoadedAt === 0 || (Date.now() - settingsLoadedAt) > 30000);
+          
+          if (!hasValidSettings || !hasRealSettings || settingsStale) {
+            console.log('[ODKP Reminder] ⚠️ Cached settings empty or invalid, reloading before onTick()');
+            console.log('[ODKP Reminder] 🔍 Current cached state:', {
+              reminderCount: cached.reminders?.length || 0,
+              hasSoundProfile: !!cached.soundProfile,
+              hasReminderPrefs: !!cached.reminderPrefs,
+              reminderPrefs: cached.reminderPrefs
+            });
+            
+            // Reload settings and then call onTick()
+            loadSettings().then(() => {
+              console.log('[ODKP Reminder] ✅ Settings reloaded, now calling onTick()');
+              // Re-ensure ticker is set up (in case it was lost)
+              ensureTicker();
+              onTick();
+            }).catch((err) => {
+              console.error('[ODKP Reminder] ❌ Failed to reload settings, calling onTick() anyway:', err);
+              onTick(); // Still try to run with defaults
+            });
+          } else {
+            console.log('[ODKP Reminder] ✅ Cached settings available, calling onTick()');
+            onTick();
+          }
         } else if (alarm.name === 'service-worker-keepalive') {
           // Keep service worker alive - this alarm fires every ~4 minutes
           // Chrome terminates service workers after 5 minutes of inactivity
           console.log('[ODKP Reminder] 💓 Service worker keepalive ping');
-          // Do nothing, just being called keeps us alive
+          // Verify settings are still loaded (for Firefox background script persistence)
+          // Also ensure ticker is still active
+          const hasValidSettings = cached.reminders && 
+                                   Array.isArray(cached.reminders) && 
+                                   cached.reminders.length > 0;
+          if (!hasValidSettings) {
+            console.log('[ODKP Reminder] 🔄 Keepalive: Reloading settings and ensuring ticker');
+            loadSettings().then(() => {
+              ensureTicker();
+            }).catch(() => {});
+          } else {
+            // Even if settings are loaded, ensure ticker is still active
+            // (alarm might have been cleared somehow)
+            ensureTicker();
+          }
         } else {
           console.log('[ODKP Reminder] ℹ️ Unknown alarm fired:', alarm.name);
         }
@@ -496,22 +560,28 @@ console.log('🔵 Background script executing at:', new Date().toISOString());
   if (api.runtime && api.runtime.onStartup) {
     api.runtime.onStartup.addListener(() => {
       console.log('[ODKP Reminder] Extension startup detected, reinitializing...');
-      loadSettings();
-      ensureTicker();
+      loadSettings().then(() => {
+        ensureTicker();
+      }).catch(() => {
+        ensureTicker(); // Still set up ticker with defaults
+      });
     });
   }
   
   if (api.runtime && api.runtime.onInstalled) {
     api.runtime.onInstalled.addListener(() => {
       console.log('[ODKP Reminder] Extension installed/updated, reinitializing...');
-      loadSettings();
-      ensureTicker();
+      loadSettings().then(() => {
+        ensureTicker();
+      }).catch(() => {
+        ensureTicker(); // Still set up ticker with defaults
+      });
     });
   }
 
   try {
     console.log('[ODKP Reminder] 🚀 Initializing reminder scheduler...');
-    console.log('[ODKP Reminder] 📋 Initialization order: loadSettings() → ensureTicker()');
+    console.log('[ODKP Reminder] 📋 Initialization order: loadSettings() → ensureTicker() (after settings load)');
     console.log('[ODKP Reminder] 🌐 Browser API:', {
       hasAlarms: !!(api.alarms || (typeof chrome !== 'undefined' && chrome.alarms) || (typeof browser !== 'undefined' && browser.alarms)),
       apiType: typeof browser !== 'undefined' ? 'browser' : 'chrome',
@@ -519,12 +589,18 @@ console.log('🔵 Background script executing at:', new Date().toISOString());
       hasStorageSync: !!(api.storage && api.storage.sync),
       timestamp: new Date().toISOString()
     });
-    loadSettings();
-    // Note: ensureTicker() is called immediately after loadSettings(), 
-    // but loadSettings() is async. This means ensureTicker() might run before
-    // cached state is populated. This could be the issue.
-    console.log('[ODKP Reminder] ⚠️ Calling ensureTicker() immediately after loadSettings() (loadSettings is async!)');
-    ensureTicker();
+    
+    // Load settings first, then set up ticker AFTER settings are loaded
+    // This ensures cached state is populated before ensureTicker() runs
+    // This is critical for Firefox where background scripts may restart
+    loadSettings().then(() => {
+      console.log('[ODKP Reminder] ✅ Settings loaded, now calling ensureTicker()');
+      ensureTicker();
+    }).catch((err) => {
+      console.error('[ODKP Reminder] ❌ Error loading settings, still setting up ticker:', err);
+      // Still set up ticker even if settings load fails (will use defaults)
+      ensureTicker();
+    });
     (api.storage && api.storage.onChanged) && api.storage.onChanged.addListener((changes, area)=>{
       console.log('[ODKP Reminder] 🔔 storage.onChanged event fired:', {
         area: area,
@@ -542,10 +618,14 @@ console.log('🔵 Background script executing at:', new Date().toISOString());
       
       if (area === 'sync' && (changes.reminders || changes.reminderPrefs || changes.soundProfile)) {
         console.log('[ODKP Reminder] ✅ Relevant changes detected - reloading settings...');
-        loadSettings();
-        // Ensure ticker is still running after settings reload
-        console.log('[ODKP Reminder] 🔄 Calling ensureTicker after settings change...');
-        ensureTicker();
+        loadSettings().then(() => {
+          // Ensure ticker is still running after settings reload
+          console.log('[ODKP Reminder] 🔄 Calling ensureTicker after settings change...');
+          ensureTicker();
+        }).catch(() => {
+          // Still refresh ticker even if settings load fails
+          ensureTicker();
+        });
       } else {
         console.log('[ODKP Reminder] ⏭️ Changes not relevant to reminders - skipping reload');
       }

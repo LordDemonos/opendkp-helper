@@ -979,9 +979,11 @@
       return true;
     }
     
-    // Rule 6: Alert for roll-offs (multiple people with same bid)
-    if (context.rollOffWinners && context.rollOffWinners.length > 1) {
-      log('Roll-off detected, showing alert');
+    // Rule 6: Alert for roll-offs (multiple people with same bid AND more people than items)
+    // Roll-off only happens when participants > quantity (e.g., 2 people bid 1000 on 1 item)
+    // If quantity >= participants, they all win (e.g., 2 people bid 1000 on 2 items = both win, no roll-off)
+    if (context.isRollOff && context.rollOffWinners && context.rollOffWinners.length > (context.quantity || 1)) {
+      log('Roll-off detected (participants > quantity), showing alert');
       return true;
     }
     
@@ -1713,11 +1715,49 @@
         return Array.from(winnersMap.values());
       }
       
-      // If quantity > 1, look for bids/results table to find all winners
+      // CRITICAL: Always check for roll-offs, not just when quantity > 1
+      // Roll-offs happen when multiple people bid the same amount (especially 1000 cap)
+      // This can happen on single-item auctions too!
       let rollOffWinners = [];
-      if (quantity && quantity > 1) {
-        // Strategy 1: Find the tab panel associated with this auction container
-        // The auction container's ID might match a tab panel
+      let rollOffBid = null;
+      
+      // Strategy 1: Check tab-offset for multiple winners with same bid (roll-off scenario)
+      // Format might be: "Player1 - 1000, Player2 - 1000, Player3 - 1000" or just comma-separated
+      if (winnerText && winnerText.includes(',')) {
+        const winnerParts = winnerText.split(',').map(s => s.trim());
+        const parsedWinners = winnerParts
+          .map(part => {
+            const match = part.match(/^(.+?)\s*-\s*(\d+)$/);
+            if (match) {
+              return { winner: match[1].trim(), bid: parseInt(match[2]) };
+            }
+            // If no bid amount in part, use the extracted bidAmount if available
+            if (bidAmount && part.trim().length > 0) {
+              return { winner: part.trim(), bid: bidAmount };
+            }
+            return null;
+          })
+          .filter(Boolean);
+        
+        // Check if all winners have the same bid amount (roll-off)
+        if (parsedWinners.length > 1) {
+          const allSameBid = parsedWinners.every(w => w.bid === parsedWinners[0].bid);
+          if (allSameBid && parsedWinners[0].bid > 0) {
+            rollOffWinners = parsedWinners;
+            rollOffBid = parsedWinners[0].bid;
+            log('Found roll-off from tab-offset (multiple winners with same bid):', rollOffWinners);
+          } else {
+            // Multiple winners but different bids - might be multi-item auction
+            rollOffWinners = parsedWinners;
+            log('Found multiple winners from tab-offset (different bids):', rollOffWinners);
+          }
+        }
+      }
+      
+      // Strategy 2: Look for bids/results table to find all winners with same bid
+      // This works for both single-item roll-offs and multi-item auctions
+      if (rollOffWinners.length === 0 && bidAmount && bidAmount > 0) {
+        // Find the tab panel associated with this auction container
         let tabPanel = null;
         if (auctionContainer && auctionContainer.id) {
           // Try to find tab panel that corresponds to this auction
@@ -1734,16 +1774,22 @@
           // Look for datatable in the tab panel (based on your DOM: class="p-datatable-table")
           const bidsTable = tabPanel.querySelector('table.p-datatable-table, table');
           if (bidsTable) {
-            rollOffWinners = extractWinnersFromTable(bidsTable, bidAmount);
-            if (rollOffWinners.length > 0) {
-              log('Found multiple winners from tab panel table:', rollOffWinners);
+            const extracted = extractWinnersFromTable(bidsTable, bidAmount);
+            if (extracted.length > 1) {
+              // Multiple people with same bid = roll-off
+              rollOffWinners = extracted;
+              rollOffBid = bidAmount;
+              log('Found roll-off from tab panel table (multiple winners with same bid):', rollOffWinners);
+            } else if (extracted.length > 0) {
+              rollOffWinners = extracted;
+              log('Found single winner from tab panel table:', rollOffWinners);
             }
           }
         }
         
-        // Strategy 2: If not found in tab panel, look for any table with character links
-        // (tables with <a href="#/characters/..."> are likely results tables)
-        if (rollOffWinners.length < quantity) {
+        // Strategy 3: If not found in tab panel, look for any table with character links
+        // (tables with <a href="#/characters/..."> are likely results/bids tables)
+        if (rollOffWinners.length <= 1) {
           const allTables = document.querySelectorAll('table');
           for (const table of allTables) {
             // Check if this table has character links (indicates it's a results/bids table)
@@ -1753,41 +1799,83 @@
               // Check if this table is in the same tab view as our auction
               const tableParent = table.closest('.p-tabview-panel');
               if (tableParent || rollOffWinners.length === 0) {
-                // Extract winners and check if we found enough
+                // Extract winners with same bid amount
                 const extracted = extractWinnersFromTable(table, bidAmount);
-                if (extracted.length >= quantity) {
+                if (extracted.length > 1) {
+                  // Multiple people with same bid = roll-off
                   rollOffWinners = extracted;
-                  log('Found multiple winners from table with character links:', rollOffWinners);
+                  rollOffBid = bidAmount;
+                  log('Found roll-off from table with character links (multiple winners with same bid):', rollOffWinners);
                   break;
                 } else if (extracted.length > 0 && rollOffWinners.length === 0) {
                   // At least save what we found
                   rollOffWinners = extracted;
-                  log('Found some winners from table with character links (not enough):', rollOffWinners);
+                  log('Found single winner from table with character links:', rollOffWinners);
                 }
               }
             }
           }
         }
-        
-        // Strategy 3: If we found quantity but no winners table, check if tab-offset shows multiple winners
-        // Some auctions might show "Winner1 - 100, Winner2 - 80" in tab-offset
-        if (rollOffWinners.length === 0 && winnerText && winnerText.includes(',')) {
-          const winnerParts = winnerText.split(',').map(s => s.trim());
-          rollOffWinners = winnerParts
-            .map(part => {
-              const match = part.match(/^(.+?)\s*-\s*(\d+)$/);
-              if (match) {
-                return { winner: match[1].trim(), bid: parseInt(match[2]) };
+      }
+      
+      // Strategy 4: Special case - if bidAmount is 1000 (cap) and we have a winner,
+      // check if there are other rows in the table with 1000 bid (roll-off likely)
+      if (rollOffWinners.length <= 1 && bidAmount === 1000) {
+        log('Bid amount is 1000 (cap), checking for roll-off participants...');
+        // Look for table rows with 1000 bid
+        const allTables = document.querySelectorAll('table');
+        for (const table of allTables) {
+          const rows = table.querySelectorAll('tbody tr, tr');
+          const capBidders = [];
+          
+          for (const row of rows) {
+            if (row.querySelector('th')) continue; // Skip headers
+            
+            const cells = row.querySelectorAll('td');
+            if (cells.length >= 2) {
+              // Find bid cell (usually contains numbers)
+              let rowBid = null;
+              let rowWinner = null;
+              
+              for (let i = 0; i < cells.length; i++) {
+                const cellText = cells[i].textContent.trim();
+                const bidMatch = cellText.match(/^(\d+)$/);
+                if (bidMatch && parseInt(cellText) === 1000) {
+                  rowBid = 1000;
+                  // Look for winner name in nearby cells
+                  for (let j = 0; j < cells.length; j++) {
+                    const nameLink = cells[j].querySelector('a[href*="/characters/"]');
+                    if (nameLink) {
+                      rowWinner = nameLink.textContent.trim();
+                      break;
+                    }
+                  }
+                  break;
+                }
               }
-              return null;
-            })
-            .filter(Boolean);
-          log('Found multiple winners from tab-offset:', rollOffWinners);
+              
+              if (rowBid === 1000 && rowWinner) {
+                capBidders.push({ winner: rowWinner, bid: 1000 });
+              }
+            }
+          }
+          
+          if (capBidders.length > 1) {
+            rollOffWinners = capBidders;
+            rollOffBid = 1000;
+            log('Found roll-off: Multiple bidders at 1000 cap:', rollOffWinners);
+            break;
+          }
         }
       }
       
       // Check if no one bid (bid amount is 0 or null)
       const noBid = !bidAmount || bidAmount === 0;
+      
+      // Determine if this is a roll-off (multiple people with same bid AND more people than items)
+      // Roll-off only happens when participants > quantity (e.g., 2 people bid 1000 on 1 item)
+      // If quantity >= participants, they all win (e.g., 2 people bid 1000 on 2 items = both win)
+      const isRollOff = rollOffWinners.length > 1 && rollOffBid !== null && rollOffWinners.length > (quantity || 1);
       
       let context = {
         winner: winner,
@@ -1798,7 +1886,10 @@
         rawWinnerText: winnerText,
         noBid: noBid,
         isTableStructure: false,
-        rollOffWinners: rollOffWinners.length > 0 ? rollOffWinners : undefined
+        rollOffWinners: rollOffWinners.length > 0 ? rollOffWinners : undefined,
+        rollOffBid: rollOffBid,
+        isRollOff: isRollOff,
+        multipleWinners: rollOffWinners.length > 1 && !isRollOff // Multiple winners but different bids
       };
       // Sanitize: item name should not include winner name prefixes like "Winner - Item"
       if (context.itemName && context.winner) {
@@ -1882,6 +1973,11 @@
       // Check if no one bid (bid amount is 0 or null)
       const noBid = !bidAmount || bidAmount === 0;
       
+      // Determine if this is a roll-off (multiple people with same bid AND more people than items)
+      // Roll-off only happens when participants > quantity (e.g., 2 people bid 1000 on 1 item)
+      // If quantity >= participants, they all win (e.g., 2 people bid 1000 on 2 items = both win)
+      const isRollOff = rollOffWinners.length > 1 && rollOffBid !== null && rollOffWinners.length > (quantity || 1);
+      
       let context = {
         winner: winner,
         bidAmount: bidAmount,
@@ -1893,7 +1989,9 @@
         rollOffWinners: rollOffWinners,
         rollOffBid: rollOffBid,
         noBid: noBid,
-        isTableStructure: true
+        isTableStructure: true,
+        isRollOff: isRollOff,
+        multipleWinners: rollOffWinners.length > 1 && !isRollOff // Multiple winners but different bids
       };
       // Sanitize stray winner prefixes in itemName
       if (context.itemName && context.winner) {
@@ -1936,10 +2034,12 @@
       log('TTS: Using custom template:', message);
     } else {
       // Use default logic
-      if (context.isRollOff) {
-        message = `Roll-off for ${context.itemName}. Participants: ${context.winners.join(', ')}`;
-      } else if (context.multipleWinners) {
-        message = `Multiple winners for ${context.itemName}. Winners: ${context.winners.join(', ')}`;
+      if (context.isRollOff && context.rollOffWinners && context.rollOffWinners.length > 1) {
+        const participants = context.rollOffWinners.map(w => w.winner || w).join(', ');
+        message = `Roll-off for ${context.itemName}. Participants: ${participants}`;
+      } else if (context.multipleWinners && context.rollOffWinners && context.rollOffWinners.length > 1) {
+        const winners = context.rollOffWinners.map(w => w.winner || w).join(', ');
+        message = `Multiple winners for ${context.itemName}. Winners: ${winners}`;
       } else if (context.winner && context.bidAmount) {
         message = `Auction Finished. ${context.winner} for ${context.bidAmount} DKP on ${context.itemName}`;
       } else {
@@ -2021,7 +2121,16 @@
     message = message.replace(/\{winner\}/g, context.winner || 'Unknown');
     message = message.replace(/\{bidAmount\}/g, context.bidAmount || '0');
     message = message.replace(/\{itemName\}/g, context.itemName || 'Unknown Item');
-    message = message.replace(/\{winners\}/g, context.winners || 'Unknown');
+    
+    // Handle winners list - prioritize rollOffWinners if present
+    let winnersList = 'Unknown';
+    if (context.rollOffWinners && context.rollOffWinners.length > 0) {
+      winnersList = context.rollOffWinners.map(w => w.winner || w).join(', ');
+    } else if (context.winner) {
+      winnersList = context.winner;
+    }
+    message = message.replace(/\{winners\}/g, winnersList);
+    
     message = message.replace(/\{isRollOff\}/g, context.isRollOff ? 'true' : 'false');
     message = message.replace(/\{multipleWinners\}/g, context.multipleWinners ? 'true' : 'false');
     
@@ -2049,11 +2158,11 @@
     }
     
     // Handle different auction scenarios
-    if (context.rollOffWinners && context.rollOffWinners.length > 1) {
-      // Roll-off scenario
+    if (context.isRollOff && context.rollOffWinners && context.rollOffWinners.length > 1) {
+      // Roll-off scenario (multiple people with same bid, especially 1000 cap)
       message = 'Roll-off Required!';
-      details.push(`Bid Amount: ${context.rollOffBid}`);
-      details.push(`Roll-off Participants: ${context.rollOffWinners.map(w => w.winner).join(', ')}`);
+      details.push(`Bid Amount: ${context.rollOffBid || context.bidAmount}`);
+      details.push(`Roll-off Participants: ${context.rollOffWinners.map(w => w.winner || w).join(', ')}`);
     } else if (context.quantity > 1 && context.rollOffWinners && context.rollOffWinners.length >= context.quantity) {
       // Multiple winners for multi-item auction
       message = 'Multiple Winners!';

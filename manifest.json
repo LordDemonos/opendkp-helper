@@ -22,19 +22,33 @@
         "https://opendkp.com/*",
         "https://*.opendkp.com/*"
       ],
-      "js": ["content.js"],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_idle"
     }
   ],
-          "web_accessible_resources": [
-            {
-              "resources": ["jobsdone.mp3", "workcomplete.mp3", "ding1.mp3", "ding2.mp3", "ding3.mp3", "ding4.mp3", "bell.mp3", "hotel.mp3", "icons/icon-48.png", "icons/icon-16.png", "icons/icon-128.png"],
-              "matches": [
-                "https://opendkp.com/*",
-                "https://*.opendkp.com/*"
-              ]
-            }
-          ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "jobsdone.mp3",
+        "workcomplete.mp3",
+        "ding1.mp3",
+        "ding2.mp3",
+        "ding3.mp3",
+        "ding4.mp3",
+        "bell.mp3",
+        "hotel.mp3",
+        "icons/icon-48.png",
+        "icons/icon-16.png",
+        "icons/icon-128.png"
+      ],
+      "matches": [
+        "https://opendkp.com/*",
+        "https://*.opendkp.com/*"
+      ]
+    }
+  ],
   "action": {
     "default_popup": "popup.html",
     "default_title": "OpenDKP Helper",
@@ -51,7 +65,9 @@
     "128": "icons/icon-128.png"
   },
   "background": {
-    "service_worker": "background.js"
+    "scripts": [
+      "background.js"
+    ]
   },
   "browser_specific_settings": {
     "gecko": {

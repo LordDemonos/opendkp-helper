@@ -31,3 +31,8 @@ Thumbs.db
 *.tmp
 *.bak
 *.log
+
+# Build Output
+build/
+*.zip
+*.xpi
