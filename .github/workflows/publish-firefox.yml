@@ -49,15 +49,17 @@ jobs:
             manifest.license = 'MIT';
           }
           
-          // Ensure browser_specific_settings.gecko.data_collection_permissions exists
+          // Ensure browser_specific_settings.gecko.data_collection_permissions exists and is an object
           if (!manifest.browser_specific_settings) {
             manifest.browser_specific_settings = {};
           }
           if (!manifest.browser_specific_settings.gecko) {
             manifest.browser_specific_settings.gecko = {};
           }
-          if (!manifest.browser_specific_settings.gecko.data_collection_permissions) {
-            manifest.browser_specific_settings.gecko.data_collection_permissions = [];
+          // Always set to object (fixes if it was previously an array)
+          if (!manifest.browser_specific_settings.gecko.data_collection_permissions || 
+              Array.isArray(manifest.browser_specific_settings.gecko.data_collection_permissions)) {
+            manifest.browser_specific_settings.gecko.data_collection_permissions = {};
           }
           
           fs.writeFileSync('manifest.json', JSON.stringify(manifest, null, 2) + '\n');
@@ -93,6 +95,28 @@ jobs:
             --exclude='*.tmp' \
             --exclude='*.bak' \
             ./ package-build/
+          
+          # Verify and fix manifest.json in package-build (ensure data_collection_permissions is object)
+          node -e "
+          const fs = require('fs');
+          const manifestPath = 'package-build/manifest.json';
+          const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+          
+          // Force data_collection_permissions to be an object
+          if (manifest.browser_specific_settings && 
+              manifest.browser_specific_settings.gecko) {
+            if (!manifest.browser_specific_settings.gecko.data_collection_permissions || 
+                Array.isArray(manifest.browser_specific_settings.gecko.data_collection_permissions)) {
+              manifest.browser_specific_settings.gecko.data_collection_permissions = {};
+              fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+              console.log('Fixed data_collection_permissions in package-build/manifest.json');
+            }
+          }
+          console.log('Verifying manifest.json in package-build:');
+          console.log('  - data_collection_permissions type:', 
+            Array.isArray(manifest.browser_specific_settings?.gecko?.data_collection_permissions) ? 'ARRAY (BAD)' : 
+            typeof manifest.browser_specific_settings?.gecko?.data_collection_permissions);
+          "
           
           # Create ZIP file
           cd package-build
