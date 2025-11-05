@@ -1055,14 +1055,15 @@ function renderRemindersUI() {
     }
     
     const labelColor = isDarkMode ? '#e0e0e0' : '#333';
+    const escapedLabelColor = escapeHtmlAttr(labelColor);
     row.innerHTML = `
-      <label style="display:flex; align-items:center; gap:6px; flex-shrink:0; color:${labelColor};">
+      <label style="display:flex; align-items:center; gap:6px; flex-shrink:0; color:${escapedLabelColor};">
         <input type="checkbox" data-k="enabled" ${r.enabled ? 'checked' : ''}> Enabled
       </label>
-      <label style="flex-shrink:0; color:${labelColor};">Start:
+      <label style="flex-shrink:0; color:${escapedLabelColor};">Start:
         <input type="time" step="300" data-k="start" value="${escapeHtmlAttr(r.start||'19:00')}" style="width:100px;">
       </label>
-      <label style="flex-shrink:0; color:${labelColor};">End:
+      <label style="flex-shrink:0; color:${escapedLabelColor};">End:
         <input type="time" step="300" data-k="end" value="${escapeHtmlAttr(r.end||'23:00')}" style="width:100px;">
       </label>
       <button class="btn btn-secondary" data-action="delete" style="flex-shrink:0; min-width:36px; padding:6px 8px;" title="Delete reminder">🗑️</button>

@@ -155,7 +155,7 @@ function initializePopup() {
         else if (/david/i.test(v)) short = 'David';
         else if (/mark/i.test(v)) short = 'Mark';
         else short = (v.split(' ').find(Boolean)) || 'Default';
-        extras.push(`TTS: ${short}`);
+        extras.push(`TTS: ${escapeHtml(short)}`);
       }
       if (settings.announceAuctions) {
         const active = isTimeWindowActive(settings.announceStart, settings.announceEnd);
@@ -165,7 +165,7 @@ function initializePopup() {
         extras.push('Quiet Hours: active');
       }
       if (settings.eqLogTag) {
-        extras.push(`Loot Tag: ${settings.eqLogTag}`);
+        extras.push(`Loot Tag: ${escapeHtml(settings.eqLogTag)}`);
       }
       const extrasHtml = extras.length ? `<br><small>${extras.join(' • ')}</small>` : '';
 
