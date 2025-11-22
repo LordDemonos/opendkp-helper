@@ -22,6 +22,213 @@ function escapeHtmlAttr(value) {
     .replace(/>/g, '&gt;');
 }
 
+// ============================================================================
+// Status Message Helper Functions (Phase 2 - Replace innerHTML safely)
+// ============================================================================
+
+/**
+ * Set a simple status message with automatic restore
+ * @param {HTMLElement} container - The status text container (statusText)
+ * @param {HTMLElement} statusDiv - The status div (for className)
+ * @param {string} message - Message text (will be set as textContent, safe)
+ * @param {string} type - Status type: 'success', 'error', 'info', 'active', 'inactive'
+ * @param {number} autoRestoreMs - Auto-restore after this many ms (0 = no auto-restore)
+ * @param {Function} restoreCallback - Optional callback to rebuild original status (for complex restores)
+ * @returns {Object} - { original, originalClass, restore } - For manual restore if needed
+ */
+function setStatusMessage(container, statusDiv, message, type = 'info', autoRestoreMs = 0, restoreCallback = null) {
+  if (!container) return null;
+  
+  // Save current state - capture both textContent and innerHTML for transition period
+  const originalText = container.textContent || '';
+  const originalHtml = container.innerHTML || '';
+  const originalClass = statusDiv ? statusDiv.className : '';
+  
+  // Clear and set new message
+  container.textContent = '';
+  container.textContent = message;
+  
+  if (statusDiv) {
+    statusDiv.className = `status ${type}`;
+  }
+  
+  // Auto-restore if specified
+  let restoreTimeout = null;
+  if (autoRestoreMs > 0) {
+    restoreTimeout = setTimeout(() => {
+      if (restoreCallback) {
+        // Use callback to rebuild original status properly
+        restoreCallback();
+      } else {
+        // Simple restore - just set textContent
+        container.textContent = '';
+        container.textContent = originalText;
+        if (statusDiv) {
+          statusDiv.className = originalClass;
+        }
+      }
+    }, autoRestoreMs);
+  }
+  
+  // Return restore function for manual control
+  return {
+    original: originalText,
+    originalHtml: originalHtml,
+    originalClass,
+    restore: () => {
+      if (restoreTimeout) clearTimeout(restoreTimeout);
+      if (restoreCallback) {
+        restoreCallback();
+      } else {
+        container.textContent = '';
+        container.textContent = originalText;
+        if (statusDiv) {
+          statusDiv.className = originalClass;
+        }
+      }
+    }
+  };
+}
+
+/**
+ * Set status message with structured content (icon, main text, details)
+ * Uses DOM API to safely build HTML structure without innerHTML
+ * @param {HTMLElement} container - The status text container
+ * @param {HTMLElement} statusDiv - The status div
+ * @param {Object} config - { icon, mainText, details, type, autoRestoreMs, restoreCallback }
+ * @returns {Object} - { original, originalClass, restore }
+ */
+function setStatusMessageStructured(container, statusDiv, config) {
+  if (!container) return null;
+  
+  const { icon = '', mainText = '', details = '', type = 'info', autoRestoreMs = 0, restoreCallback = null } = config;
+  
+  // Save current state (capture both textContent and innerHTML for transition period)
+  const originalText = container.textContent || '';
+  const originalHtml = container.innerHTML || '';
+  const originalClass = statusDiv ? statusDiv.className : '';
+  
+  // Clear container
+  container.textContent = '';
+  
+  // Build message structure using DOM API
+  if (icon) {
+    container.appendChild(document.createTextNode(icon + ' '));
+  }
+  
+  if (mainText) {
+    const mainSpan = document.createElement('span');
+    mainSpan.textContent = mainText;
+    container.appendChild(mainSpan);
+  }
+  
+  if (details) {
+    container.appendChild(document.createElement('br'));
+    const small = document.createElement('small');
+    small.textContent = details;
+    container.appendChild(small);
+  }
+  
+  if (statusDiv) {
+    statusDiv.className = `status ${type}`;
+  }
+  
+  // Auto-restore if specified
+  let restoreTimeout = null;
+  if (autoRestoreMs > 0) {
+    restoreTimeout = setTimeout(() => {
+      if (restoreCallback) {
+        // Use callback to rebuild original status properly
+        restoreCallback();
+      } else {
+        // Simple restore - just set textContent
+        container.textContent = '';
+        container.textContent = originalText;
+        if (statusDiv) {
+          statusDiv.className = originalClass;
+        }
+      }
+    }, autoRestoreMs);
+  }
+  
+  return {
+    original: originalText,
+    originalHtml: originalHtml,
+    originalClass,
+    restore: () => {
+      if (restoreTimeout) clearTimeout(restoreTimeout);
+      if (restoreCallback) {
+        restoreCallback();
+      } else {
+        container.textContent = '';
+        container.textContent = originalText;
+        if (statusDiv) {
+          statusDiv.className = originalClass;
+        }
+      }
+    }
+  };
+}
+
+/**
+ * Build status text with domain, profile, sound, volume, and extras
+ * Uses DOM API to safely create structured HTML
+ * @param {HTMLElement} container - The status text container
+ * @param {Object} config - { icon, domain, profile, soundType, volume, extras }
+ */
+function buildStatusTextStructured(container, config) {
+  if (!container) return;
+  
+  const { icon = '✅', domain = '', profile = '', soundType = '', volume = '', extras = [] } = config;
+  
+  container.textContent = ''; // Clear
+  
+  // Icon and domain
+  container.appendChild(document.createTextNode(icon + ' '));
+  if (domain) {
+    const domainSpan = document.createElement('span');
+    domainSpan.textContent = domain;
+    container.appendChild(domainSpan);
+  }
+  
+  // Line break
+  container.appendChild(document.createElement('br'));
+  
+  // Details in small tag
+  const small = document.createElement('small');
+  const details = [];
+  if (profile) details.push(`Profile: ${profile}`);
+  if (soundType) details.push(`Sound: ${soundType}`);
+  if (volume) details.push(`Volume: ${volume}%`);
+  small.textContent = details.join(' | ');
+  container.appendChild(small);
+  
+  // Extras (if any)
+  if (extras.length > 0) {
+    container.appendChild(document.createElement('br'));
+    const extrasSmall = document.createElement('small');
+    extrasSmall.textContent = extras.join(' • ');
+    container.appendChild(extrasSmall);
+  }
+}
+
+/**
+ * Set empty state message safely
+ * @param {HTMLElement} container - Container element
+ * @param {string} message - Empty state message
+ */
+function setEmptyState(container, message) {
+  if (!container) return;
+  
+  container.textContent = ''; // Clear
+  
+  const emptyDiv = document.createElement('div');
+  emptyDiv.className = 'empty-state';
+  emptyDiv.textContent = message;
+  
+  container.appendChild(emptyDiv);
+}
+
 // Customizable popup text - modify this before production
 const POPUP_QUICK_ACTIONS_TEXT = `Quick Actions:
 • Click "Open Settings" to configure RaidTick integration
@@ -139,7 +346,7 @@ function initializePopup() {
     // Update status based on settings
     const profile = settings.soundProfile || 'raidleader';
     const soundType = settings.soundType || 'bell';
-    const volume = typeof settings.volume === 'number' ? settings.volume : 50;
+    const volume = typeof settings.volume === 'number' ? settings.volume : 70;
     
     // Check if we're on an OpenDKP page
     browser.tabs.query({active: true, currentWindow: true}).then(function(tabs) {
@@ -167,24 +374,35 @@ function initializePopup() {
       if (settings.eqLogTag) {
         extras.push(`Loot Tag: ${escapeHtml(settings.eqLogTag)}`);
       }
-      const extrasHtml = extras.length ? `<br><small>${extras.join(' • ')}</small>` : '';
-
       if (allowStatusUpdate) {
         if (isOpenDKP) {
-          statusDiv.className = 'status active';
           const url = new URL(currentTab.url);
           const domain = url.hostname;
-          statusText.innerHTML = `✅ ${escapeHtml(domain)}<br><small>Profile: ${escapeHtml(profile)} | Sound: ${escapeHtml(soundType)} | Volume: ${escapeHtml(String(volume))}%</small>${extrasHtml}`;
+          statusDiv.className = 'status active';
+          buildStatusTextStructured(statusText, {
+            icon: '✅',
+            domain: domain,
+            profile: profile,
+            soundType: soundType,
+            volume: String(volume),
+            extras: extras
+          });
         } else {
           statusDiv.className = 'status inactive';
-          statusText.innerHTML = `⚠️ Not on OpenDKP page<br><small>Profile: ${escapeHtml(profile)} | Sound: ${escapeHtml(soundType)} | Volume: ${escapeHtml(String(volume))}%</small>${extrasHtml}`;
+          buildStatusTextStructured(statusText, {
+            icon: '⚠️',
+            domain: 'Not on OpenDKP page',
+            profile: profile,
+            soundType: soundType,
+            volume: String(volume),
+            extras: extras
+          });
         }
       }
     }).catch(function(error) {
       console.error('Tabs API error:', error);
       // Fallback status
-      statusDiv.className = 'status inactive';
-      statusText.innerHTML = '⚠️ Extension Error';
+      setStatusMessage(statusText, statusDiv, '⚠️ Extension Error', 'inactive');
     });
     
     // Firefox: hide RaidTick list section permanently
@@ -221,17 +439,32 @@ function initializePopup() {
         // Start hidden - will be shown by displayEQLogEvents() if events exist
         eqSection.style.display = 'none';
         eqSection.setAttribute('data-raid-leader', 'true');
+        // Shrink body height when section is hidden
+        document.body.style.height = 'auto';
       }
       initializeEQLogParser(settings);
     } else {
       console.log('Hiding EQ Log section (not Raid Leader)');
-      document.getElementById('eqLogSection').style.display = 'none';
+      const eqSection = document.getElementById('eqLogSection');
+      if (eqSection) {
+        eqSection.style.display = 'none';
+        // Shrink body height when section is hidden in Raider mode
+        document.body.style.height = 'auto';
+      }
     }
     
     // Update quick actions (Chrome only)
     const infoDiv = document.getElementById('quickInfo');
     if (infoDiv && !isFirefox) {
-      infoDiv.innerHTML = POPUP_QUICK_ACTIONS_TEXT.replace(/\n/g, '<br>');
+      // Use DOM API instead of innerHTML
+      infoDiv.textContent = '';
+      const lines = POPUP_QUICK_ACTIONS_TEXT.split('\n');
+      lines.forEach((line, index) => {
+        if (index > 0) {
+          infoDiv.appendChild(document.createElement('br'));
+        }
+        infoDiv.appendChild(document.createTextNode(line));
+      });
     }
   }
   
@@ -243,7 +476,7 @@ function initializePopup() {
     }
     const raidTickFilesDiv = document.getElementById('raidTickFiles');
     if (raidTickFilesDiv) {
-      raidTickFilesDiv.innerHTML = '<div class="empty-state">Extension Error</div>';
+      setEmptyState(raidTickFilesDiv, 'Extension Error');
     }
   }
   
@@ -369,15 +602,16 @@ function initializePopup() {
       const v = parseInt(volumeSlider.value, 10) || 0;
       // Immediate user feedback (do not wait for storage promise)
       if (statusDiv && statusText) {
-        const original = statusText.innerHTML;
+        // Save original state for restore
+        const originalText = statusText.textContent || '';
         const wasActive = statusDiv.className;
-        statusDiv.className = 'status success';
-        statusText.innerHTML = '✅ Volume setting saved';
-        statusLockUntil = Date.now() + 1600;
-        setTimeout(() => {
+        setStatusMessage(statusText, statusDiv, '✅ Volume setting saved', 'success', 1500, () => {
+          // Restore callback - rebuild original status
+          statusText.textContent = '';
+          statusText.textContent = originalText;
           statusDiv.className = wasActive;
-          statusText.innerHTML = original;
-        }, 1500);
+        });
+        statusLockUntil = Date.now() + 1600;
       }
       // Persist setting
       try {
@@ -608,7 +842,7 @@ function initializePopup() {
    */
   function displayRaidTickFiles(files) {
     // Use DOM API for safer HTML generation with file names
-    raidTickFilesDiv.innerHTML = ''; // Clear first
+    raidTickFilesDiv.textContent = ''; // Clear first
     files.forEach(file => {
       const item = document.createElement('div');
       item.className = 'file-item';
@@ -667,7 +901,7 @@ function initializePopup() {
    * Show empty state when no files are found
    */
   function showEmptyState() {
-    raidTickFilesDiv.innerHTML = '<div class="empty-state">No RaidTick files for this day.</div>';
+    setEmptyState(raidTickFilesDiv, 'No RaidTick files for this day.');
   }
   
   /**
@@ -710,39 +944,75 @@ function initializePopup() {
           return;
         }
         
+        // Helper function to strip header row
+        function stripHeaderRow(text) {
+          const lines = text.split('\n');
+          if (lines.length === 0) return text;
+          
+          // Check if first line matches the header pattern (case-insensitive, flexible whitespace/tabs)
+          const firstLine = lines[0].trim();
+          
+          // More robust check: split by whitespace and check if it matches the header words
+          const words = firstLine.split(/\s+/).map(w => w.toLowerCase());
+          const headerWords = ['player', 'level', 'class', 'timestamp', 'points'];
+          
+          // Check if first 5 words match the header exactly
+          if (words.length >= 5 && 
+              words[0] === headerWords[0] &&
+              words[1] === headerWords[1] &&
+              words[2] === headerWords[2] &&
+              words[3] === headerWords[3] &&
+              words[4] === headerWords[4]) {
+            // Remove the header row and return the rest
+            return lines.slice(1).join('\n');
+          }
+          
+          // Fallback: regex pattern check
+          const headerPattern = /^player\s+level\s+class\s+timestamp\s+points$/i;
+          if (headerPattern.test(firstLine)) {
+            return lines.slice(1).join('\n');
+          }
+          
+          return text;
+        }
+        
         // If content is stored in settings, use it (legacy mode)
         if (file.content) {
-          navigator.clipboard.writeText(file.content).then(() => {
+          const cleanedContent = stripHeaderRow(file.content);
+          navigator.clipboard.writeText(cleanedContent).then(() => {
             // Count lines (excluding header row)
-            const lines = file.content.split('\n');
+            const lines = cleanedContent.split('\n');
             const dataLines = lines.filter(line => line.trim() && !line.includes('RaidTick') && !line.includes('Date:') && !line.includes('Time:'));
             const lineCount = dataLines.length;
             
             // Show success feedback in status area
-            const originalStatus = statusText.innerHTML;
-            statusDiv.className = 'status success';
-            statusText.innerHTML = `
-              ✅ File copied to clipboard!<br>
-              <small>${escapeHtml(String(lineCount))} lines copied (excluding header)</small>
-            `;
+            const originalText = statusText.textContent || '';
+            const originalClass = statusDiv.className;
+            setStatusMessageStructured(statusText, statusDiv, {
+              icon: '✅',
+              mainText: 'File copied to clipboard!',
+              details: `${lineCount} lines copied (excluding header)`,
+              type: 'success',
+              autoRestoreMs: 3000,
+              restoreCallback: () => {
+                // Restore original status
+                statusText.textContent = '';
+                statusText.textContent = originalText;
+                statusDiv.className = originalClass.includes('active') ? 'status active' : 'status inactive';
+              }
+            });
             
             // Show success feedback on button
             const copyBtn = document.querySelector(`[data-filename="${filename}"]`);
             if (copyBtn) {
-              const originalText = copyBtn.textContent;
+              const originalBtnText = copyBtn.textContent;
               copyBtn.textContent = 'Copied!';
               copyBtn.style.backgroundColor = '#28a745';
               setTimeout(() => {
-                copyBtn.textContent = originalText;
+                copyBtn.textContent = originalBtnText;
                 copyBtn.style.backgroundColor = '';
               }, 1000);
             }
-            
-            // Restore original status after 3 seconds
-            setTimeout(() => {
-              statusDiv.className = originalStatus.includes('OpenDKP') ? 'status active' : 'status inactive';
-              statusText.innerHTML = originalStatus;
-            }, 3000);
             
           }).catch(err => {
             alert('Failed to copy to clipboard. Please try again.');
@@ -769,22 +1039,63 @@ function initializePopup() {
               return;
             }
             
+            // Helper function to strip header row
+            function stripHeaderRow(text) {
+              const lines = text.split('\n');
+              if (lines.length === 0) return text;
+              
+              // Check if first line matches the header pattern (case-insensitive, flexible whitespace/tabs)
+              const firstLine = lines[0].trim();
+              
+              // More robust check: split by whitespace and check if it matches the header words
+              const words = firstLine.split(/\s+/).map(w => w.toLowerCase());
+              const headerWords = ['player', 'level', 'class', 'timestamp', 'points'];
+              
+              // Check if first 5 words match the header exactly
+              if (words.length >= 5 && 
+                  words[0] === headerWords[0] &&
+                  words[1] === headerWords[1] &&
+                  words[2] === headerWords[2] &&
+                  words[3] === headerWords[3] &&
+                  words[4] === headerWords[4]) {
+                // Remove the header row and return the rest
+                return lines.slice(1).join('\n');
+              }
+              
+              // Fallback: regex pattern check
+              const headerPattern = /^player\s+level\s+class\s+timestamp\s+points$/i;
+              if (headerPattern.test(firstLine)) {
+                return lines.slice(1).join('\n');
+              }
+              
+              return text;
+            }
+            
             // Read and copy
             const reader = new FileReader();
             reader.onload = () => {
               const content = reader.result || '';
-              navigator.clipboard.writeText(content).then(() => {
+              const cleanedContent = stripHeaderRow(content);
+              navigator.clipboard.writeText(cleanedContent).then(() => {
                 // Success feedback
-                const lines = content.split('\n');
+                const lines = cleanedContent.split('\n');
                 const dataLines = lines.filter(line => line.trim() && !line.includes('RaidTick') && !line.includes('Date:') && !line.includes('Time:'));
                 const lineCount = dataLines.length;
-                const originalStatus = statusText.innerHTML;
-                statusDiv.className = 'status success';
-                statusText.innerHTML = `✅ File copied to clipboard!<br><small>${escapeHtml(String(lineCount))} lines copied (excluding header)</small>`;
-                setTimeout(() => {
-                  statusDiv.className = originalStatus.includes('OpenDKP') ? 'status active' : 'status inactive';
-                  statusText.innerHTML = originalStatus;
-                }, 3000);
+                const originalText = statusText.textContent || '';
+                const originalClass = statusDiv.className;
+                setStatusMessageStructured(statusText, statusDiv, {
+                  icon: '✅',
+                  mainText: 'File copied to clipboard!',
+                  details: `${lineCount} lines copied (excluding header)`,
+                  type: 'success',
+                  autoRestoreMs: 3000,
+                  restoreCallback: () => {
+                    // Restore original status
+                    statusText.textContent = '';
+                    statusText.textContent = originalText;
+                    statusDiv.className = originalClass.includes('active') ? 'status active' : 'status inactive';
+                  }
+                });
               }).catch(() => {
                 alert('Failed to copy to clipboard. Please try again.');
               }).finally(() => {
@@ -1017,15 +1328,20 @@ function initializePopup() {
     
     // Show success feedback
     if (statusDiv && statusText) {
-      const originalStatus = statusText.innerHTML;
-      statusDiv.className = 'status success';
-      statusText.innerHTML = `✅ Log file selected: ${escapeHtml(file.name)}`;
-      setTimeout(() => {
-        if (statusText && statusDiv) {
-          statusDiv.className = originalStatus.includes('OpenDKP') ? 'status active' : 'status inactive';
-          statusText.innerHTML = originalStatus;
+      const originalText = statusText.textContent || '';
+      const originalClass = statusDiv.className;
+      setStatusMessageStructured(statusText, statusDiv, {
+        icon: '✅',
+        mainText: 'Log file selected: ' + file.name,
+        type: 'success',
+        autoRestoreMs: 2000,
+        restoreCallback: () => {
+          // Restore original status
+          statusText.textContent = '';
+          statusText.textContent = originalText;
+          statusDiv.className = originalClass.includes('active') ? 'status active' : 'status inactive';
         }
-      }, 2000);
+      });
     }
     
     debugLog('File selection process complete!', 'success');
@@ -1061,13 +1377,13 @@ function initializePopup() {
     if (!eqLogSettings.fileHandle || !eqLogSettings.tag) {
       console.error('Cannot start monitoring: file or tag not set');
       if (statusDiv && statusText) {
-        const originalStatus = statusText.innerHTML;
-        statusDiv.className = 'status inactive';
-        statusText.innerHTML = '⚠️ Please select a log file first';
-        setTimeout(() => {
-          statusDiv.className = originalStatus.includes('OpenDKP') ? 'status active' : 'status inactive';
-          statusText.innerHTML = originalStatus;
-        }, 3000);
+        const originalText = statusText.textContent || '';
+        const originalClass = statusDiv.className;
+        setStatusMessage(statusText, statusDiv, '⚠️ Please select a log file first', 'inactive', 3000, () => {
+          statusText.textContent = '';
+          statusText.textContent = originalText;
+          statusDiv.className = originalClass.includes('active') ? 'status active' : 'status inactive';
+        });
       }
       return;
     }
@@ -1103,26 +1419,26 @@ function initializePopup() {
   async function scanForLastLootLine(silent = false) {
     if (!eqLogSettings.fileHandle) {
       if (!silent && statusDiv && statusText) {
-        const originalStatus = statusText.innerHTML;
-        statusDiv.className = 'status inactive';
-        statusText.innerHTML = '⚠️ Please select a log file first';
-        setTimeout(() => {
-          statusDiv.className = originalStatus.includes('OpenDKP') ? 'status active' : 'status inactive';
-          statusText.innerHTML = originalStatus;
-        }, 3000);
+        const originalText = statusText.textContent || '';
+        const originalClass = statusDiv.className;
+        setStatusMessage(statusText, statusDiv, '⚠️ Please select a log file first', 'inactive', 3000, () => {
+          statusText.textContent = '';
+          statusText.textContent = originalText;
+          statusDiv.className = originalClass.includes('active') ? 'status active' : 'status inactive';
+        });
       }
       return;
     }
     
     if (!eqLogSettings.tag) {
       if (!silent && statusDiv && statusText) {
-        const originalStatus = statusText.innerHTML;
-        statusDiv.className = 'status inactive';
-        statusText.innerHTML = '⚠️ Please set a loot tag (e.g., FG)';
-        setTimeout(() => {
-          statusDiv.className = originalStatus.includes('OpenDKP') ? 'status active' : 'status inactive';
-          statusText.innerHTML = originalStatus;
-        }, 3000);
+        const originalText = statusText.textContent || '';
+        const originalClass = statusDiv.className;
+        setStatusMessage(statusText, statusDiv, '⚠️ Please set a loot tag (e.g., FG)', 'inactive', 3000, () => {
+          statusText.textContent = '';
+          statusText.textContent = originalText;
+          statusDiv.className = originalClass.includes('active') ? 'status active' : 'status inactive';
+        });
       }
       return;
     }
@@ -1164,7 +1480,7 @@ function initializePopup() {
           console.log(`[EQ Log Scan] ✅ MATCHED line ${i} with tag "${eqLogSettings.tag}":`, line.substring(0, 100));
           lastMatchingLine = line;
           break;
-        } else if (line.includes('tells the raid') || line.includes('tell the raid')) {
+        } else if (line.includes('tells the raid') || line.includes('tell the raid') || line.includes('tell your raid')) {
           // Log potential matches that didn't match for debugging
           if (!lastNonMatchingLine && linesChecked <= 20) {
             lastNonMatchingLine = line;
@@ -1178,16 +1494,21 @@ function initializePopup() {
       if (!lastMatchingLine) {
         // No matching line found
         if (!silent) {
-          const originalStatus = statusText.innerHTML;
-          statusDiv.className = 'status inactive';
-          let message = `ℹ️ No loot lines found with tag: ${escapeHtml(eqLogSettings.tag)}`;
-          if (lastNonMatchingLine) {
-            message += `<br><small style="color:#888;">Found potential line but tag didn't match</small>`;
-          }
-          statusText.innerHTML = message;
-          setTimeout(() => {
-            statusText.innerHTML = originalStatus;
-          }, 3000);
+          const originalText = statusText.textContent || '';
+          const originalClass = statusDiv.className;
+          const details = lastNonMatchingLine ? 'Found potential line but tag didn\'t match' : '';
+          setStatusMessageStructured(statusText, statusDiv, {
+            icon: 'ℹ️',
+            mainText: `No loot lines found with tag: ${eqLogSettings.tag}`,
+            details: details,
+            type: 'inactive',
+            autoRestoreMs: 3000,
+            restoreCallback: () => {
+              statusText.textContent = '';
+              statusText.textContent = originalText;
+              statusDiv.className = originalClass;
+            }
+          });
         }
         
         if (fetchBtn && !silent) {
@@ -1207,12 +1528,13 @@ function initializePopup() {
       
       if (!items || items.length === 0) {
         if (!silent) {
-          const originalStatus = statusText.innerHTML;
-          statusDiv.className = 'status inactive';
-          statusText.innerHTML = '⚠️ Found line but no items extracted. Check tag and format.';
-          setTimeout(() => {
-            statusText.innerHTML = originalStatus;
-          }, 3000);
+          const originalText = statusText.textContent || '';
+          const originalClass = statusDiv.className;
+          setStatusMessage(statusText, statusDiv, '⚠️ Found line but no items extracted. Check tag and format.', 'inactive', 3000, () => {
+            statusText.textContent = '';
+            statusText.textContent = originalText;
+            statusDiv.className = originalClass;
+          });
         }
         
         if (fetchBtn && !silent) {
@@ -1226,12 +1548,13 @@ function initializePopup() {
       const existingEvent = eqLogSettings.events.find(event => event.logLine === lastMatchingLine);
       if (existingEvent) {
         if (!silent) {
-          const originalStatus = statusText.innerHTML;
-          statusDiv.className = 'status inactive';
-          statusText.innerHTML = 'ℹ️ This loot line is already captured';
-          setTimeout(() => {
-            statusText.innerHTML = originalStatus;
-          }, 2000);
+          const originalText = statusText.textContent || '';
+          const originalClass = statusDiv.className;
+          setStatusMessage(statusText, statusDiv, 'ℹ️ This loot line is already captured', 'inactive', 2000, () => {
+            statusText.textContent = '';
+            statusText.textContent = originalText;
+            statusDiv.className = originalClass;
+          });
         }
         
         if (fetchBtn && !silent) {
@@ -1264,13 +1587,19 @@ function initializePopup() {
       
       // Show success feedback
       if (!silent && statusDiv && statusText) {
-        const originalStatus = statusText.innerHTML;
-        statusDiv.className = 'status success';
-        statusText.innerHTML = `✅ Found ${escapeHtml(String(items.length))} items from last loot line!`;
-        setTimeout(() => {
-          statusDiv.className = originalStatus.includes('OpenDKP') ? 'status active' : 'status inactive';
-          statusText.innerHTML = originalStatus;
-        }, 2000);
+        const originalText = statusText.textContent || '';
+        const originalClass = statusDiv.className;
+        setStatusMessageStructured(statusText, statusDiv, {
+          icon: '✅',
+          mainText: `Found ${items.length} items from last loot line!`,
+          type: 'success',
+          autoRestoreMs: 2000,
+          restoreCallback: () => {
+            statusText.textContent = '';
+            statusText.textContent = originalText;
+            statusDiv.className = originalClass.includes('active') ? 'status active' : 'status inactive';
+          }
+        });
       }
       
       if (fetchBtn && !silent) {
@@ -1281,13 +1610,13 @@ function initializePopup() {
       console.error('Error scanning log file:', error);
       
       if (!silent && statusDiv && statusText) {
-        const originalStatus = statusText.innerHTML;
-        statusDiv.className = 'status inactive';
-        statusText.innerHTML = '❌ Error: ' + escapeHtml(error.message || 'Failed to read log file');
-        setTimeout(() => {
-          statusDiv.className = originalStatus.includes('OpenDKP') ? 'status active' : 'status inactive';
-          statusText.innerHTML = originalStatus;
-        }, 4000);
+        const originalText = statusText.textContent || '';
+        const originalClass = statusDiv.className;
+        setStatusMessage(statusText, statusDiv, '❌ Error: ' + (error.message || 'Failed to read log file'), 'inactive', 4000, () => {
+          statusText.textContent = '';
+          statusText.textContent = originalText;
+          statusDiv.className = originalClass.includes('active') ? 'status active' : 'status inactive';
+        });
       }
       
       const fetchBtn = document.getElementById('fetchLastLoot');
@@ -1306,7 +1635,7 @@ function initializePopup() {
   function detectLootLine(line, tag) {
     if (!tag || !line) return false;
     // Try to match the standard EQ log format: [timestamp] name tells the raid, 'message'
-    const m = line.match(/^\[[^\]]+\]\s.*?(?:tells the raid|tell the raid|tell your party|tells your party|say),\s*'(.*)'\s*$/i);
+    const m = line.match(/^\[[^\]]+\]\s.*?(?:tells the raid|tell the raid|tell your raid|tell your party|tells your party|say),\s*'(.*)'\s*$/i);
     if (!m) return false;
     const quoted = m[1];
     if (!quoted) return false;
@@ -1322,7 +1651,7 @@ function initializePopup() {
   function extractItems(line, tag) {
     if (!line || !tag) return [];
     // Match the standard EQ log format: [timestamp] name tells the raid, 'message'
-    const m = line.match(/^\[[^\]]+\]\s.*?(?:tells the raid|tell the raid|tell your party|tells your party|say),\s*'(.*)'\s*$/i);
+    const m = line.match(/^\[[^\]]+\]\s.*?(?:tells the raid|tell the raid|tell your raid|tell your party|tells your party|say),\s*'(.*)'\s*$/i);
     if (!m) return [];
     const quoted = m[1];
     if (!quoted) return [];
@@ -1431,7 +1760,7 @@ function initializePopup() {
     }
     
     if (todaysEvents.length === 0) {
-      eventsContainer.innerHTML = '<div class="empty-state">No loot events captured yet.</div>';
+      setEmptyState(eventsContainer, 'No loot events captured yet.');
       // Hide section when there are no events AND not monitoring
       if (eqSection) {
         const isRaidLeader = eqSection.getAttribute('data-raid-leader') === 'true';
@@ -1439,10 +1768,14 @@ function initializePopup() {
         // Only show section if actively monitoring, otherwise hide it
         if (isRaidLeader && isMonitoring) {
           // Keep section visible but show empty state when monitoring
-          eqSection.style.display = 'block';
+          eqSection.style.display = 'flex';
+          // Set body height to accommodate loot section
+          document.body.style.height = '600px';
         } else {
           // Hide section when not monitoring and no events
           eqSection.style.display = 'none';
+          // Shrink body height when loot section is hidden
+          document.body.style.height = 'auto';
         }
       }
       console.log('[EQ Log Display] No events today, monitoring:', eqLogSettings.monitoring);
@@ -1450,18 +1783,33 @@ function initializePopup() {
     }
     // Always show section when events exist
     if (eqSection) {
-      eqSection.style.display = 'block';
+      eqSection.style.display = 'flex';
       // Ensure it's marked as raid leader section if events exist
       if (eqSection.getAttribute('data-raid-leader') !== 'true') {
         eqSection.setAttribute('data-raid-leader', 'true');
       }
+      // Set body height to accommodate loot section
+      document.body.style.height = '600px';
+      // Force layout recalculation for Firefox
+      void eqSection.offsetHeight;
     }
     
     // Limit to 50 most recent events
     const displayEvents = todaysEvents.slice(0, 50);
     
-    const eventsHtml = displayEvents.map(event => createEventGroup(event)).join('');
-    eventsContainer.innerHTML = eventsHtml;
+    // Clear container and build events using DOM API
+    eventsContainer.textContent = '';
+    const fragment = document.createDocumentFragment();
+    
+    displayEvents.forEach(event => {
+      const eventElement = createEventGroupElement(event);
+      fragment.appendChild(eventElement);
+    });
+    
+    eventsContainer.appendChild(fragment);
+    
+    // Scroll to top to show newest events (events are sorted newest first)
+    eventsContainer.scrollTop = 0;
     
     // Add event listeners for copy and delete buttons
     eventsContainer.querySelectorAll('.eq-log-item-copy').forEach(btn => {
@@ -1480,46 +1828,75 @@ function initializePopup() {
   }
   
   /**
-   * Create HTML for an event group
+   * Create DOM element for an event group (replaces createEventGroup HTML string)
+   * @param {Object} event - Event object with id, timestamp, items
+   * @returns {HTMLElement} - DOM element ready to append
    */
-  function createEventGroup(event) {
-    const itemsHtml = event.items.map((item, index) => 
-      createItemButton(item, event.id, index)
-    ).join('');
+  function createEventGroupElement(event) {
+    const eventDiv = document.createElement('div');
+    eventDiv.className = 'eq-log-event';
+    eventDiv.setAttribute('data-event-id', escapeHtmlAttr(String(event.id)));
     
-    // Escape event ID and timestamp for safe HTML
-    const eventId = escapeHtmlAttr(String(event.id));
-    const timestamp = escapeHtml(event.timestamp || '');
+    // Header
+    const header = document.createElement('div');
+    header.className = 'eq-log-event-header';
     
-    return `
-      <div class="eq-log-event" data-event-id="${eventId}">
-        <div class="eq-log-event-header">
-          <span class="eq-log-event-timestamp">${timestamp}</span>
-          <button class="eq-log-event-close" data-event-id="${eventId}" title="Remove">×</button>
-        </div>
-        <div class="eq-log-items">
-          ${itemsHtml}
-        </div>
-      </div>
-    `;
+    const timestamp = document.createElement('span');
+    timestamp.className = 'eq-log-event-timestamp';
+    timestamp.textContent = event.timestamp || '';
+    
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'eq-log-event-close';
+    closeBtn.setAttribute('data-event-id', escapeHtmlAttr(String(event.id)));
+    closeBtn.setAttribute('title', 'Remove');
+    closeBtn.textContent = '×';
+    
+    header.appendChild(timestamp);
+    header.appendChild(closeBtn);
+    
+    // Items container
+    const itemsContainer = document.createElement('div');
+    itemsContainer.className = 'eq-log-items';
+    
+    // Add items
+    event.items.forEach((item, index) => {
+      const itemElement = createItemButtonElement(item, event.id, index);
+      itemsContainer.appendChild(itemElement);
+    });
+    
+    // Assemble
+    eventDiv.appendChild(header);
+    eventDiv.appendChild(itemsContainer);
+    
+    return eventDiv;
   }
   
   /**
-   * Create HTML for an item copy button
+   * Create DOM element for an item copy button (replaces createItemButton HTML string)
+   * @param {string} item - Item name/text
+   * @param {string} eventId - Event ID
+   * @param {number} itemIndex - Item index
+   * @returns {HTMLElement} - DOM element ready to append
    */
-  function createItemButton(item, eventId, itemIndex) {
-    // Escape all values for safe HTML
-    const escapedItem = escapeHtml(item);
-    const escapedItemAttr = escapeHtmlAttr(item);
-    const escapedEventId = escapeHtmlAttr(String(eventId));
-    const escapedItemIndex = escapeHtmlAttr(String(itemIndex));
+  function createItemButtonElement(item, eventId, itemIndex) {
+    const itemDiv = document.createElement('div');
+    itemDiv.className = 'eq-log-item';
     
-    return `
-      <div class="eq-log-item">
-        <span class="eq-log-item-name">${escapedItem}</span>
-        <button class="btn btn-small eq-log-item-copy" data-item="${escapedItemAttr}" data-event-id="${escapedEventId}" data-item-index="${escapedItemIndex}">Copy</button>
-      </div>
-    `;
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'eq-log-item-name';
+    nameSpan.textContent = item; // Safe: textContent escapes automatically
+    
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'btn btn-small eq-log-item-copy';
+    copyBtn.setAttribute('data-item', escapeHtmlAttr(item));
+    copyBtn.setAttribute('data-event-id', escapeHtmlAttr(String(eventId)));
+    copyBtn.setAttribute('data-item-index', escapeHtmlAttr(String(itemIndex)));
+    copyBtn.textContent = 'Copy';
+    
+    itemDiv.appendChild(nameSpan);
+    itemDiv.appendChild(copyBtn);
+    
+    return itemDiv;
   }
   
   /**
@@ -1529,18 +1906,20 @@ function initializePopup() {
     navigator.clipboard.writeText(text).then(() => {
       console.log('Item copied to clipboard:', text);
       // Show success feedback in status area
-      const originalStatus = statusText.innerHTML;
-      statusDiv.className = 'status success';
-      statusText.innerHTML = `
-        ✅ Item copied to clipboard!<br>
-        <small>${escapeHtml(text)}</small>
-      `;
-      
-      // Restore original status after 2 seconds
-      setTimeout(() => {
-        statusDiv.className = originalStatus.includes('OpenDKP') ? 'status active' : 'status inactive';
-        statusText.innerHTML = originalStatus;
-      }, 2000);
+      const originalText = statusText.textContent || '';
+      const originalClass = statusDiv.className;
+      setStatusMessageStructured(statusText, statusDiv, {
+        icon: '✅',
+        mainText: 'Item copied to clipboard!',
+        details: text,
+        type: 'success',
+        autoRestoreMs: 2000,
+        restoreCallback: () => {
+          statusText.textContent = '';
+          statusText.textContent = originalText;
+          statusDiv.className = originalClass.includes('active') ? 'status active' : 'status inactive';
+        }
+      });
     }).catch(err => {
       console.error('Failed to copy to clipboard:', err);
       alert('Failed to copy to clipboard. Please try again.');

@@ -73,7 +73,7 @@
           const line = lines[i].trim();
           if (!line) continue;
           // Require raid/party tell format and quoted message
-          const m = line.match(/^\[[^\]]+\]\s.*?(tells the raid|tell the raid|tell your party|tells your party|say),\s*'(.*)'\s*$/i);
+          const m = line.match(/^\[[^\]]+\]\s.*?(tells the raid|tell the raid|tell your raid|tell your party|tells your party|say),\s*'(.*)'\s*$/i);
           if (!m) continue;
           const quoted = m[2];
           const startsWithTag = new RegExp('^\n?\r?\t?\uFEFF?\s*' + tag + '\\b','i').test(quoted);

@@ -438,8 +438,10 @@ function loadVoices() {
   const voiceSelect = document.getElementById('voice');
   const voices = speechSynthesis.getVoices();
   
-  // Clear existing options (no default entry)
-  voiceSelect.innerHTML = '';
+  // Clear existing options (no default entry) - use DOM API instead of innerHTML
+  while (voiceSelect.firstChild) {
+    voiceSelect.removeChild(voiceSelect.firstChild);
+  }
   
   // Filter to only show the most useful voices
   const usefulVoices = voices.filter(voice => {
@@ -637,6 +639,12 @@ function testTTSVoice() {
  * Initialize the page
  */
 function initializePage() {
+  // Set extension icon in header
+  const extensionIcon = document.getElementById('extensionIcon');
+  if (extensionIcon && api.runtime && api.runtime.getURL) {
+    extensionIcon.src = api.runtime.getURL('icons/icon-48.png');
+  }
+  
   // Initialize audio context
   try {
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -1031,7 +1039,7 @@ function renderRemindersUI() {
   }
   if (btn) btn.disabled = currentSettings.reminders.length >= 5;
   if (!list) return;
-  list.innerHTML = '';
+  list.textContent = ''; // Clear using textContent instead of innerHTML
   currentSettings.reminders.forEach((r, idx) => {
     const row = document.createElement('div');
     row.style.display = 'flex';
@@ -1055,19 +1063,68 @@ function renderRemindersUI() {
     }
     
     const labelColor = isDarkMode ? '#e0e0e0' : '#333';
-    const escapedLabelColor = escapeHtmlAttr(labelColor);
-    row.innerHTML = `
-      <label style="display:flex; align-items:center; gap:6px; flex-shrink:0; color:${escapedLabelColor};">
-        <input type="checkbox" data-k="enabled" ${r.enabled ? 'checked' : ''}> Enabled
-      </label>
-      <label style="flex-shrink:0; color:${escapedLabelColor};">Start:
-        <input type="time" step="300" data-k="start" value="${escapeHtmlAttr(r.start||'19:00')}" style="width:100px;">
-      </label>
-      <label style="flex-shrink:0; color:${escapedLabelColor};">End:
-        <input type="time" step="300" data-k="end" value="${escapeHtmlAttr(r.end||'23:00')}" style="width:100px;">
-      </label>
-      <button class="btn btn-secondary" data-action="delete" style="flex-shrink:0; min-width:36px; padding:6px 8px;" title="Delete reminder">🗑️</button>
-    `;
+    
+    // Build reminder row using DOM API (replaces innerHTML)
+    // Enabled checkbox label
+    const enabledLabel = document.createElement('label');
+    enabledLabel.style.display = 'flex';
+    enabledLabel.style.alignItems = 'center';
+    enabledLabel.style.gap = '6px';
+    enabledLabel.style.flexShrink = '0';
+    enabledLabel.style.color = labelColor;
+    
+    const enabledCheckbox = document.createElement('input');
+    enabledCheckbox.type = 'checkbox';
+    enabledCheckbox.setAttribute('data-k', 'enabled');
+    if (r.enabled) enabledCheckbox.checked = true;
+    
+    enabledLabel.appendChild(enabledCheckbox);
+    enabledLabel.appendChild(document.createTextNode(' Enabled'));
+    row.appendChild(enabledLabel);
+    
+    // Start time label
+    const startLabel = document.createElement('label');
+    startLabel.style.flexShrink = '0';
+    startLabel.style.color = labelColor;
+    startLabel.appendChild(document.createTextNode('Start: '));
+    
+    const startInput = document.createElement('input');
+    startInput.type = 'time';
+    startInput.step = '300';
+    startInput.setAttribute('data-k', 'start');
+    startInput.value = r.start || '19:00';
+    startInput.style.width = '100px';
+    
+    startLabel.appendChild(startInput);
+    row.appendChild(startLabel);
+    
+    // End time label
+    const endLabel = document.createElement('label');
+    endLabel.style.flexShrink = '0';
+    endLabel.style.color = labelColor;
+    endLabel.appendChild(document.createTextNode('End: '));
+    
+    const endInput = document.createElement('input');
+    endInput.type = 'time';
+    endInput.step = '300';
+    endInput.setAttribute('data-k', 'end');
+    endInput.value = r.end || '23:00';
+    endInput.style.width = '100px';
+    
+    endLabel.appendChild(endInput);
+    row.appendChild(endLabel);
+    
+    // Delete button
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'btn btn-secondary';
+    deleteBtn.setAttribute('data-action', 'delete');
+    deleteBtn.style.flexShrink = '0';
+    deleteBtn.style.minWidth = '36px';
+    deleteBtn.style.padding = '6px 8px';
+    deleteBtn.setAttribute('title', 'Delete reminder');
+    deleteBtn.textContent = '🗑️';
+    
+    row.appendChild(deleteBtn);
     // Wire inputs
     row.querySelectorAll('[data-k]').forEach(inp => {
       inp.addEventListener('change', function(){
@@ -1169,8 +1226,10 @@ function updateSoundProfile() {
   const soundTypeSelect = document.getElementById('soundType');
   const raidLeaderSettings = document.getElementById('raidLeaderOnlySettings');
   
-  // Clear existing options
-  soundTypeSelect.innerHTML = '';
+  // Clear existing options - use DOM API instead of innerHTML
+  while (soundTypeSelect.firstChild) {
+    soundTypeSelect.removeChild(soundTypeSelect.firstChild);
+  }
   
   // Add profile-specific sounds
   const profileSounds = PROFILE_SOUNDS[profile];
@@ -1346,7 +1405,7 @@ function refreshCustomSoundManager() {
   const mgrGroup = mgrCard ? mgrCard.closest('.setting-group') : null;
   const hintEl = document.getElementById('customSoundHint');
   if (!listEl) return;
-  listEl.innerHTML = '';
+  listEl.textContent = ''; // Clear using textContent instead of innerHTML
   listSoundRecordsFromDB().then(records => {
     // Sort by name
     records.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
@@ -1372,19 +1431,52 @@ function refreshCustomSoundManager() {
       row.style.justifyContent = 'space-between';
       row.style.gap = '8px';
       const displayName = (rec.name && rec.name.length) ? rec.name : '(unnamed)';
-      // Escape user-controlled data for safe HTML
-      const escapedName = escapeHtml(displayName);
-      const escapedNameAttr = escapeHtmlAttr(rec.name || '');
-      const escapedSize = escapeHtml(String(Math.round(size/1024)));
+      const nameAttr = escapeHtmlAttr(rec.name || '');
+      const sizeKB = String(Math.round(size/1024));
       
-      row.innerHTML = `
-        <div style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-          <strong>${escapedName}</strong> <span style="color:#666;">(${escapedSize} KB)</span>
-        </div>
-        <div style="display:flex; gap:6px;">
-          <button class="btn btn-secondary" data-action="rename" data-name="${escapedNameAttr}">Rename</button>
-          <button class="btn" style="background:#dc3545; border-color:#dc3545;" data-action="delete" data-name="${escapedNameAttr}">Delete</button>
-        </div>`;
+      // Build sound record row using DOM API (replaces innerHTML)
+      // Name and size container
+      const nameContainer = document.createElement('div');
+      nameContainer.style.flex = '1';
+      nameContainer.style.overflow = 'hidden';
+      nameContainer.style.textOverflow = 'ellipsis';
+      nameContainer.style.whiteSpace = 'nowrap';
+      
+      const nameStrong = document.createElement('strong');
+      nameStrong.textContent = displayName; // Safe: textContent escapes automatically
+      
+      const sizeSpan = document.createElement('span');
+      sizeSpan.style.color = '#666';
+      sizeSpan.textContent = ` (${sizeKB} KB)`;
+      
+      nameContainer.appendChild(nameStrong);
+      nameContainer.appendChild(sizeSpan);
+      row.appendChild(nameContainer);
+      
+      // Buttons container
+      const buttonsContainer = document.createElement('div');
+      buttonsContainer.style.display = 'flex';
+      buttonsContainer.style.gap = '6px';
+      
+      // Rename button
+      const renameBtn = document.createElement('button');
+      renameBtn.className = 'btn btn-secondary';
+      renameBtn.setAttribute('data-action', 'rename');
+      renameBtn.setAttribute('data-name', nameAttr);
+      renameBtn.textContent = 'Rename';
+      buttonsContainer.appendChild(renameBtn);
+      
+      // Delete button
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'btn';
+      deleteBtn.style.background = '#dc3545';
+      deleteBtn.style.borderColor = '#dc3545';
+      deleteBtn.setAttribute('data-action', 'delete');
+      deleteBtn.setAttribute('data-name', nameAttr);
+      deleteBtn.textContent = 'Delete';
+      buttonsContainer.appendChild(deleteBtn);
+      
+      row.appendChild(buttonsContainer);
       listEl.appendChild(row);
     });
     // Wire actions
@@ -3118,8 +3210,42 @@ async function copyRaidTickFileFromPicker() {
         // Read file content
         const content = await file.text();
         
+        // Strip header row if present
+        function stripHeaderRow(text) {
+          const lines = text.split('\n');
+          if (lines.length === 0) return text;
+          
+          // Check if first line matches the header pattern (case-insensitive, flexible whitespace/tabs)
+          const firstLine = lines[0].trim();
+          
+          // More robust check: split by whitespace and check if it matches the header words
+          const words = firstLine.split(/\s+/).map(w => w.toLowerCase());
+          const headerWords = ['player', 'level', 'class', 'timestamp', 'points'];
+          
+          // Check if first 5 words match the header exactly
+          if (words.length >= 5 && 
+              words[0] === headerWords[0] &&
+              words[1] === headerWords[1] &&
+              words[2] === headerWords[2] &&
+              words[3] === headerWords[3] &&
+              words[4] === headerWords[4]) {
+            // Remove the header row and return the rest
+            return lines.slice(1).join('\n');
+          }
+          
+          // Fallback: regex pattern check
+          const headerPattern = /^player\s+level\s+class\s+timestamp\s+points$/i;
+          if (headerPattern.test(firstLine)) {
+            return lines.slice(1).join('\n');
+          }
+          
+          return text;
+        }
+        
+        const cleanedContent = stripHeaderRow(content);
+        
         // Count data lines (excluding header)
-        const lines = content.split('\n');
+        const lines = cleanedContent.split('\n');
         const dataLines = lines.filter(line => 
           line.trim() && 
           !line.includes('RaidTick') && 
@@ -3131,12 +3257,12 @@ async function copyRaidTickFileFromPicker() {
         // Copy to clipboard - use execCommand as fallback for better focus handling
         try {
           // Try modern clipboard API first
-          await navigator.clipboard.writeText(content);
+          await navigator.clipboard.writeText(cleanedContent);
         } catch (clipError) {
           // Fallback: Use legacy execCommand (works better with file picker)
           console.log('Clipboard API failed, using execCommand fallback:', clipError.message);
           const textArea = document.createElement('textarea');
-          textArea.value = content;
+          textArea.value = cleanedContent;
           textArea.style.position = 'fixed';
           textArea.style.left = '-999999px';
           textArea.style.top = '-999999px';

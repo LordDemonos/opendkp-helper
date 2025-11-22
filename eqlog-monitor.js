@@ -23,7 +23,7 @@
       return false;
     }
     // Try to match the standard EQ log format: [timestamp] name tells the raid, 'message'
-    const m = line.match(/^\[[^\]]+\]\s.*?(?:tells the raid|tell the raid|tell your party|tells your party|say),\s*'(.*)'\s*$/i);
+    const m = line.match(/^\[[^\]]+\]\s.*?(?:tells the raid|tell the raid|tell your raid|tell your party|tells your party|say),\s*'(.*)'\s*$/i);
     if (!m) {
       return false;
     }
@@ -43,7 +43,7 @@
   }
 
   function extractItems(line, tag) {
-    const m = line.match(/^\[[^\]]+\]\s.*?(?:tells the raid|tell the raid|tell your party|tells your party|say),\s*'(.*)'\s*$/i);
+    const m = line.match(/^\[[^\]]+\]\s.*?(?:tells the raid|tell the raid|tell your raid|tell your party|tells your party|say),\s*'(.*)'\s*$/i);
     if (!m) return [];
     const quoted = m[1];
     const after = quoted.replace(new RegExp('^\n?\r?\t?\uFEFF?\s*' + tag + '\\s*','i'),'').trim();
@@ -83,38 +83,94 @@
       console.log('[EQ Log Monitor] File has', lines.length, 'lines, searching from end...');
       let checkedLines = 0;
       let potentialMatches = 0;
+      
+      // Collect all new loot lines (those after lastSeenLogLine)
+      const newLootLines = [];
+      let foundLastSeenLine = false;
+      
+      // Search backwards (newest to oldest)
       for (let i=lines.length-1;i>=0;i--){
         const line = lines[i].trim();
         if (!line) continue;
         checkedLines++;
         
         // Check for potential loot lines (contains "tells the raid")
-        if (line.includes('tells the raid') || line.includes('tell the raid') || line.includes('say,')) {
+        if (line.includes('tells the raid') || line.includes('tell the raid') || line.includes('tell your raid') || line.includes('say,')) {
           potentialMatches++;
           console.log('[EQ Log Monitor] Potential loot line found:', line.substring(0, 100));
         }
         
         const isLootLine = detectLootLine(line, tag);
         if (!isLootLine) continue;
-        console.log('[EQ Log Monitor] ✅ Found loot line with tag "' + tag + '":', line.substring(0, 100));
+        
+        // If we've found the last seen line, we've collected all new lines
         if (lastSeenLogLine && lastSeenLogLine === line) { 
-          addLog('No new loot lines.'); 
-          console.log('[EQ Log Monitor] Line already seen');
-          return; 
+          foundLastSeenLine = true;
+          console.log('[EQ Log Monitor] Found last seen line, stopping collection');
+          break;
         }
-        lastSeenLogLine = line;
-        addLog('New loot line found, pushing...');
-        await pushEvent(line);
-        return;
-      }
+        
+        // This is a new loot line (after lastSeenLogLine)
+        console.log('[EQ Log Monitor] ✅ Found new loot line with tag "' + tag + '":', line.substring(0, 100));
+        newLootLines.push(line);
+        }
+      
+      // Process new loot lines in chronological order (oldest first)
+      // Since we collected them backwards, reverse to get oldest first
+      newLootLines.reverse();
+      
+      if (newLootLines.length === 0) {
+        if (foundLastSeenLine) {
+          addLog('No new loot lines.');
+          console.log('[EQ Log Monitor] No new loot lines since last check');
+        } else {
       addLog('No loot line matched.');
       console.log('[EQ Log Monitor] No loot line found in last', checkedLines, 'lines (found', potentialMatches, 'potential matches)');
       if (potentialMatches > 0 && checkedLines <= 20) {
         console.log('[EQ Log Monitor] ⚠️ Found potential loot lines but tag "' + tag + '" did not match');
+          }
+        }
+        return;
+      }
+      
+      // Process all new loot lines in chronological order (oldest first)
+      // Limit to prevent UI overload - if too many, only process the most recent ones
+      const maxProcessPerPoll = 10;
+      const linesToProcess = newLootLines.length > maxProcessPerPoll 
+        ? newLootLines.slice(-maxProcessPerPoll) // Take only the most recent ones
+        : newLootLines;
+      
+      if (newLootLines.length > maxProcessPerPoll) {
+        console.warn('[EQ Log Monitor] Too many new loot lines (' + newLootLines.length + '), processing only the ' + maxProcessPerPoll + ' most recent');
+        addLog('Found ' + newLootLines.length + ' loot lines, processing ' + maxProcessPerPoll + ' most recent...');
+      }
+      
+      console.log('[EQ Log Monitor] Processing', linesToProcess.length, 'new loot line(s)');
+      for (const line of linesToProcess) {
+        addLog('New loot line found, pushing...');
+        await pushEvent(line);
+      }
+      
+      // Update lastSeenLogLine to the newest line processed
+      if (linesToProcess.length > 0) {
+        lastSeenLogLine = linesToProcess[linesToProcess.length - 1];
+        console.log('[EQ Log Monitor] Updated lastSeenLogLine to:', lastSeenLogLine.substring(0, 100));
       }
     } catch(e){ 
       console.error('[EQ Log Monitor] Poll error:', e);
-      addLog('Error: '+e.message); 
+      const errorMsg = e.message || String(e);
+      // Check if it's a permission error (file locked by another application)
+      if (errorMsg.includes('permission') || errorMsg.includes('could not be read') || errorMsg.includes('locked')) {
+        // Don't spam the log - only show this error occasionally
+        const now = Date.now();
+        if (!window.lastPermissionError || (now - window.lastPermissionError) > 30000) {
+          addLog('⚠️ File locked - close other apps using the log file');
+          window.lastPermissionError = now;
+        }
+      } else {
+        addLog('Error: ' + errorMsg);
+      }
+      // Continue monitoring - don't stop on errors
     }
   }
 
@@ -175,12 +231,40 @@
             console.error('[EQ Log Monitor] Error priming:', e);
             addLog('Error priming: ' + e.message);
           }
+        } else {
+          // If capturing latest, find and process the latest loot line immediately
+          try {
+            const text = await selectedFile.text();
+            const lines = text.split('\n');
+            let latestLootLine = null;
+            for (let i=lines.length-1;i>=0;i--){
+              const line = lines[i].trim();
+              if (line && detectLootLine(line, tag)) { 
+                latestLootLine = line;
+                console.log('[EQ Log Monitor] Found latest loot line to capture:', line.substring(0, 50));
+                break; 
+              }
+            }
+            if (latestLootLine) {
+              // Process the latest line immediately
+              addLog('Capturing latest loot line...');
+              await pushEvent(latestLootLine);
+              // Set lastSeenLogLine so we don't process it again
+              lastSeenLogLine = latestLootLine;
+              addLog('Latest loot line captured.');
+            } else {
+              addLog('No loot line found with tag: ' + tag);
+            }
+          } catch(e){
+            console.error('[EQ Log Monitor] Error capturing latest:', e);
+            addLog('Error capturing latest: ' + e.message);
+          }
         }
         start();
       } else {
         addLog('File changed.');
       }
-      // First poll immediately
+      // First poll immediately (will skip if lastSeenLogLine is already set)
       console.log('[EQ Log Monitor] Running initial poll...');
       poll();
     });

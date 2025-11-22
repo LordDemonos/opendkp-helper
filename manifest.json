@@ -8,7 +8,6 @@
     "storage",
     "notifications",
     "clipboardWrite",
-    "management",
     "scripting",
     "alarms"
   ],
@@ -71,9 +70,8 @@
   },
   "browser_specific_settings": {
     "gecko": {
-      "id": "opendkp-helper@opendkp.com",
-      "strict_min_version": "126.0",
-      "data_collection_permissions": {}
+      "id": "opendkp-timer-alert@opendkp.com",
+      "strict_min_version": "126.0"
     }
   },
   "license": "MIT"

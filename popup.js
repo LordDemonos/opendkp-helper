@@ -32,6 +32,10 @@ const POPUP_QUICK_ACTIONS_TEXT = `Quick Actions:
 function initializePopup() {
   console.log('Popup loaded');
   
+  // Set initial body height to auto (will be adjusted based on loot section visibility)
+  // Default to auto - JavaScript will set to 600px when loot section is shown
+  document.body.style.height = 'auto';
+  
   const statusDiv = document.getElementById('status');
   const statusText = document.getElementById('statusText');
   // Inline volume controls
@@ -82,7 +86,7 @@ function initializePopup() {
   function buildStatusText(settings, isOpenDKP) {
     const profile = settings.soundProfile || 'raidleader';
     const soundType = settings.soundType || 'bell';
-    const volume = settings.volume || 50;
+    const volume = settings.volume || 70;
     
     // Helper to check if current time is within a time window
     function isTimeWindowActive(startTime, endTime) {
@@ -188,7 +192,7 @@ function initializePopup() {
       settings = {
         soundProfile: 'raidleader',
         soundType: 'bell',
-        volume: 50,
+        volume: 70,
         raidTickEnabled: false
       };
     }
@@ -300,6 +304,8 @@ function initializePopup() {
     if (isRaidLeader) {
       if (eqLogSection) {
         eqLogSection.style.display = 'none'; // Will be shown when events exist
+        // Shrink body height when section is hidden
+        document.body.style.height = 'auto';
       }
       // Will initialize after settings are processed
       setTimeout(() => {
@@ -308,6 +314,8 @@ function initializePopup() {
     } else {
       if (eqLogSection) {
         eqLogSection.style.display = 'none';
+        // Shrink body height when section is hidden in Raider mode
+        document.body.style.height = 'auto';
       }
     }
     
@@ -394,8 +402,42 @@ function initializePopup() {
           // Read file content
           const content = await file.text();
           
+          // Strip header row if present
+          function stripHeaderRow(text) {
+            const lines = text.split('\n');
+            if (lines.length === 0) return text;
+            
+            // Check if first line matches the header pattern (case-insensitive, flexible whitespace/tabs)
+            const firstLine = lines[0].trim();
+            
+            // More robust check: split by whitespace and check if it matches the header words
+            const words = firstLine.split(/\s+/).map(w => w.toLowerCase());
+            const headerWords = ['player', 'level', 'class', 'timestamp', 'points'];
+            
+            // Check if first 5 words match the header exactly
+            if (words.length >= 5 && 
+                words[0] === headerWords[0] &&
+                words[1] === headerWords[1] &&
+                words[2] === headerWords[2] &&
+                words[3] === headerWords[3] &&
+                words[4] === headerWords[4]) {
+              // Remove the header row and return the rest
+              return lines.slice(1).join('\n');
+            }
+            
+            // Fallback: regex pattern check
+            const headerPattern = /^player\s+level\s+class\s+timestamp\s+points$/i;
+            if (headerPattern.test(firstLine)) {
+              return lines.slice(1).join('\n');
+            }
+            
+            return text;
+          }
+          
+          const cleanedContent = stripHeaderRow(content);
+          
           // Count data lines (excluding header)
-          const lines = content.split('\n');
+          const lines = cleanedContent.split('\n');
           const dataLines = lines.filter(line => 
             line.trim() && 
             !line.includes('RaidTick') && 
@@ -408,12 +450,12 @@ function initializePopup() {
           // Chrome requires user gesture or focused window for clipboard access
           try {
             // Try modern clipboard API first
-            await navigator.clipboard.writeText(content);
+            await navigator.clipboard.writeText(cleanedContent);
           } catch (clipError) {
             // Fallback: Use legacy execCommand (works better with file picker)
             console.log('Clipboard API failed, using execCommand fallback:', clipError.message);
             const textArea = document.createElement('textarea');
-            textArea.value = content;
+            textArea.value = cleanedContent;
             textArea.style.position = 'fixed';
             textArea.style.left = '-999999px';
             textArea.style.top = '-999999px';
@@ -822,17 +864,27 @@ function initializePopup() {
       // Only show section if actively monitoring, otherwise hide it
       if (isRaidLeader && isMonitoring) {
         // Keep section visible but show empty state when monitoring
-        eqLogSection.style.display = 'block';
+        eqLogSection.style.display = 'flex';
+        // Set body height to accommodate loot section
+        document.body.style.height = '600px';
+        // Force layout recalculation for Chrome
+        void eqLogSection.offsetHeight;
       } else {
         // Hide section when not monitoring and no events
         eqLogSection.style.display = 'none';
+        // Shrink body height when section is hidden
+        document.body.style.height = 'auto';
       }
       console.log('[EQ Log Display] No events today, monitoring:', eqLogSettings.monitoring);
       return;
     }
     
     // Always show section when events exist
-    eqLogSection.style.display = 'block';
+    eqLogSection.style.display = 'flex';
+    // Set body height to accommodate loot section
+    document.body.style.height = '600px';
+    // Force layout recalculation for Chrome
+    void eqLogSection.offsetHeight;
     // Ensure it's marked as raid leader section if events exist
     if (eqLogSection.getAttribute('data-raid-leader') !== 'true') {
       eqLogSection.setAttribute('data-raid-leader', 'true');
@@ -843,6 +895,9 @@ function initializePopup() {
     
     const eventsHtml = displayEvents.map(event => createEventGroup(event)).join('');
     eqLogEvents.innerHTML = eventsHtml;
+    
+    // Scroll to top to show newest events (events are sorted newest first)
+    eqLogEvents.scrollTop = 0;
     
     // Add event listeners for copy and delete buttons
     eqLogEvents.querySelectorAll('.eq-log-item-copy').forEach(btn => {

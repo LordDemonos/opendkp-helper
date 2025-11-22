@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenDKP DOM Snapshot Viewer</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: #f5f5f5;
+      padding: 20px;
+    }
+    
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 20px;
+    }
+    
+    .header h1 {
+      font-size: 24px;
+      margin-bottom: 10px;
+    }
+    
+    .header p {
+      opacity: 0.9;
+      font-size: 14px;
+    }
+    
+    .controls {
+      padding: 20px;
+      background: #f9f9f9;
+      border-bottom: 1px solid #e0e0e0;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    
+    .controls button {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 4px;
+      background: #667eea;
+      color: white;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.2s;
+    }
+    
+    .controls button:hover {
+      background: #5568d3;
+    }
+    
+    .controls button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    
+    .controls input[type="file"] {
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    
+    .content {
+      display: grid;
+      grid-template-columns: 350px 1fr;
+      gap: 0;
+      min-height: 600px;
+    }
+    
+    .sidebar {
+      background: #f9f9f9;
+      border-right: 1px solid #e0e0e0;
+      padding: 20px;
+      overflow-y: auto;
+      max-height: calc(100vh - 200px);
+    }
+    
+    .sidebar h2 {
+      font-size: 18px;
+      margin-bottom: 15px;
+      color: #333;
+    }
+    
+    .snapshot-list {
+      list-style: none;
+    }
+    
+    .snapshot-item {
+      padding: 12px;
+      margin-bottom: 8px;
+      background: white;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .snapshot-item:hover {
+      border-color: #667eea;
+      box-shadow: 0 2px 4px rgba(102, 126, 234, 0.2);
+    }
+    
+    .snapshot-item.active {
+      border-color: #667eea;
+      background: #f0f4ff;
+    }
+    
+    .snapshot-item .timestamp {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 4px;
+    }
+    
+    .snapshot-item .reason {
+      font-size: 14px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 4px;
+    }
+    
+    .snapshot-item .summary {
+      font-size: 12px;
+      color: #888;
+    }
+    
+    .main-content {
+      padding: 20px;
+      overflow-y: auto;
+      max-height: calc(100vh - 200px);
+    }
+    
+    .main-content.empty {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #999;
+      font-size: 16px;
+    }
+    
+    .context-panel {
+      background: #f9f9f9;
+      border-radius: 4px;
+      padding: 15px;
+      margin-bottom: 20px;
+    }
+    
+    .context-panel h3 {
+      font-size: 16px;
+      margin-bottom: 10px;
+      color: #333;
+    }
+    
+    .context-panel pre {
+      background: white;
+      padding: 10px;
+      border-radius: 4px;
+      overflow-x: auto;
+      font-size: 12px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    
+    .dom-viewer {
+      background: white;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+      padding: 15px;
+    }
+    
+    .dom-viewer h3 {
+      font-size: 16px;
+      margin-bottom: 10px;
+      color: #333;
+    }
+    
+    .dom-viewer .tabs {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 15px;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    
+    .dom-viewer .tab {
+      padding: 8px 16px;
+      cursor: pointer;
+      border: none;
+      background: none;
+      color: #666;
+      font-size: 14px;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+    }
+    
+    .dom-viewer .tab.active {
+      color: #667eea;
+      border-bottom-color: #667eea;
+    }
+    
+    .dom-viewer .tab-content {
+      display: none;
+    }
+    
+    .dom-viewer .tab-content.active {
+      display: block;
+    }
+    
+    .dom-viewer iframe {
+      width: 100%;
+      height: 600px;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+    }
+    
+    .dom-viewer pre {
+      background: #f5f5f5;
+      padding: 10px;
+      border-radius: 4px;
+      overflow-x: auto;
+      font-size: 11px;
+      max-height: 600px;
+      overflow-y: auto;
+    }
+    
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      margin-left: 8px;
+    }
+    
+    .badge.rolloff {
+      background: #ffebee;
+      color: #c62828;
+    }
+    
+    .badge.multiple {
+      background: #e3f2fd;
+      color: #1976d2;
+    }
+    
+    .badge.single {
+      background: #e8f5e9;
+      color: #2e7d32;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🔍 OpenDKP DOM Snapshot Viewer</h1>
+      <p>Analyze captured DOM snapshots to debug roll-off detection issues</p>
+    </div>
+    
+    <div class="controls">
+      <input type="file" id="fileInput" accept=".json" multiple>
+      <button id="loadFile">Load from File</button>
+      <p style="margin: 0; color: #666; font-size: 14px;">
+        Files are saved to your Downloads folder when roll-offs are detected
+      </p>
+    </div>
+    
+    <div class="content">
+      <div class="sidebar">
+        <h2>Snapshots</h2>
+        <ul class="snapshot-list" id="snapshotList">
+          <li style="padding: 20px; color: #999; text-align: center;">
+            No snapshots loaded. Click "Load from File" to load JSON files from your Downloads folder.
+          </li>
+        </ul>
+      </div>
+      
+      <div class="main-content empty" id="mainContent">
+        Select a snapshot to view details
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let snapshots = [];
+    let currentSnapshot = null;
+
+
+    // Load snapshots from file
+    function loadFromFile(files) {
+      snapshots = [];
+      const filePromises = Array.from(files).map(file => {
+        return file.text().then(text => {
+          try {
+            const data = JSON.parse(text);
+            // Handle both single snapshot and array of snapshots
+            const items = Array.isArray(data) ? data : [data];
+            items.forEach(snapshot => {
+              snapshot._key = `file_${Date.now()}_${Math.random()}`;
+              snapshots.push(snapshot);
+            });
+          } catch (e) {
+            console.error('Error parsing file:', file.name, e);
+            alert(`Error parsing ${file.name}: ${e.message}`);
+          }
+        });
+      });
+      
+      Promise.all(filePromises).then(() => {
+        snapshots.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        renderSnapshotList();
+      });
+    }
+
+    // Render snapshot list
+    function renderSnapshotList() {
+      const list = document.getElementById('snapshotList');
+      if (snapshots.length === 0) {
+        list.innerHTML = '<li style="padding: 20px; color: #999; text-align: center;">No snapshots found</li>';
+        return;
+      }
+      
+      list.innerHTML = snapshots.map((snapshot, index) => {
+        const date = new Date(snapshot.timestamp);
+        const badge = snapshot.context?.isRollOff ? 'rolloff' : 
+                     snapshot.context?.multipleWinners ? 'multiple' : 'single';
+        const badgeText = snapshot.context?.isRollOff ? 'ROLL-OFF' :
+                         snapshot.context?.multipleWinners ? 'MULTIPLE' : 'SINGLE';
+        
+        return `
+          <li class="snapshot-item ${currentSnapshot === snapshot ? 'active' : ''}" 
+              onclick="selectSnapshot(${index})">
+            <div class="timestamp">${date.toLocaleString()}</div>
+            <div class="reason">
+              ${snapshot.reason || 'unknown'}
+              <span class="badge ${badge}">${badgeText}</span>
+            </div>
+            <div class="summary">
+              Item: ${snapshot.context?.itemName || 'N/A'} | 
+              Bid: ${snapshot.context?.bidAmount || 'N/A'} | 
+              Winners: ${snapshot.context?.rollOffWinners?.length || 0}
+            </div>
+          </li>
+        `;
+      }).join('');
+    }
+
+    // Select snapshot
+    function selectSnapshot(index) {
+      currentSnapshot = snapshots[index];
+      renderSnapshotList();
+      renderSnapshotDetails();
+    }
+
+    // Render snapshot details
+    function renderSnapshotDetails() {
+      const mainContent = document.getElementById('mainContent');
+      if (!currentSnapshot) {
+        mainContent.className = 'main-content empty';
+        mainContent.textContent = 'Select a snapshot to view details';
+        return;
+      }
+      
+      mainContent.className = 'main-content';
+      
+      const context = currentSnapshot.context || {};
+      const winners = context.rollOffWinners || [];
+      
+      mainContent.innerHTML = `
+        <div class="context-panel">
+          <h3>Detection Context</h3>
+          <pre>${JSON.stringify(context, null, 2)}</pre>
+        </div>
+        
+        <div class="context-panel">
+          <h3>Winner Text Sources</h3>
+          <pre>${JSON.stringify(currentSnapshot.winnerTextSources || {}, null, 2)}</pre>
+        </div>
+        
+        ${currentSnapshot.otherAuctions && currentSnapshot.otherAuctions.length > 0 ? `
+        <div class="context-panel">
+          <h3>Other Auctions on Page (${currentSnapshot.otherAuctions.length})</h3>
+          <pre>${JSON.stringify(currentSnapshot.otherAuctions, null, 2)}</pre>
+        </div>
+        ` : ''}
+        
+        <div class="dom-viewer">
+          <h3>DOM Structure</h3>
+          <div class="tabs">
+            <button class="tab active" onclick="switchTab('auction')">Auction Container</button>
+            <button class="tab" onclick="switchTab('tabpanel')">Tab Panel</button>
+            <button class="tab" onclick="switchTab('tables')">Tables</button>
+          </div>
+          
+          <div id="tabAuction" class="tab-content active">
+            <pre>${escapeHtml(currentSnapshot.auctionContainer || 'Not available')}</pre>
+          </div>
+          
+          <div id="tabTabpanel" class="tab-content">
+            <pre>${escapeHtml(currentSnapshot.tabPanel || 'Not available')}</pre>
+          </div>
+          
+          <div id="tabTables" class="tab-content">
+            ${renderTables()}
+          </div>
+        </div>
+      `;
+    }
+
+    // Render tables
+    function renderTables() {
+      let html = '';
+      
+      // Show tables within THIS auction first
+      if (currentSnapshot.auctionTables && currentSnapshot.auctionTables.length > 0) {
+        html += '<h4 style="margin-top: 0; color: #2e7d32;">📌 Tables Within THIS Auction</h4>';
+        html += currentSnapshot.auctionTables.map((table, idx) => `
+          <div style="margin-bottom: 20px; border: 2px solid #2e7d32; border-radius: 4px; padding: 10px; background: #e8f5e9;">
+            <h4>Table ${idx + 1} (THIS Auction)
+              <span style="font-size: 12px; color: #666;">
+                (${table.rowCount} rows, ${table.hasCharacterLinks} character links)
+              </span>
+            </h4>
+            <pre style="max-height: 400px; overflow: auto;">${escapeHtml(table.html)}</pre>
+          </div>
+        `).join('');
+      }
+      
+      // Show all tables with markers
+      if (currentSnapshot.allTables && currentSnapshot.allTables.length > 0) {
+        html += '<h4 style="margin-top: 20px; color: #666;">All Tables on Page</h4>';
+        html += currentSnapshot.allTables.map((table, idx) => {
+          const belongsToAuction = table.belongsToThisAuction ? '✅ THIS Auction' : '❌ Other Auction';
+          const borderColor = table.belongsToThisAuction ? '#2e7d32' : '#e0e0e0';
+          const bgColor = table.belongsToThisAuction ? '#e8f5e9' : '#fff';
+          
+          return `
+            <div style="margin-bottom: 20px; border: 1px solid ${borderColor}; border-radius: 4px; padding: 10px; background: ${bgColor};">
+              <h4>Table ${idx + 1} 
+                <span style="font-size: 12px; color: ${table.belongsToThisAuction ? '#2e7d32' : '#999'}; font-weight: bold;">
+                  ${belongsToAuction}
+                </span>
+                <span style="font-size: 12px; color: #666;">
+                  (${table.rowCount} rows, ${table.hasCharacterLinks} character links)
+                </span>
+              </h4>
+              <pre style="max-height: 400px; overflow: auto;">${escapeHtml(table.html)}</pre>
+            </div>
+          `;
+        }).join('');
+      }
+      
+      if (!html) {
+        return '<p>No tables found</p>';
+      }
+      
+      return html;
+    }
+
+    // Switch tabs
+    function switchTab(tabName) {
+      document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+      
+      event.target.classList.add('active');
+      document.getElementById(`tab${tabName.charAt(0).toUpperCase() + tabName.slice(1)}`).classList.add('active');
+    }
+
+    // Escape HTML
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+
+    // Event listeners
+    document.getElementById('loadFile').addEventListener('click', () => {
+      document.getElementById('fileInput').click();
+    });
+
+    document.getElementById('fileInput').addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        loadFromFile(e.target.files);
+      }
+    });
+
+    // Make functions global
+    window.selectSnapshot = selectSnapshot;
+    window.switchTab = switchTab;
+  </script>
+</body>
+</html>

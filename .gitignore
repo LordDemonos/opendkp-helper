@@ -3,6 +3,9 @@
 *.md
 !README.md
 
+# Docs folder (documentation for reference, not included in builds)
+Docs/
+
 # Development and Build Scripts
 package.json
 /generate_chime*.html
