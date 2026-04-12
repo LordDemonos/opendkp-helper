@@ -1,0 +1,18 @@
+{
+  "name": "opendkp-helper",
+  "version": "1.2.7",
+  "private": true,
+  "description": "OpenDKP Helper extension - test runner",
+  "scripts": {
+    "build:chrome": "node scripts/build-chrome.js",
+    "build:firefox": "node scripts/build-firefox.js",
+    "validate:manifest": "node scripts/validate-manifest.js",
+    "test:chrome": "node scripts/chrome-extension-test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "puppeteer": "^23.0.0"
+  }
+}

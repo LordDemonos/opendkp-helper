@@ -7,7 +7,7 @@
 Docs/
 
 # Development and Build Scripts
-package.json
+node_modules/
 /generate_chime*.html
 /generate_chime*.js
 /generate_chime*.py
