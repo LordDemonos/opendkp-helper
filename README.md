@@ -331,38 +331,70 @@ opendkp-helper/
 
 ## 🔨 Building from Source
 
-The repository includes GitHub Actions workflows that build browser-specific packages:
+### Architecture (verified)
 
-- **CI**: `.github/workflows/ci.yml` - Validates the manifest, runs both local build scripts, and a Puppeteer smoke test (Linux + `xvfb`)
-- **Release builds**: `.github/workflows/build-release.yml` - Produces Chrome and Firefox ZIPs for a published release or manual artifact download
-- **Chrome Web Store**: `.github/workflows/publish-chrome.yml` - Builds a Chrome ZIP and uploads via API when secrets are set (see workflow logs for required names)
-- **Firefox AMO**: `.github/workflows/publish-firefox.yml` - Packages the Firefox build and runs `web-ext sign` when AMO JWT secrets are set; otherwise uploads the ZIP artifact only
+| Topic | Fact |
+| --- | --- |
+| Bundler | None; plain HTML/JS |
+| Canonical manifest | `manifest.json` — MV3, `background.scripts`, `browser_specific_settings.gecko` (incl. `data_collection_permissions.required: ["none"]` for AMO) |
+| Firefox dev load | `about:debugging` → Temporary Add-on → root `manifest.json`, or `npx web-ext run --source-dir .` |
+| Firefox package tree | `npm run build:firefox` → `build/temp-firefox-build` |
+| Chrome package tree | `npm run build:chrome` → `build/temp-chrome-build` |
+| API style | Prefer `browser` + Promises in shared code; Chrome-only branches guarded |
+| Lint | `npm run lint:webext` (same as `web-ext lint` with `build/`, `node_modules/`, `dist/` ignored) |
 
-### Release Builds
+Both `build:*` scripts **restore** the repo-root `manifest.json` in a `finally` block so Firefox devs are never left with a Chrome-only manifest.
 
-The `build-release.yml` workflow:
-1. Runs when you **publish** a GitHub Release, or when you run it manually (**Actions → Build Release Packages → Run workflow**).
-2. Builds store-style ZIPs: Chrome uses `background.service_worker`; Firefox uses `background.scripts` (see workflows for exact rsync excludes).
-3. **Published release:** uploads `opendkp-helper-v{version}-chrome.zip` and `opendkp-helper-v{version}-firefox.zip` to that release.
-4. **Manual run:** uploads the same ZIPs as a workflow **Artifact** (download from the run summary).
+### Local development (load unpacked)
 
-**Version rule (important):** The release tag must match `manifest.json` after stripping a leading `v`. Example: tag `v1.2.8` requires `"version": "1.2.8"` in `manifest.json` (and the version string in `options.html` from `scripts/update-version.js`). The workflow fails with a clear error if they differ.
+**Firefox:** `npm ci` → load root `manifest.json` as a temporary add-on, or `npx web-ext run --source-dir .`.
 
-**CI:** Pushes and PRs to `main` / `master` run `.github/workflows/ci.yml` (`npm ci`, manifest validation, both builds, Puppeteer smoke test under `xvfb`).
+**Chrome:** `npm run build:chrome` → **Load unpacked** → `build/temp-chrome-build`.
 
-### Store Builds
+### Version bump (single semver)
 
-Store workflows mirror the same packaging rules as `build-release.yml` (Chrome: `service_worker`; Firefox: `scripts`). Optional automation uses **repository secrets** only (never commit keys):
+**Recommendation:** One **x.y.z** for both stores. Bump **`manifest.json`** `"version"` and run `node scripts/update-version.js x.y.z` (updates visible version text in `options.html`). Keep `package.json` `"version"` aligned with `manifest.json` for npm metadata. Tag **`vx.y.z`** after commit; GitHub workflows that compare tags use the manifest version.
 
-- **Chrome:** `CHROME_EXTENSION_ID`, `CHROME_CLIENT_ID`, `CHROME_CLIENT_SECRET`, `CHROME_REFRESH_TOKEN` (OAuth client for the [Chrome Web Store API](https://developer.chrome.com/docs/webstore/using-api)).
-- **Firefox:** `AMO_JWT_ISSUER` and `AMO_JWT_SECRET` (JWT from [AMO](https://addons.mozilla.org/developers/addon/api/key/) API keys). Optional repository **variable** `AMO_CHANNEL`: `listed` or `unlisted` (defaults to `unlisted` in the workflow).
+### Release (store ZIPs + checksums)
 
-To build manually:
+From repo root after `npm ci`:
 
-1. **For Chrome**: The workflow sets `background.service_worker` in manifest.json
-2. **For Firefox**: The workflow sets `background.scripts` in manifest.json
+```bash
+npm run package:release
+```
 
-When building from source, you must edit `manifest.json` manually (see [Installation](#-installation) above).
+This runs: `validate:manifest` → `lint:webext` → `build:firefox` → zip → `build:chrome` → zip → writes **`dist/opendkp-helper-firefox-{version}.zip`**, **`dist/opendkp-helper-chrome-{version}.zip`**, and **`dist/SHA256SUMS.txt`**.
+
+**Tag workflow:** Pushing tag `v*.*.*` runs `.github/workflows/release-packages.yml` and uploads **`dist/`** as workflow artifacts (attach to a GitHub Release manually or use `build-release.yml` if you also want assets on the Release page).
+
+**GitHub Actions (other):**
+
+- **CI** (`.github/workflows/ci.yml`): `main` / `master` — validate, both builds, Puppeteer smoke test (`xvfb`).
+- **build-release.yml**: Published release or `workflow_dispatch` — GitHub Release assets or artifacts (rsync-based; naming `opendkp-helper-v{version}-*-chrome.zip` / `-firefox.zip`).
+- **publish-chrome.yml** / **publish-firefox.yml**: Optional store upload when secrets are configured.
+
+### Stores
+
+| Store | Artifact to upload | How | Secrets (repo settings, names only) | Common rejection / review risks for *this* extension |
+| --- | --- | --- | --- | --- |
+| **Firefox (AMO)** | `dist/opendkp-helper-firefox-{version}.zip` | [Developer Hub](https://addons.mozilla.org/developers/) → version → upload source package; or `web-ext sign` / AMO API with JWT | `AMO_JWT_ISSUER`, `AMO_JWT_SECRET`; optional variable `AMO_CHANNEL` (`listed` / `unlisted`) | Mismatched **data collection** vs code (manifest declares `required: ["none"]` — no telemetry/off-extension collection); host permissions limited to OpenDKP |
+| **Chrome Web Store** | `dist/opendkp-helper-chrome-{version}.zip` | [Developer Dashboard](https://chrome.google.com/webstore/devconsole) → package upload; or [Chrome Web Store API](https://developer.chrome.com/docs/webstore/using-api) | `CHROME_EXTENSION_ID`, `CHROME_CLIENT_ID`, `CHROME_CLIENT_SECRET`, `CHROME_REFRESH_TOKEN` | **Single-purpose** description must match behavior; **remote code**: none (no `eval` of remote scripts); permissions match [program policies](https://developer.chrome.com/docs/webstore/program-policies) |
+
+**Chrome API setup (automation):** Create OAuth client in Google Cloud Console, enable Chrome Web Store API, obtain refresh token (see [fregante/chrome-webstore-upload-keys](https://github.com/fregante/chrome-webstore-upload-keys) and official docs).
+
+**Firefox signing (automation):** `web-ext sign --api-key $AMO_JWT_ISSUER --api-secret $AMO_JWT_SECRET --channel listed|unlisted` (see `.github/workflows/publish-firefox.yml`).
+
+### Listing text template (align with manifest)
+
+Use wording consistent with **`manifest.json`** permissions and hosts. Example:
+
+- **Short description:** Helper for opendkp.com: auction timers, alerts, optional TTS, RaidTick clipboard tools, and optional EQ log monitoring. Works only on `opendkp.com` / `*.opendkp.com`.
+- **Permissions justification:** Storage for settings; notifications and alarms for reminders; clipboard to copy RaidTick text; scripting/activeTab where needed for OpenDKP pages; host access limited to OpenDKP domains. No analytics; settings stay in the browser (`gecko.data_collection_permissions`: required `none`).
+- **Privacy:** No accounts; no selling user data; no remote code execution; data stored locally per browser APIs.
+
+### Release Builds (legacy GitHub zip names)
+
+The `build-release.yml` workflow attaches **`opendkp-helper-v{version}-chrome.zip`** / **`-firefox.zip`** (different prefix than `dist/`). Prefer **`npm run package:release`** for a single local command and consistent `opendkp-helper-{browser}-{version}.zip` names unless you rely on the older workflow.
 
 ## 🔐 Permissions
 

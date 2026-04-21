@@ -38,4 +38,10 @@ if (!m.browser_specific_settings || !m.browser_specific_settings.gecko) {
 }
 if (!m.browser_specific_settings.gecko.id) fail('gecko.id is required');
 
+// AMO: gecko.data_collection_permissions (MDN browser_specific_settings). Use required: ["none"] when nothing is collected/transmitted off-extension.
+const dcp = m.browser_specific_settings.gecko.data_collection_permissions;
+if (!dcp || !Array.isArray(dcp.required) || dcp.required.length === 0) {
+  fail('gecko.data_collection_permissions.required must be a non-empty array (typically ["none"] for local-only storage)');
+}
+
 console.log('✅ manifest.json OK (version ' + m.version + ')');

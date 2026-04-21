@@ -2,6 +2,7 @@
 # Exception: Keep README.md for GitHub
 *.md
 !README.md
+!CHANGELOG.md
 
 # Docs folder (documentation for reference, not included in builds)
 Docs/
@@ -37,5 +38,6 @@ Thumbs.db
 
 # Build Output
 build/
+dist/
 *.zip
 *.xpi
