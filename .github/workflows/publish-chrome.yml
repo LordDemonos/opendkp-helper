@@ -77,8 +77,24 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+      # IMPORTANT: avoid using secrets.* directly in `if:` expressions.
+      # Detect credential presence in a step output, then gate later steps on that output.
+      - name: Detect Chrome Web Store credentials
+        id: chrome_creds
+        env:
+          CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+          CHROME_CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+          CHROME_CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+          CHROME_REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+        run: |
+          if [ -n "$CHROME_EXTENSION_ID" ] && [ -n "$CHROME_CLIENT_ID" ] && [ -n "$CHROME_CLIENT_SECRET" ] && [ -n "$CHROME_REFRESH_TOKEN" ]; then
+            echo "has_credentials=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_credentials=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Upload to Chrome Web Store
-        if: ${{ secrets.CHROME_EXTENSION_ID != '' && secrets.CHROME_CLIENT_ID != '' && secrets.CHROME_CLIENT_SECRET != '' && secrets.CHROME_REFRESH_TOKEN != '' }}
+        if: ${{ steps.chrome_creds.outputs.has_credentials == 'true' }}
         uses: fregante/chrome-webstore-upload@v1
         with:
           extension-id: ${{ secrets.CHROME_EXTENSION_ID }}
@@ -88,7 +104,7 @@ jobs:
           zip-file: chrome-package/${{ env.ZIP_NAME }}
 
       - name: Skip Chrome API upload (credentials not fully configured)
-        if: ${{ secrets.CHROME_EXTENSION_ID == '' || secrets.CHROME_CLIENT_ID == '' || secrets.CHROME_CLIENT_SECRET == '' || secrets.CHROME_REFRESH_TOKEN == '' }}
+        if: ${{ steps.chrome_creds.outputs.has_credentials != 'true' }}
         run: |
           echo "::notice::Chrome Web Store API secrets incomplete — skipped upload. Artifact contains the ZIP for manual upload."
           echo "Required secrets: CHROME_EXTENSION_ID, CHROME_CLIENT_ID, CHROME_CLIENT_SECRET, CHROME_REFRESH_TOKEN"
