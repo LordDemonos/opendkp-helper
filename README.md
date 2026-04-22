@@ -331,31 +331,30 @@ opendkp-helper/
 
 ## 🔨 Building from Source
 
-The repository includes GitHub Actions workflows that build browser-specific packages:
+The repository includes GitHub Actions workflows that automatically build browser-specific packages:
 
-- **CI**: `.github/workflows/ci.yml` - Validates the manifest, runs both local build scripts, and a Puppeteer smoke test (Linux + `xvfb`)
-- **Release builds**: `.github/workflows/build-release.yml` - Produces Chrome and Firefox ZIPs for a published release or manual artifact download
-- **Chrome Web Store**: `.github/workflows/publish-chrome.yml` - Builds a Chrome ZIP and uploads via API when secrets are set (see workflow logs for required names)
-- **Firefox AMO**: `.github/workflows/publish-firefox.yml` - Packages the Firefox build and runs `web-ext sign` when AMO JWT secrets are set; otherwise uploads the ZIP artifact only
+- **Release Builds**: `.github/workflows/build-release.yml` - Builds both Chrome and Firefox ZIP files for GitHub Releases
+- **Chrome Store**: `.github/workflows/publish-chrome.yml` - Builds and optionally uploads to Chrome Web Store
+- **Firefox Store**: `.github/workflows/publish-firefox.yml` - Builds and publishes to Firefox Add-ons (AMO)
 
 ### Release Builds
 
-The `build-release.yml` workflow:
-1. Runs when you **publish** a GitHub Release, or when you run it manually (**Actions → Build Release Packages → Run workflow**).
-2. Builds store-style ZIPs: Chrome uses `background.service_worker`; Firefox uses `background.scripts` (see workflows for exact rsync excludes).
-3. **Published release:** uploads `opendkp-helper-v{version}-chrome.zip` and `opendkp-helper-v{version}-firefox.zip` to that release.
-4. **Manual run:** uploads the same ZIPs as a workflow **Artifact** (download from the run summary).
+The `build-release.yml` workflow automatically:
+1. Triggers on new GitHub releases (or can be manually triggered)
+2. Builds both Chrome and Firefox packages with correct manifest configurations
+3. Attaches both ZIP files to the release
 
-**Version rule (important):** The release tag must match `manifest.json` after stripping a leading `v`. Example: tag `v1.2.8` requires `"version": "1.2.8"` in `manifest.json` (and the version string in `options.html` from `scripts/update-version.js`). The workflow fails with a clear error if they differ.
-
-**CI:** Pushes and PRs to `main` / `master` run `.github/workflows/ci.yml` (`npm ci`, manifest validation, both builds, Puppeteer smoke test under `xvfb`).
+**To create a new release:**
+1. Create a new release on GitHub (tagged with version number)
+2. The workflow will automatically build and attach both packages
+3. Users can download the appropriate ZIP for their browser
 
 ### Store Builds
 
-Store workflows mirror the same packaging rules as `build-release.yml` (Chrome: `service_worker`; Firefox: `scripts`). Optional automation uses **repository secrets** only (never commit keys):
-
-- **Chrome:** `CHROME_EXTENSION_ID`, `CHROME_CLIENT_ID`, `CHROME_CLIENT_SECRET`, `CHROME_REFRESH_TOKEN` (OAuth client for the [Chrome Web Store API](https://developer.chrome.com/docs/webstore/using-api)).
-- **Firefox:** `AMO_JWT_ISSUER` and `AMO_JWT_SECRET` (JWT from [AMO](https://addons.mozilla.org/developers/addon/api/key/) API keys). Optional repository **variable** `AMO_CHANNEL`: `listed` or `unlisted` (defaults to `unlisted` in the workflow).
+Store-specific workflows:
+1. Configure `manifest.json` for the target browser (scripts vs service_worker)
+2. Package all necessary files
+3. Create ZIP files ready for store submission
 
 To build manually:
 
@@ -366,17 +365,16 @@ When building from source, you must edit `manifest.json` manually (see [Installa
 
 ## 🔐 Permissions
 
-This extension requires the following permissions (see `manifest.json`):
+This extension requires the following permissions:
 
-- **activeTab** - Access the current tab to monitor auction timers when you use the extension
-- **storage** - Save your settings and preferences (sync/local)
-- **notifications** - Display browser notifications for auctions and reminders
-- **clipboardWrite** - Copy RaidTick text and other content to the clipboard
-- **scripting** - Register and run scripts in permitted OpenDKP pages where needed
-- **alarms** - Schedule reminder checks in the background
-- **host_permissions** (`https://opendkp.com/*`, `https://*.opendkp.com/*`) - Content scripts and network access only for OpenDKP domains
+- **activeTab** - Access current tab to monitor auction timers
+- **storage** - Save your settings and preferences
+- **notifications** - Display browser notifications
+- **clipboardWrite** - Copy auction information to clipboard
+- **management** - Extension management (for future features)
+- **scripting** - Inject content scripts
 
-All data is stored locally in your browser; the extension is scoped to OpenDKP sites listed in the manifest.
+All data is stored locally in your browser - nothing is sent to external servers.
 
 ## 📄 License
 

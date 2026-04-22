@@ -40,6 +40,9 @@ jobs:
         run: |
           node scripts/validate-manifest.js
 
+      - name: web-ext lint (Firefox addons-linter)
+        run: npm run lint:webext
+
       - name: Build Chrome package (temp dir)
         run: npm run build:chrome
 

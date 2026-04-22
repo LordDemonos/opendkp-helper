@@ -7,12 +7,15 @@
     "build:chrome": "node scripts/build-chrome.js",
     "build:firefox": "node scripts/build-firefox.js",
     "validate:manifest": "node scripts/validate-manifest.js",
+    "lint:webext": "web-ext lint --source-dir . --ignore-files \"build/**\" \"node_modules/**\" \"dist/**\"",
+    "package:release": "node scripts/package-release.js",
     "test:chrome": "node scripts/chrome-extension-test.js"
   },
   "engines": {
     "node": ">=20"
   },
   "devDependencies": {
-    "puppeteer": "^23.0.0"
+    "puppeteer": "^23.0.0",
+    "web-ext": "^8.10.0"
   }
 }

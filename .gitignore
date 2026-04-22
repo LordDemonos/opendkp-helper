@@ -38,5 +38,6 @@ Thumbs.db
 
 # Build Output
 build/
+dist/
 *.zip
 *.xpi
