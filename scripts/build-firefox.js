@@ -3,7 +3,7 @@
  * Build script for Firefox extension package
  * 
  * Prepares files for manual zipping by:
- * 1. Temporarily modifying manifest.json for Firefox (background.scripts, data_collection_permissions)
+ * 1. Temporarily adjusting manifest.json for Firefox (background.scripts; gecko id, etc.)
  * 2. Copying only necessary files to temp directory
  * 3. Restoring original manifest.json
  * 
@@ -153,16 +153,6 @@ function modifyManifestForFirefox() {
         strict_min_version: '126.0'
       }
     };
-  } else if (manifest.browser_specific_settings.gecko) {
-    // Remove data_collection_permissions if it exists but is empty
-    // Firefox requires at least 1 item in required array, so omit entirely if no data collection
-    if (manifest.browser_specific_settings.gecko.data_collection_permissions) {
-      const dcp = manifest.browser_specific_settings.gecko.data_collection_permissions;
-      if (!dcp.required || (Array.isArray(dcp.required) && dcp.required.length === 0)) {
-        // Remove empty data_collection_permissions (no data collection = don't declare it)
-        delete manifest.browser_specific_settings.gecko.data_collection_permissions;
-      }
-    }
   }
   
   // Verify icons are configured (Firefox requires icons in both 'icons' and 'action.default_icon')

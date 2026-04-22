@@ -2,12 +2,13 @@
 # Exception: Keep README.md for GitHub
 *.md
 !README.md
+!CHANGELOG.md
 
 # Docs folder (documentation for reference, not included in builds)
 Docs/
 
 # Development and Build Scripts
-package.json
+node_modules/
 /generate_chime*.html
 /generate_chime*.js
 /generate_chime*.py
@@ -37,5 +38,6 @@ Thumbs.db
 
 # Build Output
 build/
+dist/
 *.zip
 *.xpi
