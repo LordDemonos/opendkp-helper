@@ -3,84 +3,76 @@ name: Build Release Packages
 on:
   release:
     types: [published]
-  workflow_dispatch: # Allows manual triggering
+  workflow_dispatch:
+
+concurrency:
+  group: build-release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   build-release:
-    name: Build Firefox and Chrome Release Packages
+    name: Build Firefox and Chrome release ZIPs
     runs-on: ubuntu-latest
-    
-    # Grant permissions to write back to repository and create releases
+    timeout-minutes: 30
     permissions:
       contents: write
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-      
-      - name: Increment version before release
-        id: increment
+          node-version-file: '.nvmrc'
+          cache: npm
+
+      - name: Verify release tag matches manifest version
+        if: github.event_name == 'release'
         run: |
-          echo "🔄 Incrementing version for release..."
-          NEW_VERSION=$(node scripts/increment-version.js)
-          echo "new_version=${NEW_VERSION}" >> $GITHUB_OUTPUT
-          echo "New version: ${NEW_VERSION}"
-          
-          # Update version in all files
-          node scripts/update-version.js ${NEW_VERSION}
-          
-          # Commit the version update
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add manifest.json options.html
-          git commit -m "chore: increment version to ${NEW_VERSION} for release" || exit 0
-          git push || echo "Push failed (may already be committed)"
-      
-      - name: Extract final version
+          TAG="${{ github.event.release.tag_name }}"
+          TAG="${TAG#v}"
+          VER=$(node -e "console.log(JSON.parse(require('fs').readFileSync('manifest.json','utf8')).version)")
+          echo "Release tag (normalized): ${TAG}"
+          echo "manifest.json version: ${VER}"
+          if [ "${VER}" != "${TAG}" ]; then
+            echo "::error::manifest.json version (${VER}) must match the GitHub release tag (${TAG}). Bump manifest and options.html, commit, retag, or fix the release tag."
+            exit 1
+          fi
+          echo "✅ Tag and manifest version match."
+
+      - name: Extract version for artifacts
         id: version
         run: |
           VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync('manifest.json', 'utf8')).version)")
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Release version: ${VERSION}"
-      
-      # Build Chrome Package
-      - name: Build Chrome Package
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Release build version: ${VERSION}"
+
+      - name: Build Chrome package
         id: chrome
         run: |
+          set -euo pipefail
           echo "🔨 Building Chrome package..."
-          
-          # Configure manifest for Chrome
+
           node -e "
           const fs = require('fs');
           const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
-          
-          // Remove scripts array if it exists
           if (manifest.background && manifest.background.scripts) {
             delete manifest.background.scripts;
           }
-          
-          // Ensure service_worker is set
-          if (!manifest.background) {
-            manifest.background = {};
-          }
+          if (!manifest.background) manifest.background = {};
           manifest.background.service_worker = 'background.js';
-          
           fs.writeFileSync('manifest-chrome.json', JSON.stringify(manifest, null, 2) + '\n');
           console.log('✅ Chrome manifest configured');
           "
-          
-          # Create Chrome package directory
+
           mkdir -p chrome-release
-          
-          # Copy all files except Firefox-specific and dev files
           rsync -av \
             --exclude='.git' \
             --exclude='.github' \
@@ -89,6 +81,7 @@ jobs:
             --exclude='README.md' \
             --exclude='CHROME_STORE_SUBMISSION.md' \
             --exclude='package.json' \
+            --exclude='package-lock.json' \
             --exclude='test_audio.html' \
             --exclude='test_audio.js' \
             --exclude='popup-firefox.js' \
@@ -98,65 +91,44 @@ jobs:
             --exclude='*.tmp' \
             --exclude='*.bak' \
             ./ chrome-release/
-          
-          # Replace manifest with Chrome version
+
           cp manifest-chrome.json chrome-release/manifest.json
-          
-          # Create Chrome ZIP with folder structure
-          # This creates a folder inside the ZIP so extraction automatically creates its own folder
+
           FOLDER_NAME="opendkp-helper-v${{ steps.version.outputs.version }}-chrome"
           ZIP_NAME="${FOLDER_NAME}.zip"
-          
-          # Rename chrome-release to versioned folder name (from workspace root)
-          cd ${{ github.workspace }}
-          mv chrome-release ${FOLDER_NAME}
-          
-          # Create ZIP from the folder (this creates folder structure in ZIP)
-          zip -r ${ZIP_NAME} ${FOLDER_NAME}
-          
-          # Move ZIP to chrome-release directory for upload
+
+          cd "${{ github.workspace }}"
+          mv chrome-release "${FOLDER_NAME}"
+          zip -r "${ZIP_NAME}" "${FOLDER_NAME}"
           mkdir -p chrome-release
-          mv ${ZIP_NAME} chrome-release/
-          
-          # Clean up the folder (workflow will use the ZIP)
-          rm -rf ${FOLDER_NAME}
-          
-          echo "ZIP_NAME=${ZIP_NAME}" >> $GITHUB_OUTPUT
+          mv "${ZIP_NAME}" chrome-release/
+          rm -rf "${FOLDER_NAME}"
+
+          echo "ZIP_NAME=${ZIP_NAME}" >> "$GITHUB_OUTPUT"
           echo "✅ Chrome package: ${ZIP_NAME}"
           ls -lh chrome-release/
-      
-      # Build Firefox Package
-      - name: Build Firefox Package
+
+      - name: Build Firefox package
         id: firefox
         run: |
+          set -euo pipefail
           echo "🔨 Building Firefox package..."
-          
-          # Configure manifest for Firefox
+
           node -e "
           const fs = require('fs');
           const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
-          
-          // Remove service_worker if it exists
           if (manifest.background && manifest.background.service_worker) {
             delete manifest.background.service_worker;
           }
-          
-          // Ensure scripts array exists
-          if (!manifest.background) {
-            manifest.background = {};
-          }
+          if (!manifest.background) manifest.background = {};
           if (!manifest.background.scripts || !Array.isArray(manifest.background.scripts)) {
             manifest.background.scripts = ['background.js'];
           }
-          
           fs.writeFileSync('manifest-firefox.json', JSON.stringify(manifest, null, 2) + '\n');
           console.log('✅ Firefox manifest configured');
           "
-          
-          # Create Firefox package directory
+
           mkdir -p firefox-release
-          
-          # Copy all files except Chrome-specific and dev files
           rsync -av \
             --exclude='.git' \
             --exclude='.github' \
@@ -165,6 +137,7 @@ jobs:
             --exclude='README.md' \
             --exclude='CHROME_STORE_SUBMISSION.md' \
             --exclude='package.json' \
+            --exclude='package-lock.json' \
             --exclude='test_audio.html' \
             --exclude='test_audio.js' \
             --exclude='popup.js' \
@@ -174,44 +147,47 @@ jobs:
             --exclude='*.tmp' \
             --exclude='*.bak' \
             ./ firefox-release/
-          
-          # Replace manifest with Firefox version
+
           cp manifest-firefox.json firefox-release/manifest.json
-          
-          # Create Firefox ZIP
+
           cd firefox-release
           ZIP_NAME="opendkp-helper-v${{ steps.version.outputs.version }}-firefox.zip"
-          zip -r ../${ZIP_NAME} .
+          zip -r "../${ZIP_NAME}" .
           cd ..
-          mv ${ZIP_NAME} firefox-release/
-          
-          echo "ZIP_NAME=${ZIP_NAME}" >> $GITHUB_OUTPUT
+          mv "${ZIP_NAME}" firefox-release/
+
+          echo "ZIP_NAME=${ZIP_NAME}" >> "$GITHUB_OUTPUT"
           echo "✅ Firefox package: ${ZIP_NAME}"
           ls -lh firefox-release/
-      
-      - name: Upload Release Assets
-        uses: softprops/action-gh-release@v1
+
+      - name: Upload release assets (GitHub Release)
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2.6.2
         with:
-          # Chrome ZIP first, then Firefox ZIP
           files: |
             chrome-release/*.zip
             firefox-release/*.zip
-          tag_name: ${{ github.event.release.tag_name || github.ref_name }}
-          draft: ${{ github.event.release.draft || false }}
-          prerelease: ${{ github.event.release.prerelease || false }}
+          tag_name: ${{ github.event.release.tag_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      
-      - name: Output Release Info
-        run: |
-          echo "✅ Release packages built successfully!"
-          echo ""
-          echo "📦 Chrome package: ${{ steps.chrome.outputs.ZIP_NAME }}"
-          echo "📦 Firefox package: ${{ steps.firefox.outputs.ZIP_NAME }}"
-          echo ""
-          echo "Both packages have been attached to the release."
-          echo ""
-          echo "Installation instructions:"
-          echo "  Chrome: Extract ZIP → Load unpacked extension → Select extracted folder"
-          echo "  Firefox: Load ZIP directly as temporary add-on"
 
+      - name: Upload workflow artifacts (manual runs)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: opendkp-helper-v${{ steps.version.outputs.version }}-packages
+          path: |
+            chrome-release/*.zip
+            firefox-release/*.zip
+          if-no-files-found: error
+
+      - name: Output summary
+        run: |
+          echo "✅ Build complete."
+          echo "Chrome ZIP: ${{ steps.chrome.outputs.ZIP_NAME }}"
+          echo "Firefox ZIP: ${{ steps.firefox.outputs.ZIP_NAME }}"
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "Assets attached to release ${{ github.event.release.tag_name }}."
+          else
+            echo "Artifacts uploaded for workflow_dispatch (see Actions → this run → Artifacts)."
+          fi

@@ -4,13 +4,13 @@
  * Requires: npx puppeteer (or npm install puppeteer).
  *
  * Usage (from opendkp-helper folder):
- * node scripts/chrome-extension-test.js
+ *   node scripts/chrome-extension-test.js
  *
  * Or with npx (no install):
- * npx puppeteer node scripts/chrome-extension-test.js
+ *   npx puppeteer node scripts/chrome-extension-test.js
  *
  * Prerequisite: Build Chrome extension first so manifest is Chrome-compatible:
- * node scripts/build-chrome.js
+ *   node scripts/build-chrome.js
  * Then this script uses build/temp-chrome-build. If that doesn't exist, it uses the repo root
  * (may fail if manifest is Firefox-only).
  */
@@ -69,6 +69,7 @@ async function runTests() {
   });
 
   try {
+    // Wait for extension to load and get its ID from the background service worker target
     await new Promise((r) => setTimeout(r, 1500));
     const targets = browser.targets();
     const workerTarget = targets.find(
@@ -88,6 +89,7 @@ async function runTests() {
         const page = await browser.newPage();
         const optionsUrl = `chrome-extension://${extensionId}/options.html`;
 
+        // Test: Options page loads
         try {
           await page.goto(optionsUrl, { waitUntil: 'networkidle2', timeout: 10000 });
           pass('Options page loads');
@@ -95,25 +97,25 @@ async function runTests() {
           fail('Options page load: ' + (e.message || e));
         }
 
-        // Issue #5 – Appearance theme (optional; not all release branches ship #theme yet)
+        // Test: Issue #5 – Theme dropdown exists
         try {
           const themeSelect = await page.$('#theme');
           if (themeSelect) pass('Issue #5: Theme dropdown (Appearance) present');
-          else skip('Issue #5: #theme not in this build (optional Appearance)');
+          else fail('Issue #5: Theme dropdown #theme not found');
         } catch (e) {
           fail('Issue #5: ' + (e.message || e));
         }
 
-        // Issue #1 – Only notify on OpenDKP (optional)
+        // Test: Issue #1 – Only notify on OpenDKP checkbox
         try {
           const onlyNotify = await page.$('#onlyNotifyOnOpenDKP');
           if (onlyNotify) pass('Issue #1: Only notify on OpenDKP checkbox present');
-          else skip('Issue #1: #onlyNotifyOnOpenDKP not in this build (optional)');
+          else fail('Issue #1: #onlyNotifyOnOpenDKP not found');
         } catch (e) {
           fail('Issue #1: ' + (e.message || e));
         }
 
-        // Issue #2 – Read New Auctions day checkboxes (need TTS section visible)
+        // Test: Issue #2 – Read New Auctions day checkboxes (need TTS section visible)
         try {
           const announceDay0 = await page.$('#announceDay0');
           if (announceDay0) pass('Issue #2: Read New Auctions day checkboxes present');
@@ -122,24 +124,18 @@ async function runTests() {
           skip('Issue #2: ' + (e.message || e));
         }
 
-        // Issue #9 – Backup / Restore, or core save control if backup UI not shipped
+        // Test: Issue #9 – Backup / Restore buttons
         try {
           const exportBtn = await page.$('#exportBackup');
           const importFile = await page.$('#importBackupFile');
-          if (exportBtn && importFile) {
-            pass('Issue #9: Backup & Restore section present');
-          } else {
-            const saveBtn = await page.$('#saveSettings');
-            if (saveBtn) {
-              pass('Issue #9: Backup UI not present; #saveSettings present (smoke)');
-            } else {
-              fail('Issue #9: Neither backup controls nor #saveSettings found');
-            }
-          }
+          if (exportBtn && importFile) pass('Issue #9: Backup & Restore section present');
+          else fail('Issue #9: Export or import backup element not found');
         } catch (e) {
           fail('Issue #9: ' + (e.message || e));
         }
 
+        // Test: opendkp.com loads (content script runs in real use; we only check page load)
+        // Note: May be skipped with ERR_NETWORK_ACCESS_DENIED when Chrome is launched by Puppeteer in some environments.
         const opendkpPage = await browser.newPage();
         try {
           await opendkpPage.goto('https://opendkp.com/', { waitUntil: 'domcontentloaded', timeout: 15000 });
@@ -152,6 +148,7 @@ async function runTests() {
       }
     }
 
+    // Keep browser open briefly for local debugging (skip extra wait in CI)
     if (!isCI) {
       await new Promise((r) => setTimeout(r, 2000));
     }

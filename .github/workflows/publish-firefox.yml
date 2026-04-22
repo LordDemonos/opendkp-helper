@@ -3,81 +3,58 @@ name: Publish to Firefox Add-ons (AMO)
 on:
   release:
     types: [published]
-  workflow_dispatch: # Allows manual triggering
+  workflow_dispatch:
+
+concurrency:
+  group: publish-firefox-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   publish:
-    name: Build and Publish to AMO
+    name: Build and optionally sign for AMO
     runs-on: ubuntu-latest
-    
+    timeout-minutes: 30
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-      
+          node-version-file: '.nvmrc'
+
       - name: Install web-ext
         run: npm install -g web-ext
-      
+
       - name: Configure manifest for Firefox
         run: |
-          # Ensure manifest.json uses scripts (not service_worker) for Firefox
-          # Remove service_worker if present, ensure scripts is set
-          # Ensure license and data_collection_permissions are set
           node -e "
           const fs = require('fs');
           const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
-          
-          // Remove service_worker if it exists
+
           if (manifest.background && manifest.background.service_worker) {
             delete manifest.background.service_worker;
           }
-          
-          // Ensure scripts array exists
-          if (!manifest.background) {
-            manifest.background = {};
-          }
+          if (!manifest.background) manifest.background = {};
           if (!manifest.background.scripts || !Array.isArray(manifest.background.scripts)) {
             manifest.background.scripts = ['background.js'];
           }
-          
-          // Ensure license is set (required for AMO)
-          if (!manifest.license) {
-            manifest.license = 'MIT';
-          }
-          
-          // Ensure browser_specific_settings.gecko.data_collection_permissions exists and is an object
-          if (!manifest.browser_specific_settings) {
-            manifest.browser_specific_settings = {};
-          }
-          if (!manifest.browser_specific_settings.gecko) {
-            manifest.browser_specific_settings.gecko = {};
-          }
-          // Always set to object (fixes if it was previously an array)
-          if (!manifest.browser_specific_settings.gecko.data_collection_permissions || 
-              Array.isArray(manifest.browser_specific_settings.gecko.data_collection_permissions)) {
-            manifest.browser_specific_settings.gecko.data_collection_permissions = {};
-          }
-          
+          if (!manifest.license) manifest.license = 'MIT';
+
           fs.writeFileSync('manifest.json', JSON.stringify(manifest, null, 2) + '\n');
-          console.log('Firefox manifest configured:');
-          console.log('  - background.scripts =', manifest.background.scripts);
-          console.log('  - license =', manifest.license);
-          console.log('  - data_collection_permissions =', manifest.browser_specific_settings.gecko.data_collection_permissions);
+          console.log('Firefox manifest: background.scripts =', manifest.background.scripts);
           "
-      
+
       - name: Package extension
         run: |
-          # Create a clean package excluding dev files
           mkdir -p web-ext-artifacts
-          
-          # Copy necessary files (exclude dev files per .gitignore)
           mkdir -p package-build
-          
-          # Copy all files except those in .gitignore
+
           rsync -av \
             --exclude='.git' \
             --exclude='.github' \
@@ -86,6 +63,7 @@ jobs:
             --exclude='README.md' \
             --exclude='LICENSE' \
             --exclude='package.json' \
+            --exclude='package-lock.json' \
             --exclude='test_audio.html' \
             --exclude='test_audio.js' \
             --exclude='popup.js' \
@@ -95,64 +73,68 @@ jobs:
             --exclude='*.tmp' \
             --exclude='*.bak' \
             ./ package-build/
-          
-          # Verify and fix manifest.json in package-build (ensure data_collection_permissions is object)
-          node -e "
-          const fs = require('fs');
-          const manifestPath = 'package-build/manifest.json';
-          const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-          
-          // Force data_collection_permissions to be an object
-          if (manifest.browser_specific_settings && 
-              manifest.browser_specific_settings.gecko) {
-            if (!manifest.browser_specific_settings.gecko.data_collection_permissions || 
-                Array.isArray(manifest.browser_specific_settings.gecko.data_collection_permissions)) {
-              manifest.browser_specific_settings.gecko.data_collection_permissions = {};
-              fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
-              console.log('Fixed data_collection_permissions in package-build/manifest.json');
-            }
-          }
-          console.log('Verifying manifest.json in package-build:');
-          console.log('  - data_collection_permissions type:', 
-            Array.isArray(manifest.browser_specific_settings?.gecko?.data_collection_permissions) ? 'ARRAY (BAD)' : 
-            typeof manifest.browser_specific_settings?.gecko?.data_collection_permissions);
-          "
-          
-          # Create ZIP file
+
           cd package-build
-          zip -r ../web-ext-artifacts/opendkp-helper-firefox.zip .
+          zip -r ../web-ext-artifacts/opendkp-helper-firefox-source.zip .
           cd ..
-          
-          echo "Extension packaged successfully"
+
+          echo "Packaged to web-ext-artifacts/opendkp-helper-firefox-source.zip"
           ls -lh web-ext-artifacts/
-      
-      - name: Sign and publish to AMO
+
+      - name: Lint extension (web-ext)
+        run: web-ext lint --source-dir package-build/
+        continue-on-error: true
+
+      # IMPORTANT: avoid using secrets.* directly in `if:` expressions.
+      # Detect credential presence in a step output, then gate later steps on that output.
+      - name: Detect AMO credentials
+        id: amo_creds
         env:
           AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
           AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
-          AMO_CHANNEL: ${{ secrets.AMO_CHANNEL || 'unlisted' }} # unlisted or listed
         run: |
-          # Validate extension first
-          web-ext lint --source-dir package-build/ || echo "Linting warnings (non-blocking)"
-          
-          # Sign and submit to AMO
+          if [ -n "$AMO_JWT_ISSUER" ] && [ -n "$AMO_JWT_SECRET" ]; then
+            echo "has_credentials=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_credentials=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # AMO rejects a manifest.version already present for this add-on; re-run sign after bumping version (see CHANGELOG).
+      - name: Sign and publish to AMO
+        id: sign
+        if: ${{ steps.amo_creds.outputs.has_credentials == 'true' }}
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          CHANNEL="${{ vars.AMO_CHANNEL }}"
+          [ -z "$CHANNEL" ] && CHANNEL="unlisted"
+          echo "Using AMO channel: ${CHANNEL}"
           web-ext sign \
             --source-dir package-build/ \
             --api-key "$AMO_JWT_ISSUER" \
             --api-secret "$AMO_JWT_SECRET" \
-            --channel "$AMO_CHANNEL" \
+            --channel "$CHANNEL" \
             --artifacts-dir web-ext-artifacts/
-      
-      - name: Upload signed extension
+
+      - name: Skip sign (no AMO API credentials)
+        if: ${{ steps.amo_creds.outputs.has_credentials != 'true' }}
+        run: |
+          echo "::notice::AMO_JWT_ISSUER / AMO_JWT_SECRET not set — skipped web-ext sign."
+          echo "Upload web-ext-artifacts/opendkp-helper-firefox-source.zip manually to AMO, or add API keys in repo secrets."
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: signed-extension
-          path: web-ext-artifacts/*.xpi
+          name: firefox-amo-package
+          path: |
+            web-ext-artifacts/*.zip
+            web-ext-artifacts/*.xpi
+          if-no-files-found: warn
           retention-days: 30
-      
+
       - name: Output submission info
         run: |
-          echo "Extension submitted to Firefox Add-ons!"
-          echo "Channel: ${{ secrets.AMO_CHANNEL || 'unlisted' }}"
-          echo "Check your AMO developer dashboard for review status"
-
+          echo "Firefox packaging complete."
+          echo "Repository variable AMO_CHANNEL (optional): listed | unlisted (default in script: unlisted)."
+          echo "Secrets for auto-sign: AMO_JWT_ISSUER, AMO_JWT_SECRET (JWT from AMO dev hub)."
