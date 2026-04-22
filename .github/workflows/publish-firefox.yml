@@ -99,6 +99,7 @@ jobs:
             echo "has_credentials=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # AMO rejects a manifest.version already present for this add-on; re-run sign after bumping version (see CHANGELOG).
       - name: Sign and publish to AMO
         id: sign
         if: ${{ steps.amo_creds.outputs.has_credentials == 'true' }}
