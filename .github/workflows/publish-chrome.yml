@@ -13,6 +13,14 @@ defaults:
   run:
     shell: bash
 
+concurrency:
+  group: publish-chrome-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
 jobs:
   build:
     name: Build Chrome extension package
@@ -77,6 +85,7 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+      # Do not use uses: fregante/chrome-webstore-upload@* — npm library only, not a GitHub Action; use chrome-webstore-upload-cli via npx.
       # IMPORTANT: avoid using secrets.* directly in `if:` expressions.
       # Detect credential presence in a step output, then gate later steps on that output.
       - name: Detect Chrome Web Store credentials
@@ -95,16 +104,22 @@ jobs:
 
       - name: Upload to Chrome Web Store
         if: ${{ steps.chrome_creds.outputs.has_credentials == 'true' }}
-        uses: fregante/chrome-webstore-upload@v1
-        with:
-          extension-id: ${{ secrets.CHROME_EXTENSION_ID }}
-          client-id: ${{ secrets.CHROME_CLIENT_ID }}
-          client-secret: ${{ secrets.CHROME_CLIENT_SECRET }}
-          refresh-token: ${{ secrets.CHROME_REFRESH_TOKEN }}
-          zip-file: chrome-package/${{ env.ZIP_NAME }}
+        env:
+          CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+        run: |
+          npx --yes chrome-webstore-upload-cli@3.5.0 \
+            --source "chrome-package/${ZIP_NAME}" \
+            --extension-id "${{ secrets.CHROME_EXTENSION_ID }}"
 
-      - name: Skip Chrome API upload (credentials not fully configured)
+      - name: Skip Chrome Web Store upload (credentials incomplete)
         if: ${{ steps.chrome_creds.outputs.has_credentials != 'true' }}
+        run: |
+          echo "::notice::Chrome Web Store API secrets incomplete — skipped upload. Artifact contains the ZIP for manual upload."
+          echo "Required secrets: CHROME_EXTENSION_ID, CHROME_CLIENT_ID, CHROME_CLIENT_SECRET, CHROME_REFRESH_TOKEN"
+      
+      - name: Output package info
         run: |
           echo "::notice::Chrome Web Store API secrets incomplete — skipped upload. Artifact contains the ZIP for manual upload."
           echo "Required secrets: CHROME_EXTENSION_ID, CHROME_CLIENT_ID, CHROME_CLIENT_SECRET, CHROME_REFRESH_TOKEN"
