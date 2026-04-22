@@ -5,11 +5,20 @@ on:
     types: [published]
   workflow_dispatch: # Allows manual triggering
 
+concurrency:
+  group: publish-chrome-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
 jobs:
   build:
-    name: Build Chrome Extension Package
+    name: Build Chrome extension package
     runs-on: ubuntu-latest
-    
+    timeout-minutes: 20
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -79,7 +88,7 @@ jobs:
           ls -lh chrome-package/
           
           # Store ZIP name for use in upload step
-          echo "ZIP_NAME=${ZIP_NAME}" >> $GITHUB_ENV
+          echo "ZIP_NAME=${ZIP_NAME}" >> "$GITHUB_ENV"
       
       - name: Upload Chrome extension package
         uses: actions/upload-artifact@v4
@@ -87,18 +96,39 @@ jobs:
           name: chrome-extension-package
           path: chrome-package/*.zip
           retention-days: 30
-      
-      - name: Upload to Chrome Web Store (if credentials configured)
-        # Only run if Chrome Web Store credentials are configured
-        # Set these secrets in GitHub repo settings: Settings > Secrets and variables > Actions
-        if: ${{ secrets.CHROME_EXTENSION_ID != '' }}
-        uses: fregante/chrome-webstore-upload@v1
-        with:
-          extension-id: ${{ secrets.CHROME_EXTENSION_ID }}
-          client-id: ${{ secrets.CHROME_CLIENT_ID }}
-          client-secret: ${{ secrets.CHROME_CLIENT_SECRET }}
-          refresh-token: ${{ secrets.CHROME_REFRESH_TOKEN }}
-          zip-file: chrome-package/${{ env.ZIP_NAME }}
+          if-no-files-found: error
+
+      # Do not use uses: fregante/chrome-webstore-upload@* — npm library only, not a GitHub Action; use chrome-webstore-upload-cli via npx.
+      - name: Detect Chrome Web Store credentials
+        id: chrome_creds
+        env:
+          CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+          CHROME_CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+          CHROME_CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+          CHROME_REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+        run: |
+          if [ -n "$CHROME_EXTENSION_ID" ] && [ -n "$CHROME_CLIENT_ID" ] && [ -n "$CHROME_CLIENT_SECRET" ] && [ -n "$CHROME_REFRESH_TOKEN" ]; then
+            echo "has_credentials=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_credentials=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload to Chrome Web Store
+        if: ${{ steps.chrome_creds.outputs.has_credentials == 'true' }}
+        env:
+          CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+        run: |
+          npx --yes chrome-webstore-upload-cli@3.5.0 \
+            --source "chrome-package/${ZIP_NAME}" \
+            --extension-id "${{ secrets.CHROME_EXTENSION_ID }}"
+
+      - name: Skip Chrome Web Store upload (credentials incomplete)
+        if: ${{ steps.chrome_creds.outputs.has_credentials != 'true' }}
+        run: |
+          echo "::notice::Chrome Web Store API secrets incomplete — skipped upload. Artifact contains the ZIP for manual upload."
+          echo "Required secrets: CHROME_EXTENSION_ID, CHROME_CLIENT_ID, CHROME_CLIENT_SECRET, CHROME_REFRESH_TOKEN"
       
       - name: Output package info
         run: |
