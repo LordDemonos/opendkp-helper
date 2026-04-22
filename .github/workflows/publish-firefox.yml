@@ -85,9 +85,23 @@ jobs:
         run: web-ext lint --source-dir package-build/
         continue-on-error: true
 
+      # IMPORTANT: avoid using secrets.* directly in `if:` expressions.
+      # Detect credential presence in a step output, then gate later steps on that output.
+      - name: Detect AMO credentials
+        id: amo_creds
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          if [ -n "$AMO_JWT_ISSUER" ] && [ -n "$AMO_JWT_SECRET" ]; then
+            echo "has_credentials=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_credentials=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Sign and publish to AMO
         id: sign
-        if: ${{ secrets.AMO_JWT_ISSUER != '' && secrets.AMO_JWT_SECRET != '' }}
+        if: ${{ steps.amo_creds.outputs.has_credentials == 'true' }}
         env:
           AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
           AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
@@ -103,7 +117,7 @@ jobs:
             --artifacts-dir web-ext-artifacts/
 
       - name: Skip sign (no AMO API credentials)
-        if: ${{ secrets.AMO_JWT_ISSUER == '' || secrets.AMO_JWT_SECRET == '' }}
+        if: ${{ steps.amo_creds.outputs.has_credentials != 'true' }}
         run: |
           echo "::notice::AMO_JWT_ISSUER / AMO_JWT_SECRET not set — skipped web-ext sign."
           echo "Upload web-ext-artifacts/opendkp-helper-firefox-source.zip manually to AMO, or add API keys in repo secrets."
