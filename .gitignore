@@ -3,6 +3,7 @@
 *.md
 !README.md
 !CHANGELOG.md
+!CURSOR.md
 
 # Docs folder (documentation for reference, not included in builds)
 Docs/
