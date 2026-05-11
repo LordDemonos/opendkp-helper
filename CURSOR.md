@@ -28,3 +28,7 @@ Only if the maintainer wants hands-off publishing from Actions **and** is ready 
 ## Firefox (AMO) — one-line reminder
 
 Listed updates need **`web-ext sign --channel listed`** and a **new** `manifest.json` version for each AMO submission (Mozilla rejects duplicate version strings). Unlisted/“self” uploads do not replace the public listing line.
+
+## Recovering “lost” dev work
+
+If features existed only in a local **`build/temp-firefox-build.zip`** (or similar), diff/copy **`options.html`**, **`options.js`**, and other changed sources from the extracted zip into `master`, keep **`manifest.json`** store-required fields + bump **semver** before the next AMO upload. Commit **`e402edc`** (May 2026) did this merge for backup/restore + theme + related scripts.
