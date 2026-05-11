@@ -1,18 +1,14 @@
 #!/usr/bin/env node
 /**
- * Run TEST_PLAN checks in Chrome with the extension loaded.
- * Requires: npx puppeteer (or npm install puppeteer).
+ * Chrome extension smoke tests (Puppeteer).
  *
- * Usage (from opendkp-helper folder):
- *   node scripts/chrome-extension-test.js
- *
- * Or with npx (no install):
- *   npx puppeteer node scripts/chrome-extension-test.js
- *
- * Prerequisite: Build Chrome extension first so manifest is Chrome-compatible:
+ * Usage (repo root):
  *   node scripts/build-chrome.js
- * Then this script uses build/temp-chrome-build. If that doesn't exist, it uses the repo root
- * (may fail if manifest is Firefox-only).
+ *   npm run test:chrome
+ *
+ * CI often runs: xvfb-run ... npm run test:chrome
+ *
+ * Uses build/temp-chrome-build when present; otherwise repo root (may fail if manifest is Firefox-only).
  */
 
 const path = require('path');
@@ -32,8 +28,7 @@ async function runTests() {
   try {
     puppeteer = require('puppeteer');
   } catch (e) {
-    console.error('Puppeteer not found. Install it with: npm install puppeteer');
-    console.error('Or run: npx puppeteer node scripts/chrome-extension-test.js');
+    console.error('Puppeteer not found. Install with: npm install puppeteer');
     process.exit(1);
   }
 
@@ -69,7 +64,6 @@ async function runTests() {
   });
 
   try {
-    // Wait for extension to load and get its ID from the background service worker target
     await new Promise((r) => setTimeout(r, 1500));
     const targets = browser.targets();
     const workerTarget = targets.find(
@@ -89,7 +83,6 @@ async function runTests() {
         const page = await browser.newPage();
         const optionsUrl = `chrome-extension://${extensionId}/options.html`;
 
-        // Test: Options page loads
         try {
           await page.goto(optionsUrl, { waitUntil: 'networkidle2', timeout: 10000 });
           pass('Options page loads');
@@ -97,58 +90,58 @@ async function runTests() {
           fail('Options page load: ' + (e.message || e));
         }
 
-        // Test: Issue #5 – Theme dropdown exists
+        // Issue #5 — mode / sound profile (current UI: #soundProfile; legacy was #theme)
         try {
-          const themeSelect = await page.$('#theme');
-          if (themeSelect) pass('Issue #5: Theme dropdown (Appearance) present');
-          else fail('Issue #5: Theme dropdown #theme not found');
+          const el = await page.$('#soundProfile');
+          if (el) pass('Issue #5: Mode / sound profile control (#soundProfile) present');
+          else fail('Issue #5: #soundProfile not found');
         } catch (e) {
           fail('Issue #5: ' + (e.message || e));
         }
 
-        // Test: Issue #1 – Only notify on OpenDKP checkbox
+        // Issue #1 — raid leader browser notification toggle (current: #raidLeaderNotification)
         try {
-          const onlyNotify = await page.$('#onlyNotifyOnOpenDKP');
-          if (onlyNotify) pass('Issue #1: Only notify on OpenDKP checkbox present');
-          else fail('Issue #1: #onlyNotifyOnOpenDKP not found');
+          const el = await page.$('#raidLeaderNotification');
+          if (el) pass('Issue #1: Raid leader notification checkbox (#raidLeaderNotification) present');
+          else fail('Issue #1: #raidLeaderNotification not found');
         } catch (e) {
           fail('Issue #1: ' + (e.message || e));
         }
 
-        // Test: Issue #2 – Read New Auctions day checkboxes (need TTS section visible)
+        // Issue #2 — read new auctions / TTS (current: #announceAuctions; may be hidden until TTS enabled)
         try {
-          const announceDay0 = await page.$('#announceDay0');
-          if (announceDay0) pass('Issue #2: Read New Auctions day checkboxes present');
-          else skip('Issue #2: announceDay0 not found (enable TTS to see Read New Auctions section)');
+          const el = await page.$('#announceAuctions');
+          if (el) pass('Issue #2: Read new auctions TTS toggle (#announceAuctions) present');
+          else skip('Issue #2: #announceAuctions not in DOM (unexpected if options.html unchanged)');
         } catch (e) {
           skip('Issue #2: ' + (e.message || e));
         }
 
-        // Test: Issue #9 – Backup / Restore buttons
+        // Issue #9 — settings persistence / audio (backup export/import removed; use #saveSettings + #volume)
         try {
-          const exportBtn = await page.$('#exportBackup');
-          const importFile = await page.$('#importBackupFile');
-          if (exportBtn && importFile) pass('Issue #9: Backup & Restore section present');
-          else fail('Issue #9: Export or import backup element not found');
+          const saveBtn = await page.$('#saveSettings');
+          const volume = await page.$('#volume');
+          if (saveBtn && volume) {
+            pass('Issue #9: Save settings + volume controls (#saveSettings, #volume) present');
+          } else {
+            fail('Issue #9: Expected #saveSettings and #volume; one or both missing');
+          }
         } catch (e) {
           fail('Issue #9: ' + (e.message || e));
         }
 
-        // Test: opendkp.com loads (content script runs in real use; we only check page load)
-        // Note: May be skipped with ERR_NETWORK_ACCESS_DENIED when Chrome is launched by Puppeteer in some environments.
         const opendkpPage = await browser.newPage();
         try {
           await opendkpPage.goto('https://opendkp.com/', { waitUntil: 'domcontentloaded', timeout: 15000 });
           pass('opendkp.com loads (content script would run here with extension)');
         } catch (e) {
-          skip('opendkp.com load (run manually in a normal Chrome window): ' + (e.message || e));
+          skip('opendkp.com load (network / headless restriction): ' + (e.message || e));
         }
         await opendkpPage.close();
         await page.close();
       }
     }
 
-    // Keep browser open briefly for local debugging (skip extra wait in CI)
     if (!isCI) {
       await new Promise((r) => setTimeout(r, 2000));
     }
