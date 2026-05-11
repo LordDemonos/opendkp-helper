@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versioning follows the **same semver** as `manifest.json` (single version for Firefox and Chrome packages).
 
+## [1.2.9] - 2026-05-10
+
+### Release
+
+- Bump version for **AMO listed** submission: `1.2.8` was already registered on the add-on (e.g. prior self/unlisted upload). Mozilla rejects submitting the same `manifest.json` `version` again; use **1.2.9** for the next `web-ext sign --channel listed` run.
+
 ## [1.2.7] - 2026-04-12
 
 ### Added
