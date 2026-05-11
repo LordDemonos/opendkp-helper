@@ -10,6 +10,7 @@
     .status { margin-top:10px; font-size:12px; color:#b0b0b0; white-space:pre-wrap; height:120px; overflow:auto; border:1px solid #444; padding:8px; border-radius:6px; }
     button { background:#1976d2; color:#fff; border:none; border-radius:6px; padding:8px 12px; cursor:pointer; font-weight:500; }
     .small { font-size:12px; color:#b0b0b0; }
+    kbd { background:#333; padding:2px 6px; border-radius:4px; font-size:11px; }
   </style>
   <script defer src="eqlog-monitor.js"></script>
 </head>
@@ -26,6 +27,7 @@
       <label class="small"><input type="checkbox" id="scanLatestNow" checked style="margin-right:6px;">Scan latest line now</label>
     </div>
     <div class="status" id="log"></div>
+    <div class="small" style="margin-top:8px;">Paste with <kbd id="pasteShortcut">Ctrl+V</kbd> in-game to paste the copied loot line.</div>
     <div class="small">Window must remain open to monitor. Close to stop monitoring.</div>
   </div>
 </body>

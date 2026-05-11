@@ -656,6 +656,19 @@
             </div>
         </div>
 
+        <div class="setting-group" id="appearanceGroup">
+            <h3>🎨 Appearance</h3>
+            <p class="section-description">Choose light or dark theme for the extension (settings and popup).</p>
+            <div class="setting-row" style="justify-content:flex-start; gap:10px;">
+                <label for="theme">Theme:</label>
+                <select id="theme" style="margin-left:0;">
+                    <option value="system">System (follow OS)</option>
+                    <option value="light">Light</option>
+                    <option value="dark">Dark</option>
+                </select>
+            </div>
+        </div>
+
         <div class="setting-group" id="raidTickGroup">
             <h3>📁 RaidTick Integration</h3>
             <p class="section-description">Search for RaidTick .txt files in your TAKP folder and copies the contents to your clipboard for easy OpenDKP import.</p>
@@ -698,29 +711,26 @@
                         <input type="checkbox" id="reminderNotifications"> Browser Notifications
                     </label>
                 </div>
-                <div class="setting-row" style="margin-top:12px; align-items:center; flex-wrap:wrap; gap:8px;">
-                    <label style="display:flex; align-items:center; font-weight:bold;">Enabled on:</label>
-                    <label style="display:flex; align-items:center; gap:4px;">
-                        <input type="checkbox" id="reminderDay0" value="0"> Sunday
+                <div class="setting-row setting-row-days" style="margin-top:12px; align-items:center; flex-wrap:wrap; gap:8px;">
+                    <label style="display:flex; align-items:center; font-weight:bold; flex-shrink:0;">Enabled on:</label>
+                    <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay0" value="0"> Sunday</label>
+                    <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay1" value="1"> Monday</label>
+                    <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay2" value="2"> Tuesday</label>
+                    <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay3" value="3"> Wednesday</label>
+                    <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay4" value="4"> Thursday</label>
+                    <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay5" value="5"> Friday</label>
+                    <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay6" value="6"> Saturday</label>
+                </div>
+                <div class="setting-row" style="margin-top:10px;">
+                    <label style="display:flex; align-items:center; gap:6px;">
+                        <input type="checkbox" id="onlyNotifyOnOpenDKP" checked>
+                        Only show reminders when OpenDKP (or exception) is open
                     </label>
-                    <label style="display:flex; align-items:center; gap:4px;">
-                        <input type="checkbox" id="reminderDay1" value="1"> Monday
-                    </label>
-                    <label style="display:flex; align-items:center; gap:4px;">
-                        <input type="checkbox" id="reminderDay2" value="2"> Tuesday
-                    </label>
-                    <label style="display:flex; align-items:center; gap:4px;">
-                        <input type="checkbox" id="reminderDay3" value="3"> Wednesday
-                    </label>
-                    <label style="display:flex; align-items:center; gap:4px;">
-                        <input type="checkbox" id="reminderDay4" value="4"> Thursday
-                    </label>
-                    <label style="display:flex; align-items:center; gap:4px;">
-                        <input type="checkbox" id="reminderDay5" value="5"> Friday
-                    </label>
-                    <label style="display:flex; align-items:center; gap:4px;">
-                        <input type="checkbox" id="reminderDay6" value="6"> Saturday
-                    </label>
+                </div>
+                <div class="setting-row" style="margin-top:6px; flex-direction:column; align-items:flex-start;">
+                    <label for="domainExceptionList" style="font-weight:bold;">Domain exceptions (one URL or host per line):</label>
+                    <textarea id="domainExceptionList" rows="2" placeholder="e.g. https://other-raid-tool.com" style="width:100%; max-width:400px; margin-top:4px; resize:vertical;"></textarea>
+                    <span class="description" style="display:block; margin-top:4px;">Sites listed here will also receive reminders when they're open. Leave empty to only allow opendkp.com.</span>
                 </div>
                 <div id="remindersList" style="display:flex; flex-direction:column; gap:10px; margin-top:10px;"></div>
                 <div class="description">Up to 5 reminders. Each reminder triggers every 5 minutes between Start and End times on selected days. TTS reads your message if enabled.</div>
@@ -833,6 +843,16 @@
                 <input type="time" id="announceStart" value="19:00" style="margin-left:15px;">
                 <label for="announceEnd" style="margin-left:20px;">and</label>
                 <input type="time" id="announceEnd" value="23:59" style="margin-left:5px;">
+            </div>
+            <div class="setting-row setting-row-days" id="announceDaysRow" style="display:none; flex-wrap:wrap; gap:8px; align-items:center;">
+                <span style="font-weight:bold; flex-shrink:0;">Only on days:</span>
+                <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="announceDay0" value="0"> Sun</label>
+                <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="announceDay1" value="1"> Mon</label>
+                <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="announceDay2" value="2"> Tue</label>
+                <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="announceDay3" value="3"> Wed</label>
+                <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="announceDay4" value="4"> Thu</label>
+                <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="announceDay5" value="5"> Fri</label>
+                <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="announceDay6" value="6"> Sat</label>
             </div>
             <div class="description" id="announceDesc">
                 Speaks "New auction: Item Name" when a new auction appears. Uses your TTS voice and speed settings. Respects Quiet Hours.
@@ -968,12 +988,26 @@
         
         <button class="save-button" id="saveSettings">💾 Save Settings</button>
         
+        <div class="setting-group">
+            <h3>📦 Backup &amp; Restore</h3>
+            <div class="description">
+                Export all settings (including RaidTick reminders) to a file. Restore after reinstalling the extension or when testing new versions.
+            </div>
+            <div class="setting-row" style="flex-wrap: wrap; gap: 10px;">
+                <button type="button" class="test-button" id="exportBackup">Download backup</button>
+                <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <span class="test-button" style="margin: 0;">Restore from backup</span>
+                    <input type="file" id="importBackupFile" accept=".json" style="position: absolute; width: 0; height: 0; opacity: 0;">
+                </label>
+            </div>
+        </div>
+        
         <div id="status" class="status" style="display: none;"></div>
         
         <!-- Footer -->
         <div class="footer">
             <div class="footer-content">
-                <span class="footer-text">OpenDKP Helper v1.2.9</span>
+                <span class="footer-text">OpenDKP Helper v1.3.0</span>
                 <span class="footer-separator">•</span>
                 <a href="https://github.com/LordDemonos/opendkp-helper" target="_blank" rel="noopener" class="footer-link">GitHub</a>
                 <span class="footer-separator">•</span>

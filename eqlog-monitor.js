@@ -1,6 +1,10 @@
 (function(){
   // Browser detection for cross-compatibility
   const api = typeof browser !== 'undefined' ? browser : chrome;
+
+  // Issue #3: Show correct paste shortcut (Cmd+V on Mac, Ctrl+V elsewhere)
+  const pasteShortcutEl = document.getElementById('pasteShortcut');
+  if (pasteShortcutEl && /Mac|iPod|iPhone|iPad/.test(navigator.platform)) pasteShortcutEl.textContent = 'Cmd+V';
   
   const fileInput = () => document.getElementById('fileInput');
   const pickBtn = () => document.getElementById('pick');

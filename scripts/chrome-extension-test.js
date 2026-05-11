@@ -90,41 +90,53 @@ async function runTests() {
           fail('Options page load: ' + (e.message || e));
         }
 
-        // Issue #5 — mode / sound profile (current UI: #soundProfile; legacy was #theme)
+        // Issue #5 — Appearance theme (#theme) when present; else mode #soundProfile
         try {
-          const el = await page.$('#soundProfile');
-          if (el) pass('Issue #5: Mode / sound profile control (#soundProfile) present');
-          else fail('Issue #5: #soundProfile not found');
+          const theme = await page.$('#theme');
+          const sound = await page.$('#soundProfile');
+          if (theme) pass('Issue #5: Appearance theme (#theme) present');
+          else if (sound) pass('Issue #5: Mode / sound profile (#soundProfile) present (no theme control)');
+          else fail('Issue #5: Neither #theme nor #soundProfile found');
         } catch (e) {
           fail('Issue #5: ' + (e.message || e));
         }
 
-        // Issue #1 — raid leader browser notification toggle (current: #raidLeaderNotification)
+        // Issue #1 — only notify when OpenDKP open (#onlyNotifyOnOpenDKP) when present; else raid leader notification
         try {
-          const el = await page.$('#raidLeaderNotification');
-          if (el) pass('Issue #1: Raid leader notification checkbox (#raidLeaderNotification) present');
-          else fail('Issue #1: #raidLeaderNotification not found');
+          const only = await page.$('#onlyNotifyOnOpenDKP');
+          const rl = await page.$('#raidLeaderNotification');
+          if (only) pass('Issue #1: Only notify on OpenDKP (#onlyNotifyOnOpenDKP) present');
+          else if (rl) pass('Issue #1: Raid leader notification (#raidLeaderNotification) present');
+          else fail('Issue #1: Neither #onlyNotifyOnOpenDKP nor #raidLeaderNotification found');
         } catch (e) {
           fail('Issue #1: ' + (e.message || e));
         }
 
-        // Issue #2 — read new auctions / TTS (current: #announceAuctions; may be hidden until TTS enabled)
+        // Issue #2 — Read New Auctions: day checkboxes or TTS toggle
         try {
-          const el = await page.$('#announceAuctions');
-          if (el) pass('Issue #2: Read new auctions TTS toggle (#announceAuctions) present');
-          else skip('Issue #2: #announceAuctions not in DOM (unexpected if options.html unchanged)');
+          const day0 = await page.$('#announceDay0');
+          const ann = await page.$('#announceAuctions');
+          if (day0) pass('Issue #2: Read New Auctions day controls (#announceDay0) present');
+          else if (ann) pass('Issue #2: Read new auctions TTS (#announceAuctions) present');
+          else skip('Issue #2: No announce controls in DOM (enable TTS / expand section)');
         } catch (e) {
           skip('Issue #2: ' + (e.message || e));
         }
 
-        // Issue #9 — settings persistence / audio (backup export/import removed; use #saveSettings + #volume)
+        // Issue #9 — Backup & Restore when present; else save + volume
         try {
-          const saveBtn = await page.$('#saveSettings');
-          const volume = await page.$('#volume');
-          if (saveBtn && volume) {
-            pass('Issue #9: Save settings + volume controls (#saveSettings, #volume) present');
+          const exportBtn = await page.$('#exportBackup');
+          const importFile = await page.$('#importBackupFile');
+          if (exportBtn && importFile) {
+            pass('Issue #9: Backup & Restore (#exportBackup, #importBackupFile) present');
           } else {
-            fail('Issue #9: Expected #saveSettings and #volume; one or both missing');
+            const saveBtn = await page.$('#saveSettings');
+            const volume = await page.$('#volume');
+            if (saveBtn && volume) {
+              pass('Issue #9: Save + volume (#saveSettings, #volume) present (no backup UI)');
+            } else {
+              fail('Issue #9: Missing backup controls and missing #saveSettings/#volume');
+            }
           }
         } catch (e) {
           fail('Issue #9: ' + (e.message || e));

@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versioning follows the **same semver** as `manifest.json` (single version for Firefox and Chrome packages).
 
+## [1.3.0] - 2026-05-10
+
+### Restored (from prior dev / `build/temp-firefox-build.zip`)
+
+- Merged **options / popup / background / content / reminder / eqlog-monitor** sources that were only in the local Firefox package (Appearance `#theme`, `#onlyNotifyOnOpenDKP`, Read New Auctions day controls, **Backup & Restore** `#exportBackup` / `#importBackupFile`, and related `options.js` behavior). `manifest.json` keeps **AMO** fields (`data_collection_permissions`, current signing rules); version bumped because AMO cannot replace an already-published build under the same version.
+
 ## [1.2.9] - 2026-05-10
 
 ### Release

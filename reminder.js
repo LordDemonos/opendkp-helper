@@ -63,7 +63,8 @@
 					const isFirefox = typeof browser !== 'undefined' && navigator.userAgent.includes('Firefox');
 					const maxRate = isFirefox ? 2.5 : 2.0;
 					u.rate = Math.min(s.voiceSpeed || 1.0, maxRate);
-					u.volume = 0.9;
+					// Issue #6: respect volume (storage is 0-100)
+					u.volume = Math.max(0, Math.min(1, typeof s.volume === 'number' ? (s.volume <= 1 ? s.volume : s.volume / 100) : 0.7));
 					speechSynthesis.speak(u);
 				};
 				

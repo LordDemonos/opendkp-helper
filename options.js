@@ -126,10 +126,12 @@ const DEFAULT_SETTINGS = {
   quietHours: false,
   quietStart: '22:00',
   quietEnd: '08:00',
-  // Auction readout defaults
+  theme: 'system', // 'system' | 'light' | 'dark' (Issue #5)
+  // Auction readout (Issue #2: day-of-week for Read New Auctions)
   announceAuctions: false,
   announceStart: '19:00',
   announceEnd: '23:59',
+  announceNewAuctionsDays: [0, 1, 2, 3, 4, 5, 6], // 0=Sun .. 6=Sat
   disableVisuals: false,
   flashScreen: true,
   browserNotifications: true,
@@ -362,37 +364,46 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   } catch (e) { /* ignore */ }
 
-  // Check for dark mode setting and apply it (robust across browsers)
+  // Apply theme (light/dark/system) - Issue #5
+  function applyTheme(theme) {
+    const isDark = theme === 'dark' || (theme === 'system' && typeof matchMedia !== 'undefined' && matchMedia('(prefers-color-scheme: dark)').matches);
+    if (isDark) document.body.classList.add('dark-mode');
+    else document.body.classList.remove('dark-mode');
+    try { console.log('[Options] applyTheme:', theme, 'resolvedDark=', isDark); } catch(_) {}
+    setTimeout(() => { try { renderRemindersUI(); } catch(_) {} }, 0);
+  }
+  window.applyTheme = applyTheme;
+  if (typeof matchMedia !== 'undefined') {
+    try {
+      matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function() {
+        const theme = (document.getElementById('theme') && document.getElementById('theme').value) || currentSettings.theme || 'system';
+        if (theme === 'system') applyTheme('system');
+      });
+    } catch (_) {}
+  }
+
   try {
     if (api && api.storage && api.storage.sync) {
-      // Support both Promise (Firefox) and callback (Chrome)
-      const getter = api.storage.sync.get(['darkMode']);
+      const getter = api.storage.sync.get(['theme', 'darkMode']);
       if (getter && typeof getter.then === 'function') {
-        getter.then(result => { 
-          if (result.darkMode) document.body.classList.add('dark-mode');
-          // Re-render reminders after dark mode is applied
-          setTimeout(() => { try { renderRemindersUI(); } catch(_) {} }, 0);
+        getter.then(result => {
+          const theme = result.theme || (result.darkMode ? 'dark' : 'light');
+          applyTheme(theme);
         });
       } else {
-        api.storage.sync.get(['darkMode'], function(result){ 
-          if (result.darkMode) document.body.classList.add('dark-mode');
-          // Re-render reminders after dark mode is applied
-          setTimeout(() => { try { renderRemindersUI(); } catch(_) {} }, 0);
+        api.storage.sync.get(['theme', 'darkMode'], function(result){
+          const theme = result.theme || (result.darkMode ? 'dark' : 'light');
+          applyTheme(theme);
         });
       }
     }
   } catch (_) {}
 
-  // Listen for dark mode changes from popup
+  // Listen for theme/dark mode changes (from popup or other tabs)
   (api && api.storage ? api.storage : chrome.storage).onChanged.addListener(function(changes, namespace) {
-    if (namespace === 'sync' && changes.darkMode) {
-      if (changes.darkMode.newValue) {
-        document.body.classList.add('dark-mode');
-      } else {
-        document.body.classList.remove('dark-mode');
-      }
-      // Re-render reminders to update colors
-      try { renderRemindersUI(); } catch(_) {}
+    if (namespace === 'sync' && (changes.theme || changes.darkMode)) {
+      const theme = changes.theme ? changes.theme.newValue : (changes.darkMode ? (changes.darkMode.newValue ? 'dark' : 'light') : null);
+      if (theme != null) applyTheme(theme);
     }
     
     // Listen for sound profile changes from popup
@@ -408,17 +419,10 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   });
 
-  // Also listen for runtime messages (immediate UI sync from popup)
   try {
     (api && api.runtime ? api.runtime : chrome.runtime).onMessage.addListener(function(message) {
       if (message && message.type === 'darkModeChanged') {
-        if (message.value) {
-          document.body.classList.add('dark-mode');
-        } else {
-          document.body.classList.remove('dark-mode');
-        }
-        // Re-render reminders to update colors
-        try { renderRemindersUI(); } catch(_) {}
+        applyTheme(message.value ? 'dark' : 'light');
       }
     });
   } catch (_) {}
@@ -562,6 +566,8 @@ function updateTTSSettings() {
     const row = document.getElementById('announceWindow');
     const chk = document.getElementById('announceAuctions');
     if (row) row.style.display = 'none';
+    const announceDaysRow = document.getElementById('announceDaysRow');
+    if (announceDaysRow) announceDaysRow.style.display = 'none';
     if (announceRow) announceRow.style.display = 'none';
     if (announceHeading) announceHeading.style.display = 'none';
     if (announceDesc) announceDesc.style.display = 'none';
@@ -660,30 +666,52 @@ function initializePage() {
 
 /**
  * Load settings from storage
+ * Uses api (browser/chrome). Firefox: restores reminders from storage.local if sync lost them.
  */
 function loadSettings() {
-  chrome.storage.sync.get(['darkMode', ...Object.keys(DEFAULT_SETTINGS)], function(settings) {
+  const keys = ['theme', 'darkMode', ...Object.keys(DEFAULT_SETTINGS)];
+  const getSync = () => new Promise((resolve, reject) => {
+    api.storage.sync.get(keys, (result) => {
+      if (api.runtime?.lastError) reject(api.runtime.lastError);
+      else resolve(result);
+    });
+  });
+  const getLocalFallback = () => new Promise((resolve) => {
+    if (!api.storage.local) return resolve(null);
+    api.storage.local.get(['reminders', 'reminderPrefs'], (result) => {
+      resolve(api.runtime?.lastError ? null : result);
+    });
+  });
+
+  Promise.all([getSync(), getLocalFallback()]).then(([settings, local]) => {
     // Ensure Chrome defaults to Raid Leader mode if no profile is set
     if (!settings.soundProfile && typeof chrome !== 'undefined' && !navigator.userAgent.includes('Firefox')) {
       settings.soundProfile = 'raidleader';
+    }
+    // Firefox: if sync lost reminders, use storage.local backup
+    if ((!settings.reminders || !Array.isArray(settings.reminders) || settings.reminders.length === 0) && local && Array.isArray(local.reminders) && local.reminders.length > 0) {
+      settings.reminders = local.reminders;
+      if (local.reminderPrefs && typeof local.reminderPrefs === 'object') {
+        settings.reminderPrefs = local.reminderPrefs;
+      }
     }
     currentSettings = { ...DEFAULT_SETTINGS, ...settings };
     console.log('[LoadSettings] Loaded from storage:', {
       volume: currentSettings.volume,
       soundType: currentSettings.soundType,
       soundProfile: currentSettings.soundProfile,
-      darkMode: settings.darkMode
+      darkMode: settings.darkMode,
+      reminderCount: (currentSettings.reminders || []).length
     });
-    // Ensure customSounds is always an object, never null or undefined
     if (!currentSettings.customSounds || typeof currentSettings.customSounds !== 'object') {
       currentSettings.customSounds = {};
     }
-    // Apply dark mode before rendering UI (so reminders get correct colors)
-    if (settings.darkMode) {
-      document.body.classList.add('dark-mode');
-    } else {
-      document.body.classList.remove('dark-mode');
-    }
+    const theme = settings.theme || (settings.darkMode ? 'dark' : 'light');
+    applyTheme(theme);
+    applySettingsToUI();
+  }).catch((err) => {
+    console.error('[LoadSettings] Error loading settings:', err);
+    currentSettings = { ...DEFAULT_SETTINGS };
     applySettingsToUI();
   });
 }
@@ -727,6 +755,8 @@ function applySettingsToUI() {
   document.getElementById('volume').value = currentSettings.volume;
   document.getElementById('soundProfile').value = currentSettings.soundProfile;
   document.getElementById('soundType').value = currentSettings.soundType;
+  const themeEl = document.getElementById('theme');
+  if (themeEl) themeEl.value = (currentSettings.theme === 'light' || currentSettings.theme === 'dark' || currentSettings.theme === 'system') ? currentSettings.theme : 'system';
   document.getElementById('raidLeaderNotification').checked = currentSettings.raidLeaderNotification;
   document.getElementById('smartBidding').checked = currentSettings.smartBidding;
   
@@ -748,10 +778,15 @@ function applySettingsToUI() {
   document.getElementById('quietHours').checked = currentSettings.quietHours;
   document.getElementById('quietStart').value = currentSettings.quietStart;
   document.getElementById('quietEnd').value = currentSettings.quietEnd;
-  // Auction readout
+  // Auction readout (Issue #2: day-of-week)
   const annChk = document.getElementById('announceAuctions'); if (annChk) annChk.checked = !!currentSettings.announceAuctions;
   const annStart = document.getElementById('announceStart'); if (annStart) annStart.value = currentSettings.announceStart || '19:00';
   const annEnd = document.getElementById('announceEnd'); if (annEnd) annEnd.value = currentSettings.announceEnd || '23:59';
+  const annDays = Array.isArray(currentSettings.announceNewAuctionsDays) ? currentSettings.announceNewAuctionsDays : [0,1,2,3,4,5,6];
+  for (let d = 0; d < 7; d++) {
+    const cb = document.getElementById('announceDay' + d);
+    if (cb) cb.checked = annDays.includes(d);
+  }
   const flashEl = document.getElementById('flashScreen'); if (flashEl) flashEl.checked = currentSettings.flashScreen;
   document.getElementById('browserNotifications').checked = currentSettings.browserNotifications;
   document.getElementById('checkInterval').value = currentSettings.checkInterval;
@@ -868,6 +903,19 @@ function setupEventListeners() {
   if (announceEndEl) announceEndEl.addEventListener('change', function() {
     currentSettings.announceEnd = this.value;
   });
+  for (let d = 0; d < 7; d++) {
+    const cb = document.getElementById('announceDay' + d);
+    if (cb) cb.addEventListener('change', function() {
+      currentSettings.announceNewAuctionsDays = currentSettings.announceNewAuctionsDays || [0,1,2,3,4,5,6];
+      const dayNum = parseInt(this.value, 10);
+      if (this.checked) {
+        if (!currentSettings.announceNewAuctionsDays.includes(dayNum)) currentSettings.announceNewAuctionsDays.push(dayNum);
+      } else {
+        currentSettings.announceNewAuctionsDays = currentSettings.announceNewAuctionsDays.filter(x => x !== dayNum);
+      }
+      if (currentSettings.announceNewAuctionsDays.length === 0) currentSettings.announceNewAuctionsDays = [0,1,2,3,4,5,6];
+    });
+  }
   
   const testTplEl = document.getElementById('testCustomTemplate');
   if (testTplEl) testTplEl.addEventListener('click', testCustomTemplate);
@@ -882,7 +930,18 @@ function setupEventListeners() {
     // Ensure custom sounds are added after profile changes
     updateCustomSoundOptions();
   });
-  
+
+  // Theme (Appearance) - Issue #5
+  const themeEl = document.getElementById('theme');
+  if (themeEl) themeEl.addEventListener('change', function() {
+    const theme = this.value;
+    currentSettings.theme = theme;
+    const isDark = theme === 'dark' || (theme === 'system' && typeof matchMedia !== 'undefined' && matchMedia('(prefers-color-scheme: dark)').matches);
+    applyTheme(theme);
+    api.storage.sync.set({ theme: theme, darkMode: theme === 'dark' });
+    try { api.runtime.sendMessage({ type: 'darkModeChanged', value: isDark }); } catch(_) {}
+  });
+
   // Custom sound file upload
   const customSoundFileEl = document.getElementById('customSoundFile');
   if (customSoundFileEl) customSoundFileEl.addEventListener('change', handleCustomSoundUpload);
@@ -1003,13 +1062,45 @@ function setupEventListeners() {
       });
     }
   }
-  
+  // Only notify on OpenDKP (and exceptions)
+  const onlyNotifyEl = document.getElementById('onlyNotifyOnOpenDKP');
+  if (onlyNotifyEl) {
+    onlyNotifyEl.addEventListener('change', function() {
+      currentSettings.reminderPrefs = currentSettings.reminderPrefs || { flash: true, notifications: true, enabledDays: [0,1,2,3,4,5,6] };
+      currentSettings.reminderPrefs.onlyNotifyOnOpenDKP = !!this.checked;
+      saveRemindersPartial();
+    });
+  }
+  const domainListEl = document.getElementById('domainExceptionList');
+  if (domainListEl) {
+    domainListEl.addEventListener('change', function() {
+      currentSettings.reminderPrefs = currentSettings.reminderPrefs || { flash: true, notifications: true, enabledDays: [0,1,2,3,4,5,6] };
+      currentSettings.reminderPrefs.domainExceptionList = (this.value || '').split(/\n/).map(s => s.trim()).filter(Boolean);
+      saveRemindersPartial();
+    });
+    domainListEl.addEventListener('blur', function() {
+      currentSettings.reminderPrefs = currentSettings.reminderPrefs || { flash: true, notifications: true, enabledDays: [0,1,2,3,4,5,6] };
+      currentSettings.reminderPrefs.domainExceptionList = (this.value || '').split(/\n/).map(s => s.trim()).filter(Boolean);
+      saveRemindersPartial();
+    });
+  }
+
   // Save button
   const saveSettingsEl = document.getElementById('saveSettings'); if (saveSettingsEl) saveSettingsEl.addEventListener('click', function(e) {
     e.preventDefault();
     preserveScrollPosition(() => {
       saveSettings();
     });
+  });
+
+  // Backup & Restore
+  const exportBackupEl = document.getElementById('exportBackup');
+  if (exportBackupEl) exportBackupEl.addEventListener('click', exportBackup);
+  const importBackupFileEl = document.getElementById('importBackupFile');
+  if (importBackupFileEl) importBackupFileEl.addEventListener('change', function() {
+    const file = this.files && this.files[0];
+    if (file) importBackup(file);
+    this.value = '';
   });
 }
 
@@ -1030,6 +1121,13 @@ function renderRemindersUI() {
   const notif = document.getElementById('reminderNotifications');
   if (flash) flash.checked = !!currentSettings.reminderPrefs.flash;
   if (notif) notif.checked = !!currentSettings.reminderPrefs.notifications;
+  const onlyNotifyEl = document.getElementById('onlyNotifyOnOpenDKP');
+  if (onlyNotifyEl) onlyNotifyEl.checked = currentSettings.reminderPrefs.onlyNotifyOnOpenDKP !== false;
+  const domainListEl = document.getElementById('domainExceptionList');
+  if (domainListEl) {
+    const list = currentSettings.reminderPrefs.domainExceptionList;
+    domainListEl.value = Array.isArray(list) ? list.join('\n') : (typeof list === 'string' ? list : '');
+  }
   // Load day checkboxes
   for (let day = 0; day < 7; day++) {
     const dayCheckbox = document.getElementById('reminderDay' + day);
@@ -1172,6 +1270,11 @@ function saveRemindersPartial() {
   if (!Array.isArray(currentSettings.reminderPrefs.enabledDays)) {
     currentSettings.reminderPrefs.enabledDays = [0,1,2,3,4,5,6];
   }
+  // Sync "only on OpenDKP" and domain exception list from UI so they are always persisted
+  const onlyNotifyEl = document.getElementById('onlyNotifyOnOpenDKP');
+  if (onlyNotifyEl) currentSettings.reminderPrefs.onlyNotifyOnOpenDKP = !!onlyNotifyEl.checked;
+  const domainListEl = document.getElementById('domainExceptionList');
+  if (domainListEl) currentSettings.reminderPrefs.domainExceptionList = (domainListEl.value || '').split(/\n/).map(s => s.trim()).filter(Boolean);
   try {
     if (_reminderSaveTimer) clearTimeout(_reminderSaveTimer);
     _reminderSaveTimer = setTimeout(() => {
@@ -1193,11 +1296,16 @@ function saveRemindersPartial() {
         timestamp: new Date().toISOString()
       });
       try {
-        (api && api.storage ? api.storage.sync : chrome.storage.sync).set(payload, function(){
+        const storage = api && api.storage ? api.storage : chrome.storage;
+        storage.sync.set(payload, function(){
           if (chrome && chrome.runtime && chrome.runtime.lastError) {
             console.error('[Options] ❌ Error saving reminders to storage:', chrome.runtime.lastError.message);
           } else {
             console.log('[Options] ✅ Reminders saved to storage successfully');
+            // Mirror to local so Firefox keeps reminders if sync is evicted
+            if (storage.local && storage.local.set) {
+              storage.local.set(payload, function() {});
+            }
           }
         });
       } catch(e) {
@@ -1737,8 +1845,10 @@ function updateQuietHoursSettings() {
 
 function updateAnnounceSettings() {
   const row = document.getElementById('announceWindow');
+  const daysRow = document.getElementById('announceDaysRow');
   const enabled = document.getElementById('announceAuctions')?.checked;
   if (row) row.style.display = enabled ? 'flex' : 'none';
+  if (daysRow) daysRow.style.display = enabled ? 'flex' : 'none';
 }
 
 /**
@@ -2803,11 +2913,21 @@ function saveSettings() {
     announceAuctions: getChecked('announceAuctions', currentSettings.announceAuctions),
     announceStart: getVal('announceStart', currentSettings.announceStart),
     announceEnd: getVal('announceEnd', currentSettings.announceEnd),
+    announceNewAuctionsDays: (() => {
+      const days = [];
+      for (let d = 0; d < 7; d++) {
+        const el = document.getElementById('announceDay' + d);
+        if (el && el.checked) days.push(d);
+      }
+      return days.length ? days : [0,1,2,3,4,5,6];
+    })(),
     disableVisuals: getChecked('disableVisuals', currentSettings.disableVisuals),
     raidLeaderNotification: getChecked('raidLeaderNotification', currentSettings.raidLeaderNotification),
     flashScreen: getChecked('flashScreen', currentSettings.flashScreen),
     browserNotifications: getChecked('browserNotifications', currentSettings.browserNotifications),
     checkInterval: parseInt(getVal('checkInterval', currentSettings.checkInterval)),
+    theme: (() => { const el = document.getElementById('theme'); return (el && (el.value === 'light' || el.value === 'dark' || el.value === 'system')) ? el.value : (currentSettings.theme || 'system'); })(),
+    darkMode: (() => { const el = document.getElementById('theme'); const t = el ? el.value : (currentSettings.theme || 'system'); return t === 'dark' || (t === 'system' && typeof matchMedia !== 'undefined' && matchMedia('(prefers-color-scheme: dark)').matches); })(),
     // RaidTick Integration settings
     raidTickEnabled: getChecked('raidTickEnabled', currentSettings.raidTickEnabled),
     raidTickFolder: currentSettings.raidTickFolder,
@@ -2832,33 +2952,41 @@ function saveSettings() {
     timestamp: new Date().toISOString()
   });
   
-  chrome.storage.sync.set(newSettings, function() {
-    if (chrome.runtime.lastError) {
-      console.error('[Options] ❌ Error saving settings:', chrome.runtime.lastError.message);
-      showStatus('Error saving settings: ' + chrome.runtime.lastError.message, 'error');
+  api.storage.sync.set(newSettings, function() {
+    const err = (api.runtime && api.runtime.lastError) || (chrome.runtime && chrome.runtime.lastError);
+    if (err) {
+      console.error('[Options] ❌ Error saving settings:', err.message);
+      showStatus('Error saving settings: ' + err.message, 'error');
     } else {
       console.log('[Options] ✅ Settings saved successfully to storage:', {
         reminderCount: (newSettings.reminders || []).length,
         enabledReminderCount: (newSettings.reminders || []).filter(r => r && r.enabled).length,
         soundProfile: newSettings.soundProfile
       });
+      // Mirror reminders to local (Firefox persistence)
+      const reminderPayload = {
+        reminders: (newSettings.reminders || []).slice(0, 5),
+        reminderPrefs: newSettings.reminderPrefs || { flash: true, notifications: true, enabledDays: [0,1,2,3,4,5,6] }
+      };
+      if (api.storage.local && api.storage.local.set) {
+        api.storage.local.set(reminderPayload, function() {});
+      }
       showStatus('Settings saved successfully!', 'success');
       currentSettings = newSettings;
-      // Immediately reflect profile-dependent UI without full refresh
-      // Preserve scroll position when re-applying settings
       try { applySettingsToUI(); } catch(_) {}
       
       // Notify content scripts of settings change
-      chrome.tabs.query({url: ['https://opendkp.com/*', 'https://*.opendkp.com/*']}, function(tabs) {
-        tabs.forEach(tab => {
-          chrome.tabs.sendMessage(tab.id, {
-            action: 'settingsUpdated',
-            settings: newSettings
-          }).catch(() => {
-            // Ignore errors for tabs that don't have the content script
+      const tabsApi = api.tabs || chrome.tabs;
+      if (tabsApi && tabsApi.query) {
+        tabsApi.query({url: ['https://opendkp.com/*', 'https://*.opendkp.com/*']}, function(tabs) {
+          (tabs || []).forEach(tab => {
+            (api.tabs || chrome.tabs).sendMessage(tab.id, {
+              action: 'settingsUpdated',
+              settings: newSettings
+            }).catch(() => {});
           });
         });
-      });
+      }
     }
   });
 }
@@ -2875,6 +3003,82 @@ function showStatus(message, type) {
   setTimeout(() => {
     statusDiv.style.display = 'none';
   }, 3000);
+}
+
+/** Backup format version for future migrations */
+const BACKUP_VERSION = 1;
+
+/**
+ * Export all settings to a JSON file (sync + local storage)
+ */
+function exportBackup() {
+  const storage = api && api.storage ? api.storage : chrome.storage;
+  const getSync = () => new Promise((resolve) => {
+    storage.sync.get(null, (data) => resolve(api.runtime?.lastError || chrome.runtime?.lastError ? {} : data || {}));
+  });
+  const getLocal = () => new Promise((resolve) => {
+    if (!storage.local || !storage.local.get) return resolve({});
+    storage.local.get(null, (data) => resolve(api.runtime?.lastError || chrome.runtime?.lastError ? {} : data || {}));
+  });
+  Promise.all([getSync(), getLocal()]).then(([syncData, localData]) => {
+    const backup = {
+      version: BACKUP_VERSION,
+      exportedAt: new Date().toISOString(),
+      sync: syncData,
+      local: localData
+    };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'opendkp-helper-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    showStatus('Backup downloaded.', 'success');
+    try { console.log('[Backup] Exported', Object.keys(syncData).length, 'sync keys', Object.keys(localData || {}).length, 'local keys'); } catch(_) {}
+  }).catch((e) => {
+    console.error('Export backup error:', e);
+    showStatus('Export failed: ' + (e.message || e), 'error');
+  });
+}
+
+/**
+ * Restore settings from a backup JSON file
+ */
+function importBackup(file) {
+  if (!file || !file.size) return;
+  const reader = new FileReader();
+  reader.onload = function() {
+    let backup;
+    try {
+      backup = JSON.parse(reader.result);
+    } catch (e) {
+      showStatus('Invalid backup file (not valid JSON).', 'error');
+      return;
+    }
+    if (backup.version === undefined || !backup.sync || typeof backup.sync !== 'object') {
+      showStatus('Invalid backup format. Use a file exported by this extension.', 'error');
+      return;
+    }
+    const storage = api && api.storage ? api.storage : chrome.storage;
+    const setSync = (data) => new Promise((resolve, reject) => {
+      storage.sync.set(data, () => (api.runtime?.lastError || chrome.runtime?.lastError) ? reject(api.runtime?.lastError || chrome.runtime?.lastError) : resolve());
+    });
+    const setLocal = (data) => new Promise((resolve) => {
+      if (!storage.local || !storage.local.set) return resolve();
+      storage.local.set(data, () => resolve());
+    });
+    Promise.all([setSync(backup.sync), setLocal(backup.local || {})]).then(() => {
+      showStatus('Settings restored. Reloading…', 'success');
+      try { console.log('[Backup] Restored', Object.keys(backup.sync || {}).length, 'sync keys'); } catch(_) {}
+      currentSettings = { ...DEFAULT_SETTINGS };
+      setTimeout(() => loadSettings(), 500);
+    }).catch((e) => {
+      showStatus('Restore failed: ' + (e?.message || e), 'error');
+    });
+  };
+  reader.onerror = () => showStatus('Could not read file.', 'error');
+  reader.readAsText(file);
 }
 
 /**

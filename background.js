@@ -38,10 +38,39 @@ console.log('🔵 Background script executing at:', new Date().toISOString());
           cached.reminderPrefs.enabledDays = [0,1,2,3,4,5,6]; // Default to all days
         }
         cached.soundProfile = s.soundProfile || 'raidleader';
-        
-        // Don't clear fired boundary tracking on settings load - only clear when reminders are actually changed
-        // This prevents losing tracking if service worker restarts between boundaries
-        // lastFiredBoundary = {}; // REMOVED - let boundary tracking persist across service worker restarts
+
+        // Firefox: if sync lost reminders (quota/eviction), restore from storage.local backup
+        if (cached.reminders.length === 0 && api.storage.local) {
+          return api.storage.local.get(['reminders','reminderPrefs']).then((local)=>{
+            const localReminders = Array.isArray(local.reminders) ? local.reminders : [];
+            if (localReminders.length > 0) {
+              console.log('[ODKP Reminder] 📥 Restored', localReminders.length, 'reminders from storage.local (sync was empty)');
+              cached.reminders = localReminders;
+              if (local.reminderPrefs && typeof local.reminderPrefs === 'object') {
+                cached.reminderPrefs = local.reminderPrefs;
+              }
+              // Repopulate sync so next load uses sync
+              return persistReminders(cached.reminders, cached.reminderPrefs).then(() => null);
+            }
+            return null;
+          }).then(() => finishLoadSettings());
+        }
+        return finishLoadSettings();
+      }).catch((e)=>{
+        console.error('[ODKP Reminder] ❌ Error loading settings:', e);
+        return Promise.reject(e);
+      });
+    } catch(e) {
+      console.error('[ODKP Reminder] ❌ Exception in loadSettings:', e);
+      return Promise.reject(e);
+    }
+  }
+
+  function finishLoadSettings() {
+        // Ensure enabledDays is an array with valid values
+        if (!Array.isArray(cached.reminderPrefs.enabledDays)) {
+          cached.reminderPrefs.enabledDays = [0,1,2,3,4,5,6]; // Default to all days
+        }
         const enabledReminders = cached.reminders.filter(r => r && r.enabled);
         
         console.log('[ODKP Reminder] ✅ Settings loaded and cached:', {
@@ -74,14 +103,15 @@ console.log('🔵 Background script executing at:', new Date().toISOString());
         
         // Return resolved promise to allow chaining
         return Promise.resolve();
-      }).catch((e)=>{
-        console.error('[ODKP Reminder] ❌ Error loading settings:', e);
-        return Promise.reject(e);
-      });
-    } catch(e) {
-      console.error('[ODKP Reminder] ❌ Exception in loadSettings:', e);
-      return Promise.reject(e);
-    }
+      }
+
+  /** Persist reminders (and optionally reminderPrefs) to both sync and local (Firefox can evict sync; local is backup) */
+  function persistReminders(remindersArray, reminderPrefs) {
+    const payload = { reminders: remindersArray };
+    if (reminderPrefs != null) payload.reminderPrefs = reminderPrefs;
+    const pSync = api.storage.sync.set(payload);
+    const pLocal = api.storage.local && api.storage.local.set ? api.storage.local.set(payload) : Promise.resolve();
+    return Promise.all([pSync, pLocal]);
   }
 
   function withinWindow(nowHM, startHM, endHM) {
@@ -92,6 +122,58 @@ console.log('🔵 Background script executing at:', new Date().toISOString());
     if (isNaN(s) || isNaN(e)) return false;
     if (s===e) return true;
     return s<=e ? (cur>=s && cur<=e) : (cur>=s || cur<=e);
+  }
+
+  /** Return true if url is an allowed origin for reminders (OpenDKP, extension options, or user exception). */
+  function isAllowedOrigin(url, exceptionList) {
+    if (!url || typeof url !== 'string') return false;
+    try {
+      const u = new URL(url);
+      const host = u.hostname.toLowerCase();
+      if (host === 'opendkp.com' || host.endsWith('.opendkp.com')) return true;
+      if (u.protocol === 'chrome-extension:' || u.protocol === 'moz-extension:') return true;
+      const list = Array.isArray(exceptionList) ? exceptionList : [];
+      for (const ex of list) {
+        const s = String(ex).trim().toLowerCase();
+        if (!s) continue;
+        if (url.toLowerCase().startsWith(s)) return true;
+        try {
+          const exUrl = new URL(s.indexOf('://') >= 0 ? s : 'https://' + s);
+          if (exUrl.hostname === host) return true;
+        } catch (_) {
+          if (host === s || host.endsWith('.' + s)) return true;
+        }
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /** Resolve to true if we should fire reminders (user has an allowed tab open). Resolves to false to skip. */
+  async function shouldFireReminderGivenScope() {
+    const onlyOnOpenDKP = cached.reminderPrefs && cached.reminderPrefs.onlyNotifyOnOpenDKP !== false;
+    if (!onlyOnOpenDKP) {
+      try { console.log('[ODKP Reminder] Scope check: onlyNotifyOnOpenDKP is false, allowing reminders'); } catch(_) {}
+      return true;
+    }
+    if (!api.tabs || !api.tabs.query) {
+      try { console.log('[ODKP Reminder] Scope check: no tabs API, allowing reminders'); } catch(_) {}
+      return true;
+    }
+    try {
+      const tabs = await api.tabs.query({});
+      const exceptions = (cached.reminderPrefs && cached.reminderPrefs.domainExceptionList) || [];
+      const allowedTab = tabs.find(t => t.url && isAllowedOrigin(t.url, exceptions));
+      const hasAllowed = !!allowedTab;
+      try {
+        console.log('[ODKP Reminder] Scope check: onlyNotifyOnOpenDKP=true, tabCount=', tabs.length, 'exceptions=', exceptions.length, 'hasAllowed=', hasAllowed, allowedTab ? 'matchedUrl=' + (allowedTab.url || '').substring(0, 60) : '');
+      } catch(_) {}
+      return hasAllowed;
+    } catch (e) {
+      try { console.warn('[ODKP Reminder] shouldFireReminderGivenScope error', e); } catch(_) {}
+      return true;
+    }
   }
 
   // Calculate when the next reminder should fire after acknowledging current one
@@ -225,7 +307,7 @@ console.log('🔵 Background script executing at:', new Date().toISOString());
     } catch(_) {}
   }
 
-  function onTick() {
+  async function onTick() {
     const now = new Date();
     const hm = String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
     const minute = now.getMinutes();
@@ -300,6 +382,11 @@ console.log('🔵 Background script executing at:', new Date().toISOString());
     try {
       console.log('[ODKP Reminder] ✅ At 5-min boundary', currentBoundary, '- checking', enabledReminders.length, 'reminder(s)');
     } catch(_) {}
+
+    if (!(await shouldFireReminderGivenScope())) {
+      try { console.log('[ODKP Reminder] ⏭️ Skipping - no OpenDKP or exception tab open (onlyNotifyOnOpenDKP)'); } catch(_) {}
+      return;
+    }
     
     (cached.reminders||[]).forEach(rem => {
       if (!rem || !rem.enabled) {
@@ -344,7 +431,7 @@ console.log('🔵 Background script executing at:', new Date().toISOString());
         // Also save the cleared ack to storage
         try { 
           const updated = cached.reminders.map(r => r.id===rem.id ? { ...r, lastAckTs: 0 } : r);
-          api.storage.sync.set({ reminders: updated });
+          persistReminders(updated);
         } catch(_) {}
       }
       
@@ -672,71 +759,79 @@ console.log('🔵 Background script executing at:', new Date().toISOString());
           // This will prevent firing until that time
           cached.reminders = cached.reminders.map(r => r.id===id ? { ...r, lastAckTs: nextFireTime } : r);
           try { 
-            await api.storage.sync.set({ reminders: cached.reminders });
+            await persistReminders(cached.reminders);
             const nextDate = new Date(nextFireTime);
             console.log('[ODKP Reminder] Snoozed reminder', id, 'until', nextDate.toLocaleString());
           } catch(_) {}
         } else {
           // Fallback: use current timestamp (shouldn't happen if reminders are valid)
           cached.reminders = cached.reminders.map(r => r.id===id ? { ...r, lastAckTs: ts||Date.now() } : r);
-          try { await api.storage.sync.set({ reminders: cached.reminders }); } catch(_) {}
+          try { await persistReminders(cached.reminders); } catch(_) {}
         }
         
         // Clear boundary tracking so it doesn't fire again at the same boundary
         delete lastFiredBoundary[id];
         try { console.log('[ODKP Reminder] Cleared boundary tracking for', id); } catch(_) {}
-        // Close all windows/tabs for this reminder
-        // Make a copy of the array since onRemoved listeners might modify it during iteration
-        const windows = [...(reminderWindows[id] || [])];
+        // Close all windows/tabs for this reminder.
+        // On Firefox, closing the sender's window first can tear down the message context and prevent
+        // closing the rest. So close all OTHER windows/tabs first, then the sender's window last.
+        const senderWindowId = sender && sender.tab && sender.tab.windowId != null ? sender.tab.windowId : null;
+        const senderTabId = sender && sender.tab && sender.tab.id != null ? sender.tab.id : null;
+        let windows = [...(reminderWindows[id] || [])];
         if (windows.length > 0) {
-          try { console.log('[ODKP Reminder] Closing', windows.length, 'windows for reminder', id); } catch(_) {}
-          let closedCount = 0;
-          for (const winInfo of windows) {
+          try { console.log('[ODKP Reminder] Closing', windows.length, 'windows for reminder', id, 'senderWindowId=', senderWindowId); } catch(_) {}
+          const closeOne = async (winInfo, skipSenderCheck) => {
+            const isSender = !skipSenderCheck && ((winInfo.type === 'window' && winInfo.id === senderWindowId) || (winInfo.type === 'tab' && winInfo.id === senderTabId));
+            if (isSender) return false;
             try {
-              // Check if window/tab still exists before trying to close
               let exists = false;
               if (winInfo.type === 'window' && api.windows && api.windows.get) {
-                try {
-                  await api.windows.get(winInfo.id);
-                  exists = true;
-                } catch(_) {
-                  // Window doesn't exist anymore, skip it
-                  try { console.log('[ODKP Reminder] Window', winInfo.id, 'already closed'); } catch(_) {}
-                }
+                try { await api.windows.get(winInfo.id); exists = true; } catch(_) {}
               } else if (winInfo.type === 'tab' && api.tabs && api.tabs.get) {
-                try {
-                  await api.tabs.get(winInfo.id);
-                  exists = true;
-                } catch(_) {
-                  // Tab doesn't exist anymore, skip it
-                  try { console.log('[ODKP Reminder] Tab', winInfo.id, 'already closed'); } catch(_) {}
-                }
-              } else {
-                exists = true; // If we can't check, try to close anyway
-              }
-              
+                try { await api.tabs.get(winInfo.id); exists = true; } catch(_) {}
+              } else { exists = true; }
               if (exists) {
                 if (winInfo.type === 'window' && api.windows && api.windows.remove) {
                   await api.windows.remove(winInfo.id);
-                  closedCount++;
-                  try { console.log('[ODKP Reminder] Closed window', winInfo.id); } catch(_) {}
-                } else if (winInfo.type === 'tab' && api.tabs && api.tabs.remove) {
+                  return true;
+                }
+                if (winInfo.type === 'tab' && api.tabs && api.tabs.remove) {
                   await api.tabs.remove(winInfo.id);
-                  closedCount++;
-                  try { console.log('[ODKP Reminder] Closed tab', winInfo.id); } catch(_) {}
+                  return true;
                 }
               }
             } catch(err) {
-              // Check if error is because window/tab doesn't exist (common, not a real error)
-              const isNotFound = err && (err.message?.includes('No such') || err.message?.includes('does not exist') || 
-                                         err.message?.includes('Invalid'));
-              if (!isNotFound) {
-                try { console.warn('[ODKP Reminder] Failed to close', winInfo.type, winInfo.id, err); } catch(_) {}
+              const isNotFound = err && (err.message?.includes('No such') || err.message?.includes('does not exist') || err.message?.includes('Invalid'));
+              if (!isNotFound) try { console.warn('[ODKP Reminder] Failed to close', winInfo.type, winInfo.id, err); } catch(_) {}
+            }
+            return false;
+          };
+          let closedCount = 0;
+          // When sender is unknown (e.g. extension page), close in reverse order so the most recent window is closed last.
+          if (senderWindowId == null && senderTabId == null) {
+            windows = windows.slice().reverse();
+            try { console.log('[ODKP Reminder] Done: sender unknown, closing in reverse order (', windows.length, 'windows)'); } catch(_) {}
+          }
+          for (const winInfo of windows) {
+            if (await closeOne(winInfo, false)) closedCount++;
+          }
+          // Close sender's window/tab last so the message handler can finish (fixes Firefox)
+          for (const winInfo of windows) {
+            const isSender = (winInfo.type === 'window' && winInfo.id === senderWindowId) || (winInfo.type === 'tab' && winInfo.id === senderTabId);
+            if (!isSender) continue;
+            try {
+              if (winInfo.type === 'window' && api.windows && api.windows.remove) {
+                await api.windows.remove(winInfo.id);
+                closedCount++;
+              } else if (winInfo.type === 'tab' && api.tabs && api.tabs.remove) {
+                await api.tabs.remove(winInfo.id);
+                closedCount++;
               }
+            } catch(err) {
+              try { console.warn('[ODKP Reminder] Failed to close sender', winInfo.type, winInfo.id, err); } catch(_) {}
             }
           }
           try { console.log('[ODKP Reminder] Closed', closedCount, 'of', windows.length, 'windows for reminder', id); } catch(_) {}
-          // Clear tracked windows after attempting to close all
           delete reminderWindows[id];
         }
         

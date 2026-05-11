@@ -35,10 +35,11 @@
     ENABLE_ADVANCED_TTS: false,
     TTS_TEMPLATE: 'Auction Finished. {winner} for {bidAmount} DKP on {itemName}',
     RAID_LEADER_NOTIFICATION: true,
-    // Auction readout defaults
+    // Auction readout defaults (Issue #2: day-of-week filter)
     ANNOUNCE_NEW_AUCTIONS: false,
     ANNOUNCE_START: '19:00',
-    ANNOUNCE_END: '23:59'
+    ANNOUNCE_END: '23:59',
+    ANNOUNCE_NEW_AUCTIONS_DAYS: [0, 1, 2, 3, 4, 5, 6] // 0=Sun .. 6=Sat; all days by default
   };
   
   // Settings loaded from storage
@@ -71,6 +72,11 @@
   let settingsLoaded = false;
   // Reusable AudioContext for beep fallback (prevents rapid beeps)
   let beepAudioContext = null;
+  
+  // Track if audio has been unlocked (required for Chrome autoplay policy)
+  let audioUnlocked = false;
+  // One-time hint banner element (click to enable sounds) - removed on first interaction
+  let audioUnlockHintEl = null;
 
   // Helper: announce a newly discovered auction if feature is enabled
   function maybeAnnounceNewAuction(timerElement) {
@@ -105,6 +111,9 @@
       
       const windowOk = isWithinAnnounceWindow();
       const quiet = isQuietHours();
+      const todayDay = new Date().getDay();
+      const allowedDays = Array.isArray(settings.ANNOUNCE_NEW_AUCTIONS_DAYS) ? settings.ANNOUNCE_NEW_AUCTIONS_DAYS : CONFIG.ANNOUNCE_NEW_AUCTIONS_DAYS;
+      const dayOk = allowedDays.includes(todayDay);
       {
         const ctxPeek = extractTableContext(timerElement) || extractTimerContext(timerElement) || {};
         log('ReadAuctions: maybeAnnounce called', {
@@ -113,6 +122,9 @@
           ANNOUNCE_NEW_AUCTIONS: settings.ANNOUNCE_NEW_AUCTIONS,
           windowOk,
           quiet,
+          dayOk,
+          todayDay,
+          allowedDays,
           peekItem: ctxPeek.itemName || null
         });
       }
@@ -121,12 +133,13 @@
           ttsEnabled: settings.ENABLE_TTS,
           featureEnabled: settings.ANNOUNCE_NEW_AUCTIONS,
           windowOk: windowOk,
-          quietHours: quiet
+          quietHours: quiet,
+          dayOk
         });
       }
       const featureEnabled = (settings.ANNOUNCE_NEW_AUCTIONS === true) ||
                              (settings.ANNOUNCE_NEW_AUCTIONS === undefined && settings.ENABLE_TTS);
-      if (settingsLoaded && settings.ENABLE_TTS && featureEnabled && !quiet && windowOk) {
+      if (settingsLoaded && settings.ENABLE_TTS && featureEnabled && !quiet && windowOk && dayOk) {
         // Timer already marked as announced above (before conditions check)
         const trySpeak = (attemptsLeft) => {
           const ctx = extractTableContext(timerElement) || extractTimerContext(timerElement);
@@ -151,7 +164,8 @@
           ANNOUNCE_NEW_AUCTIONS: settings.ANNOUNCE_NEW_AUCTIONS,
           resolvedFeatureEnabled: featureEnabled,
           windowOk,
-          quiet
+          quiet,
+          dayOk
         });
       }
     } catch (_) {}
@@ -282,10 +296,14 @@
         DISABLE_VISUALS: storedSettings.disableVisuals !== undefined ? storedSettings.disableVisuals : CONFIG.DISABLE_VISUALS,
         BROWSER_NOTIFICATIONS: storedSettings.browserNotifications !== undefined ? storedSettings.browserNotifications : CONFIG.BROWSER_NOTIFICATIONS
       };
-      // Auction readout
+      // Auction readout (Issue #2: day-of-week for Read New Auctions)
       settings.ANNOUNCE_NEW_AUCTIONS = storedSettings.announceAuctions !== undefined ? storedSettings.announceAuctions : CONFIG.ANNOUNCE_NEW_AUCTIONS;
       settings.ANNOUNCE_START = storedSettings.announceStart || CONFIG.ANNOUNCE_START;
       settings.ANNOUNCE_END = storedSettings.announceEnd || CONFIG.ANNOUNCE_END;
+      const rawDays = storedSettings.announceNewAuctionsDays;
+      settings.ANNOUNCE_NEW_AUCTIONS_DAYS = Array.isArray(rawDays) && rawDays.length > 0
+        ? rawDays.filter(d => typeof d === 'number' && d >= 0 && d <= 6)
+        : CONFIG.ANNOUNCE_NEW_AUCTIONS_DAYS;
       
       // Automatically enable smart bidding for raider profile
       if (settings.SOUND_PROFILE === 'raider') {
@@ -308,6 +326,100 @@
   }
   
   /**
+   * Remove the "click to enable sounds" hint banner if it exists
+   */
+  function removeAudioUnlockHint() {
+    if (audioUnlockHintEl && audioUnlockHintEl.parentNode) {
+      audioUnlockHintEl.parentNode.removeChild(audioUnlockHintEl);
+      audioUnlockHintEl = null;
+    }
+  }
+
+  /**
+   * Show a one-time hint asking the user to click to enable sounds (Chrome autoplay policy).
+   * Hint is removed on first user interaction or after 8 seconds.
+   */
+  function showAudioUnlockHint() {
+    if (audioUnlocked || audioUnlockHintEl || (settings.DISABLE_VISUALS === true)) return;
+    try {
+      const container = document.body || document.documentElement;
+      if (!container) return;
+      const hint = document.createElement('div');
+      hint.setAttribute('data-opendkp-audio-hint', '');
+      hint.textContent = 'Click anywhere on this page to enable auction sounds and alerts';
+      hint.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);max-width:90%;padding:10px 16px;background:#1a1a2e;color:#eaeaea;font-size:13px;font-family:system-ui,sans-serif;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.3);z-index:2147483646;pointer-events:none;transition:opacity 0.3s ease;';
+      container.appendChild(hint);
+      audioUnlockHintEl = hint;
+      setTimeout(function autoRemoveHint() {
+        if (audioUnlockHintEl === hint && hint.parentNode) {
+          hint.style.opacity = '0';
+          setTimeout(function remove() {
+            if (hint.parentNode) hint.parentNode.removeChild(hint);
+            if (audioUnlockHintEl === hint) audioUnlockHintEl = null;
+          }, 320);
+        }
+      }, 8000);
+    } catch (e) {
+      log('Could not show audio unlock hint:', e);
+    }
+  }
+
+  /**
+   * Unlock audio by playing a silent sound on first user interaction
+   * This is required for Chrome's autoplay policy - audio must be unlocked
+   * by a user gesture before programmatic audio can play
+   */
+  function unlockAudio() {
+    if (audioUnlocked) return;
+    
+    try {
+      // Create a silent audio buffer and play it to unlock audio
+      if (!beepAudioContext || beepAudioContext.state === 'closed') {
+        beepAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      
+      // Resume AudioContext if suspended
+      if (beepAudioContext.state === 'suspended') {
+        beepAudioContext.resume().then(() => {
+          // Create a very short silent buffer
+          const buffer = beepAudioContext.createBuffer(1, 1, 22050);
+          const source = beepAudioContext.createBufferSource();
+          source.buffer = buffer;
+          source.connect(beepAudioContext.destination);
+          source.start(0);
+          source.stop(0.001);
+          
+          audioUnlocked = true;
+          log('✅ Audio unlocked successfully - programmatic audio playback is now enabled');
+          console.log('%c🔊 Audio Unlocked', 'color: green; font-weight: bold; font-size: 14px;', 
+            'Audio playback has been enabled. Auction alerts will now play sounds.');
+        }).catch(err => {
+          log('Failed to unlock audio context:', err);
+        });
+      } else {
+        // AudioContext already active, just mark as unlocked
+        audioUnlocked = true;
+        log('✅ Audio already active, marked as unlocked - programmatic audio playback is enabled');
+      }
+      
+      // Also unlock HTML Audio by playing a silent audio element
+      try {
+        const silentAudio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=');
+        silentAudio.volume = 0;
+        silentAudio.play().then(() => {
+          log('HTML Audio unlocked successfully');
+        }).catch(() => {
+          // Ignore errors - Web Audio API unlock is more important
+        });
+      } catch (e) {
+        // Ignore errors
+      }
+    } catch (error) {
+      log('Error unlocking audio:', error);
+    }
+  }
+  
+  /**
    * Initialize the audio notification system
    * Note: Legacy function kept for backwards compatibility.
    * Modern sound system uses playCustomSound() directly with MP3 files.
@@ -317,6 +429,27 @@
     // Modern sound system uses playCustomSound() directly
     // Note: The "chime" sound key maps to hotel.mp3, not the obsolete chime.wav/chime.mp3 files
     log('Audio system ready (using modern MP3-based sound system)');
+    
+    // Set up audio unlock on first user interaction
+    // Chrome requires user interaction before programmatic audio can play
+    const unlockEvents = ['click', 'mousedown', 'touchstart', 'keydown'];
+    const unlockHandler = () => {
+      unlockAudio();
+      removeAudioUnlockHint();
+      // Remove listeners after first unlock to avoid unnecessary calls
+      unlockEvents.forEach(event => {
+        document.removeEventListener(event, unlockHandler, true);
+      });
+    };
+    
+    unlockEvents.forEach(event => {
+      document.addEventListener(event, unlockHandler, true);
+    });
+    
+    // Show a short hint so users know to click to enable sounds (Chrome/Firefox autoplay policy)
+    setTimeout(showAudioUnlockHint, 1500);
+    
+    log('Audio unlock listeners registered for:', unlockEvents);
   }
   
   /**
@@ -379,6 +512,32 @@
     const fallback = CONFIG.SOUND_TYPE;
     log('Using fallback sound:', fallback);
     return fallback;
+  }
+  
+  /**
+   * Helper function to play audio with autoplay policy handling
+   * Attempts to unlock audio if blocked by Chrome's autoplay policy
+   */
+  function playAudioWithUnlock(audio, errorCallback) {
+    audio.play().then(() => {
+      // Audio played successfully - no need to log here as callers log their own messages
+    }).catch(err => {
+      log('Error playing audio:', err.name, err.message);
+      // If audio failed due to autoplay policy, try to unlock and retry once
+      if (!audioUnlocked && (err.name === 'NotAllowedError' || err.message.includes('play'))) {
+        log('Audio blocked by autoplay policy, attempting unlock...');
+        unlockAudio();
+        // Retry after a short delay
+        setTimeout(() => {
+          audio.play().catch(() => {
+            log('Retry failed after unlock attempt');
+            if (errorCallback) errorCallback();
+          });
+        }, 100);
+      } else {
+        if (errorCallback) errorCallback();
+      }
+    });
   }
   
   /**
@@ -464,15 +623,9 @@
             audio.volume = Math.max(0, Math.min(1, volume)); // Clamp between 0 and 1
             log('Setting audio volume to:', audio.volume, '(from settings.VOLUME:', settings.VOLUME, ')');
             audio.preload = 'auto';
-            audio.play().then(() => {
-              log('Playing custom sound (chrome.storage.local):', soundName, 'at volume:', audio.volume);
-            }).catch(err => {
-              log('Error playing custom sound:', err);
-              playBeepFallback();
-            }).finally(() => {
-              audio.onended = () => URL.revokeObjectURL(url);
-              setTimeout(() => URL.revokeObjectURL(url), 10000);
-            });
+            playAudioWithUnlock(audio, playBeepFallback);
+            audio.onended = () => URL.revokeObjectURL(url);
+            setTimeout(() => URL.revokeObjectURL(url), 10000);
           } catch (err) {
             log('Error decoding custom sound from storage:', err);
             playBeepFallback();
@@ -510,15 +663,9 @@
                 audio.volume = Math.max(0, Math.min(1, volume)); // Clamp between 0 and 1
                 log('Setting audio volume to:', audio.volume, '(from settings.VOLUME:', settings.VOLUME, ')');
                 audio.preload = 'auto';
-                audio.play().then(() => {
-                  log('Playing custom sound (case-insensitive match):', soundName, 'at volume:', audio.volume);
-                }).catch(err => {
-                  log('Error playing custom sound:', err);
-                  playBeepFallback();
-                }).finally(() => {
-                  audio.onended = () => URL.revokeObjectURL(url);
-                  setTimeout(() => URL.revokeObjectURL(url), 10000);
-                });
+                playAudioWithUnlock(audio, playBeepFallback);
+                audio.onended = () => URL.revokeObjectURL(url);
+                setTimeout(() => URL.revokeObjectURL(url), 10000);
               } catch (err) {
                 log('Error decoding custom sound:', err);
                 tryBackgroundProxy(soundName);
@@ -552,15 +699,9 @@
             audio.volume = Math.max(0, Math.min(1, volume)); // Clamp between 0 and 1
             log('Setting audio volume to:', audio.volume, '(from settings.VOLUME:', settings.VOLUME, ')');
             audio.preload = 'auto';
-            audio.play().then(() => {
-              log('Playing custom sound (background proxy fallback):', soundName, 'at volume:', audio.volume);
-            }).catch(err => {
-              log('Error playing custom sound:', err);
-              playBeepFallback();
-            }).finally(() => {
-              audio.onended = () => URL.revokeObjectURL(url);
-              setTimeout(() => URL.revokeObjectURL(url), 10000);
-            });
+            playAudioWithUnlock(audio, playBeepFallback);
+            audio.onended = () => URL.revokeObjectURL(url);
+            setTimeout(() => URL.revokeObjectURL(url), 10000);
           } else {
             log('Custom sound not found via background script:', response?.error || 'Unknown error');
             playBeepFallback();
@@ -647,13 +788,9 @@
       audio.volume = Math.max(0, Math.min(1, volume)); // Clamp between 0 and 1
       log('Setting audio volume to:', audio.volume, '(from settings.VOLUME:', settings.VOLUME, ')');
       audio.preload = 'auto';
-      audio.play().then(() => {
-        log('Playing custom sound (DB HTMLAudio):', soundName, 'at volume:', audio.volume);
-      }).catch(err => { log('HTMLAudio play error:', err); playBeepFallback(); })
-      .finally(() => {
-        audio.onended = () => URL.revokeObjectURL(url);
-        setTimeout(() => URL.revokeObjectURL(url), 10000);
-      });
+      playAudioWithUnlock(audio, playBeepFallback);
+      audio.onended = () => URL.revokeObjectURL(url);
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
     }).catch(err => { log('IndexedDB error:', err); playBeepFallback(); });
 
     // Duration unknown synchronously; return 0 and rely on default TTS delay
@@ -679,12 +816,12 @@
       audio.currentTime = 0;
       log('Setting audio volume to:', audio.volume, '(from settings.VOLUME:', settings.VOLUME, ')');
       
-      audio.play().then(() => {
-        log('Playing Warcraft sound:', filename, 'at volume:', audio.volume);
-      }).catch(error => {
-        log('Error playing Warcraft sound:', error);
+      playAudioWithUnlock(audio, () => {
+        log('Failed to play Warcraft sound:', filename);
         playBeepFallback();
       });
+      
+      log('Attempting to play Warcraft sound:', filename, 'at volume:', audio.volume);
       
       // Return duration in milliseconds
       return audio.duration ? audio.duration * 1000 : 0;
@@ -1280,9 +1417,9 @@
       const isFirefox = typeof browser !== 'undefined' && navigator.userAgent.includes('Firefox');
       const maxRate = isFirefox ? 2.5 : 2.0;
       utterance.rate = Math.min(settings.VOICE_SPEED || 1.0, maxRate);
-      utterance.volume = 0.9;
+      utterance.volume = Math.max(0, Math.min(1, settings.VOLUME)); // Issue #6: respect volume
       speechSynthesis.speak(utterance);
-      log('TTS: New auction:', itemName);
+      log('TTS: New auction:', itemName, 'volume:', utterance.volume);
     };
     
     // If voices are already loaded, use them immediately
@@ -2568,10 +2705,10 @@
       const isFirefox = typeof browser !== 'undefined' && navigator.userAgent.includes('Firefox');
       const maxRate = isFirefox ? 2.5 : 2.0;
       utterance.rate = Math.min(settings.VOICE_SPEED || 1.0, maxRate);
-      utterance.volume = 0.8;
+      utterance.volume = Math.max(0, Math.min(1, settings.VOLUME)); // Issue #6: respect volume
       speechSynthesis.speak(utterance);
       hasSpoken = true;
-      log('TTS: Speaking notification:', message);
+      log('TTS: Speaking notification:', message, 'volume:', utterance.volume);
       
       // Reset speaking flag when utterance finishes
       utterance.onend = () => {
@@ -2954,6 +3091,42 @@
     log('Raid leader reminder notification shown');
   }
 
+  /** Issue #4: Speak "upload raid log" reminder via TTS when leaving (uses settings volume/voice). */
+  function speakUploadLogReminder() {
+    if (!settings.ENABLE_TTS) return;
+    const msg = 'Remember to upload raid logs!';
+    try {
+      const u = new SpeechSynthesisUtterance(msg);
+      u.volume = Math.max(0, Math.min(1, settings.VOLUME));
+      if (settings.VOICE) {
+        const voices = speechSynthesis.getVoices();
+        const v = voices.find(x => x.name.toLowerCase() === (settings.VOICE || '').toLowerCase());
+        if (v) u.voice = v;
+      }
+      const isFirefox = typeof browser !== 'undefined' && navigator.userAgent.includes('Firefox');
+      u.rate = Math.min(settings.VOICE_SPEED || 1.0, isFirefox ? 2.5 : 2.0);
+      speechSynthesis.speak(u);
+      log('TTS: Upload raid log reminder on leave', 'volume:', u.volume);
+    } catch (e) {
+      log('TTS: Upload log reminder speak failed', e);
+    }
+  }
+
+  /** Issue #8: Trigger upload raid log reminder when user leaves (notification + TTS). */
+  function onLeaveUploadLogReminder() {
+    if (settings.SOUND_PROFILE !== 'raidleader' || !settings.RAID_LEADER_NOTIFICATION) return;
+    if (uploadLogReminderFiredOnLeave) return;
+    uploadLogReminderFiredOnLeave = true;
+    try {
+      showRaidLeaderNotification();
+      speakUploadLogReminder();
+      log('Upload raid log reminder fired on leave (notification + TTS)');
+    } catch (e) {
+      log('Upload log reminder on leave error', e);
+    }
+  }
+  let uploadLogReminderFiredOnLeave = false;
+
   // ===========================================================================
   // STARTUP
   // ===========================================================================
@@ -2970,5 +3143,10 @@
   
   // Cleanup on page unload
   window.addEventListener('beforeunload', cleanup);
+
+  // Issue #8 / #4: When user leaves opendkp (close tab or navigate away), show upload raid log reminder + TTS
+  window.addEventListener('pagehide', function(e) {
+    onLeaveUploadLogReminder();
+  });
 
 })();
