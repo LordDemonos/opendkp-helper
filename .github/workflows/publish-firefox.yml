@@ -126,12 +126,17 @@ jobs:
           echo "Extension packaged successfully"
           ls -lh web-ext-artifacts/
       
+      # web-ext --channel listed = attaches to the public AMO listing (auto-updates for users who installed from addons.mozilla.org).
+      # --channel unlisted = signed "self" distribution only; does NOT replace the listed version — use for private/sideload builds.
       - name: Sign and publish to AMO
         env:
           AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
           AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
-          AMO_CHANNEL: ${{ secrets.AMO_CHANNEL || 'unlisted' }} # unlisted or listed
         run: |
+          CHANNEL="${{ vars.AMO_CHANNEL }}"
+          [ -z "$CHANNEL" ] && CHANNEL="listed"
+          echo "Using AMO channel: ${CHANNEL}"
+          
           # Validate extension first
           web-ext lint --source-dir package-build/ || echo "Linting warnings (non-blocking)"
           
@@ -140,7 +145,7 @@ jobs:
             --source-dir package-build/ \
             --api-key "$AMO_JWT_ISSUER" \
             --api-secret "$AMO_JWT_SECRET" \
-            --channel "$AMO_CHANNEL" \
+            --channel "$CHANNEL" \
             --artifacts-dir web-ext-artifacts/
       
       - name: Upload signed extension
@@ -153,6 +158,6 @@ jobs:
       - name: Output submission info
         run: |
           echo "Extension submitted to Firefox Add-ons!"
-          echo "Channel: ${{ secrets.AMO_CHANNEL || 'unlisted' }}"
+          echo "Channel: use repo variable AMO_CHANNEL (optional): listed (default) | unlisted"
           echo "Check your AMO developer dashboard for review status"
 
