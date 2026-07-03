@@ -271,11 +271,21 @@
         }
         
         .status {
-            margin-top: 15px;
-            padding: 10px;
-            border-radius: 4px;
-            text-align: center;
+            position: fixed;
+            top: 16px;
+            right: 16px;
+            z-index: 10000;
+            max-width: min(420px, calc(100vw - 32px));
+            margin: 0;
+            padding: 12px 16px;
+            border-radius: 6px;
+            text-align: left;
             font-weight: 500;
+            font-size: 13px;
+            line-height: 1.45;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+            word-wrap: break-word;
+            pointer-events: auto;
         }
         
         .status.success {
@@ -288,6 +298,32 @@
             background: #f8d7da;
             color: #721c24;
             border: 1px solid #f5c6cb;
+        }
+
+        .status.warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeeba;
+        }
+
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .inline-warning {
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+            margin: 0;
+            padding: 10px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            line-height: 1.45;
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeeba;
         }
         
         .description {
@@ -637,9 +673,83 @@
             border-color: #ff9800;
             color: #ffcc02;
         }
+
+        body.dark-mode .status.info {
+            background: #01579b;
+            border-color: #0288d1;
+            color: #b3e5fc;
+        }
+
+        body.dark-mode .inline-warning {
+            background: #3d2e00;
+            border-color: #ff9800;
+            color: #ffcc02;
+        }
+
+        .opendkp-raidtick-preview {
+            max-height: 220px;
+            overflow: auto;
+            background: #f8f9fa;
+            color: #212529;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-top: 8px;
+            border: 1px solid #dee2e6;
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-family: Consolas, 'Courier New', monospace;
+        }
+
+        #opendkpRaidtickFileLabel {
+            font-size: 12px;
+            color: #495057;
+            min-height: 1.2em;
+        }
+
+        #opendkpRaidtickStageStatus {
+            font-size: 12px;
+            color: #495057;
+            margin: 6px 0 0 0;
+            white-space: pre-wrap;
+            font-family: Consolas, 'Courier New', monospace;
+        }
+
+        body.dark-mode .opendkp-raidtick-preview {
+            background: #2d3748;
+            color: #e2e8f0;
+            border-color: #4a5568;
+        }
+
+        body.dark-mode #opendkpRaidtickFileLabel,
+        body.dark-mode #opendkpRaidtickStageStatus {
+            color: #cbd5e0;
+        }
+
+        body.dark-mode #openDkpApiGroup .section-description,
+        body.dark-mode #openDkpApiGroup .description {
+            color: #a0aec0;
+        }
+
+        body.dark-mode #openDkpApiGroup code {
+            color: #63b3ed;
+        }
+
+        .setting-row.feature-sunset {
+            opacity: 0.55;
+        }
+
+        .setting-row.feature-sunset label {
+            cursor: not-allowed;
+        }
+
+        .setting-row.feature-sunset input[type="checkbox"]:disabled {
+            cursor: not-allowed;
+        }
     </style>
 </head>
 <body>
+    <div id="status" class="status" style="display: none;" role="status" aria-live="polite" aria-atomic="true"></div>
     <div class="container">
         <h1>
             <img id="extensionIcon" src="" alt="OpenDKP Helper" style="width: 24px; height: 24px; vertical-align: middle; margin-right: 8px;">
@@ -666,6 +776,126 @@
                     <option value="light">Light</option>
                     <option value="dark">Dark</option>
                 </select>
+            </div>
+        </div>
+
+        <div class="setting-group" id="openDkpApiGroup">
+            <h3>🔗 OpenDKP API (raids)</h3>
+            <p class="section-description">Raid Leader mode only. Connect to the OpenDKP HTTP API using your guild subdomain (from <code>https://YOURGUILD.opendkp.com</code> → enter <code>YOURGUILD</code>).</p>
+            <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                <label for="opendkpClientSlug"><strong>Guild subdomain</strong></label>
+                <input type="text" id="opendkpClientSlug" placeholder="YOURGUILD" autocomplete="off" style="max-width: 320px; width: 100%; padding: 8px;" pattern="[a-z0-9]([a-z0-9-]*[a-z0-9])?">
+                <span class="description">Lowercase letters, numbers, hyphens only. Never shared between users—stored only in your extension settings.</span>
+            </div>
+            <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                <label for="opendkpCognitoUser">OpenDKP username</label>
+                <input type="text" id="opendkpCognitoUser" autocomplete="username" style="max-width: 320px; width: 100%; padding: 8px;">
+            </div>
+            <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                <label for="opendkpCognitoPassword">Password</label>
+                <input type="password" id="opendkpCognitoPassword" autocomplete="current-password" style="max-width: 320px; width: 100%; padding: 8px;">
+                <span class="description">Saved in extension local storage only (not synced). Used for API sign-in.</span>
+            </div>
+            <p class="description" style="margin-top: 8px;">
+                <strong>Not the website login.</strong> This calls AWS Cognito (same flow as the Postman collection) and stores <strong>API tokens</strong> locally so the extension can manage raids on your guild. Sign-in also refreshes raids, pools, and roster when a guild subdomain is set. Roster names are cached locally per guild.
+            </p>
+            <div class="setting-row" style="margin-top: 10px; flex-wrap: wrap; gap: 10px;">
+                <button type="button" id="opendkpSignIn">Sign in to API</button>
+                <button type="button" id="opendkpSignOut">Sign out</button>
+                <button type="button" id="opendkpRefreshToken">Refresh session</button>
+                <span id="opendkpTokenStatus" class="description" style="margin-left: 0;"></span>
+            </div>
+            <div class="setting-row" style="margin-top: 8px;">
+                <button type="button" class="test-button" id="opendkpProbeTokens">Probe ID vs access token (diagnostics)</button>
+            </div>
+            <hr style="margin: 20px 0; border: none; border-top: 1px solid #e0e0e0;">
+            <h4 style="margin: 0 0 10px 0;">Raids</h4>
+            <div class="setting-row" style="flex-wrap: wrap; gap: 10px;">
+                <button type="button" id="opendkpFetchRaids">Refresh raid list (last 3)</button>
+            </div>
+            <ul id="opendkpRaidList" style="margin: 10px 0; padding-left: 20px;"></ul>
+            <div id="opendkpCurrentRaid" class="description" style="margin: 10px 0; white-space: pre-wrap;"></div>
+            <div class="setting-row" style="flex-wrap: wrap; gap: 10px; align-items: center;">
+                <label for="opendkpCreateRaidName">New raid name</label>
+                <input type="text" id="opendkpCreateRaidName" style="padding: 8px; max-width: 240px;">
+            </div>
+            <div class="setting-row" style="flex-wrap: wrap; gap: 10px; align-items: center;">
+                <label for="opendkpPoolSelect">Pool</label>
+                <select id="opendkpPoolSelect" style="margin-left: 0; min-width: 200px;"><option value="">— Load pools first —</option></select>
+                <span class="description">Saved locally after first load. Classic is the default unless you pick another and click Save settings.</span>
+            </div>
+            <div class="setting-row" style="flex-wrap: wrap; gap: 10px; align-items: center;">
+                <label for="opendkpAttendance">Attendance default</label>
+                <select id="opendkpAttendance" style="margin-left: 0; min-width: 100px;">
+                    <option value="0">No</option>
+                    <option value="1">Yes</option>
+                </select>
+                <span class="description">OpenDKP attendance flag for new raids (No = 0, Yes = 1).</span>
+            </div>
+            <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                <label><strong>New raid — initial ticks</strong></label>
+                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                    <button type="button" id="opendkpAddRaidTickDef" class="btn btn-primary">Add raidtick</button>
+                </div>
+                <div id="opendkpRaidTickDefsList" style="display:flex; flex-direction:column; gap:10px; margin-top:8px; width:100%;"></div>
+                <span class="description">Name and DKP value for each tick created on a new raid. Saved automatically (up to 10).</span>
+            </div>
+            <div class="setting-row" style="margin-top: 10px;">
+                <button type="button" id="opendkpFetchPools">Refresh pools</button>
+                <button type="button" id="opendkpCreateRaid">Create raid (confirm)</button>
+            </div>
+            <hr style="margin: 20px 0; border: none; border-top: 1px solid #e0e0e0;">
+            <div class="setting-row" id="opendkpRaidtickUploadToggleRow">
+                <label style="display:flex; align-items:center; gap:8px;">
+                    <input type="checkbox" id="opendkpRaidtickUploadEnabled" disabled> Enable raid log upload (popup queue and manual apply)
+                </label>
+            </div>
+            <p class="description" id="opendkpRaidtickUploadToggleDesc">Temporarily disabled while upload is being fixed (HTTP 500). Code remains for a future release.</p>
+            <div id="opendkpRaidtickUploadBlock">
+            <h4 style="margin: 0 0 10px 0;">RaidTick file → tick (manual)</h4>
+            <p class="description">Stage one <code>RaidTick-*.txt</code> per hour on the <strong>current</strong> raid, then preview or apply a single <code>POST .../raids/{id}</code> with every tick populated. Select <strong>Target tick</strong>, browse that hour’s file, repeat for each hour, then use <strong>Preview POST body</strong>.</p>
+            <div class="setting-row" style="flex-wrap: wrap; gap: 10px; align-items: center;">
+                <label for="opendkpRaidtickTickSelect">Target tick</label>
+                <select id="opendkpRaidtickTickSelect" style="margin-left: 0; min-width: 220px;"><option value="">— Load current raid —</option></select>
+            </div>
+            <div class="setting-row" style="flex-wrap: wrap; gap: 10px; align-items: center;">
+                <input type="file" id="opendkpRaidtickFile" accept=".txt,text/plain">
+                <span id="opendkpRaidtickFileLabel"></span>
+            </div>
+            <pre id="opendkpRaidtickPreview" class="opendkp-raidtick-preview"></pre>
+            <p id="opendkpRaidtickStageStatus" class="description"></p>
+            <div class="setting-row" style="margin-top: 10px; flex-wrap: wrap; gap: 10px;">
+                <button type="button" id="opendkpRaidtickApply">Apply all staged ticks (confirm)</button>
+                <button type="button" class="test-button" id="opendkpRaidtickLoadRosterMap">Load roster for name → ID map</button>
+                <button type="button" class="test-button" id="opendkpRaidtickPreviewPost">Preview POST body</button>
+                <button type="button" class="test-button" id="opendkpRaidtickClearStage">Clear staged files</button>
+            </div>
+            <p class="description">OpenDKP requires <strong>every tick</strong> on the raid to have attendees in one POST — empty ticks cause HTTP 500. Stage all hours before preview or apply. Payload uses <code>IdRaid</code>, <code>Pool.IdPool</code>, and <code>Ticks[].Attendees</code> (lowercase roster names).</p>
+            </div>
+
+            <h4 style="margin: 16px 0 8px 0;">Loot queue defaults</h4>
+            <p class="description">Applied when you click <strong>Queue</strong> on parsed loot (Create Auction API).</p>
+            <div class="setting-row">
+                <label for="opendkpAuctionPayStrategy">Pay Strategy</label>
+                <select id="opendkpAuctionPayStrategy" style="margin-left: 0; min-width: 240px;">
+                    <option value="exact">Exact</option>
+                    <option value="second_plus_one">2nd + 1 (Non-Equal Pay)</option>
+                    <option value="second_plus_one_equal">2nd + 1 (Equal Pay)</option>
+                </select>
+            </div>
+            <div class="setting-row">
+                <label for="opendkpAuctionDuration">Auction duration (minutes)</label>
+                <input type="number" id="opendkpAuctionDuration" min="1" max="120" step="1" value="2" style="width: 80px; padding: 6px;">
+            </div>
+
+            <h4 style="margin: 16px 0 8px 0;">Loot monitor exceptions</h4>
+            <p class="description">Items matching these rules are ignored — never captured, listed, or queued. One rule per line. End a line with <code>:</code> for a prefix (e.g. <code>Spell:</code>). Otherwise the full item name must match exactly (case-insensitive).</p>
+            <div class="setting-row" style="align-items: flex-start; flex-direction: column; gap: 8px;">
+                <textarea id="eqLogLootExceptions" rows="5" spellcheck="false" placeholder="Spell:&#10;A Glowing Orb of Luclinite" style="width: 100%; max-width: 480px; font-family: Consolas, 'Courier New', monospace; font-size: 12px; padding: 8px; resize: vertical;"></textarea>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                    <button type="button" id="openEqLogExceptionsWindow" class="btn btn-secondary">Open exceptions editor</button>
+                    <span id="eqLogLootExceptionsSummary" class="description" style="margin: 0;"></span>
+                </div>
             </div>
         </div>
 
@@ -773,7 +1003,6 @@
             <div class="setting-row">
                 <label for="soundType">Notification Sound:</label>
                 <select id="soundType">
-                    <option value="chime">Chime (Default)</option>
                 </select>
             </div>
             
@@ -856,6 +1085,21 @@
             </div>
             <div class="description" id="announceDesc">
                 Speaks "New auction: Item Name" when a new auction appears. Uses your TTS voice and speed settings. Respects Quiet Hours.
+            </div>
+
+            <!-- Item Watchlist Alarm -->
+            <h4 id="watchlistHeading" style="margin:14px 0 8px 0;">🔔 Item Watchlist Alarm</h4>
+            <div class="setting-row" id="watchlistRow">
+                <label for="watchlistAlarmEnabled">Alert when watched items are posted:</label>
+                <input type="checkbox" id="watchlistAlarmEnabled">
+            </div>
+            <div class="setting-row" id="watchlistItemsRow" style="display:none; flex-direction:column; align-items:flex-start; gap:8px;">
+                <label for="watchlistItems" style="font-weight:bold;">Items to watch (one per line):</label>
+                <textarea id="watchlistItems" rows="6" cols="50" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px; font-family:monospace; font-size:12px;" placeholder="Yelinak's Talisman&#10;Essence Emerald&#10;Ring of the Ancients"></textarea>
+                <button class="test-button" id="testWatchlistAlarm">Test Alarm</button>
+            </div>
+            <div class="description" id="watchlistDesc">
+                When a watched item is posted for bid: plays alarm.mp3 for 5 seconds, flashes the OpenDKP page red once per second (5 times), and speaks the item name aloud every second. Works for both Raider and Raid Leader modes. Ignores Quiet Hours. <strong>Test Alarm</strong> runs the full effect on an open opendkp.com tab; otherwise plays audio/TTS here only.
             </div>
             
             <br>
@@ -991,7 +1235,7 @@
         <div class="setting-group">
             <h3>📦 Backup &amp; Restore</h3>
             <div class="description">
-                Export all settings (including RaidTick reminders) to a file. Restore after reinstalling the extension or when testing new versions.
+                Export all settings to a file — reminders, RaidTick, OpenDKP API (guild, username, roster/pools cache, tick definitions, auction defaults), <strong>item watchlist</strong>, EQ log rules, and custom sounds. Watchlist and API fields auto-save as you type. Download a backup before reloading or updating the extension. Restore after reinstalling or when testing new versions.
             </div>
             <div class="setting-row" style="flex-wrap: wrap; gap: 10px;">
                 <button type="button" class="test-button" id="exportBackup">Download backup</button>
@@ -1000,14 +1244,21 @@
                     <input type="file" id="importBackupFile" accept=".json" style="position: absolute; width: 0; height: 0; opacity: 0;">
                 </label>
             </div>
+            <div class="setting-row" style="margin-top: 12px; flex-direction: column; align-items: flex-start; gap: 8px;">
+                <label style="display: flex; align-items: center; gap: 6px;">
+                    <input type="checkbox" id="backupIncludeCredentials">
+                    Include API password and session tokens in backup
+                </label>
+                <div id="backupCredentialsWarning" class="inline-warning" style="display: none;">
+                    Password and JWT tokens are stored in <strong>plain text</strong> in the backup file. Store the file somewhere safe—anyone with the file can sign in as you.
+                </div>
+            </div>
         </div>
-        
-        <div id="status" class="status" style="display: none;"></div>
         
         <!-- Footer -->
         <div class="footer">
             <div class="footer-content">
-                <span class="footer-text">OpenDKP Helper v1.3.0</span>
+                <span class="footer-text">OpenDKP Helper v2.0.0</span>
                 <span class="footer-separator">•</span>
                 <a href="https://github.com/LordDemonos/opendkp-helper" target="_blank" rel="noopener" class="footer-link">GitHub</a>
                 <span class="footer-separator">•</span>
@@ -1016,6 +1267,7 @@
         </div>
     </div>
 
+    <script src="lib/eqlog-parse.js"></script>
     <script src="options.js"></script>
 </body>
 </html>

@@ -5,13 +5,46 @@
   <title>Loot Monitor</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin:0; padding:16px; background:#1a1a1a; color:#e0e0e0; }
-    .card { background:#2d2d2d; border:1px solid #555; border-radius:8px; padding:16px; }
-    .row { display:flex; gap:8px; align-items:center; }
+    .card { background:#2d2d2d; border:1px solid #555; border-radius:8px; padding:16px; margin-bottom:12px; }
+    .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
     .status { margin-top:10px; font-size:12px; color:#b0b0b0; white-space:pre-wrap; height:120px; overflow:auto; border:1px solid #444; padding:8px; border-radius:6px; }
     button { background:#1976d2; color:#fff; border:none; border-radius:6px; padding:8px 12px; cursor:pointer; font-weight:500; }
+    button:disabled { opacity:0.6; cursor:wait; }
     .small { font-size:12px; color:#b0b0b0; }
     kbd { background:#333; padding:2px 6px; border-radius:4px; font-size:11px; }
+    .loot-panel h3 { margin:0 0 8px 0; font-size:14px; color:#64b5f6; }
+    .raid-status { font-size:12px; color:#90caf9; margin-bottom:10px; }
+    .raid-status.raid-status-invalid { color:#ef5350; }
+    .loot-events { max-height:280px; overflow:auto; }
+    .loot-event { border:1px solid #444; border-radius:6px; padding:8px; margin-bottom:8px; background:#252525; }
+    .loot-event-ts { font-size:11px; color:#888; margin-bottom:6px; }
+    .loot-item { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:4px 0; border-top:1px solid #333; }
+    .loot-item:first-of-type { border-top:none; }
+    .loot-item-name { flex:1; font-size:12px; }
+    .loot-item-actions { display:flex; gap:4px; }
+    .btn-queue { background:#2e7d32; padding:4px 8px; font-size:11px; }
+    .btn-queue:hover { background:#1b5e20; }
+    .btn-copy { background:#455a64; padding:4px 8px; font-size:11px; }
+    .empty-loot { font-size:12px; color:#888; font-style:italic; }
+    .loot-panel-header { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
+    .loot-panel-header h3 { margin:0; }
+    .loot-panel-actions { display:flex; gap:6px; flex-wrap:wrap; }
+    .btn-clear { background:#5d4037; padding:6px 10px; font-size:11px; }
+    .btn-clear:hover { background:#4e342e; }
+    .btn-auto-post { padding:6px 10px; font-size:11px; font-weight:600; min-width:118px; }
+    .btn-auto-post.off { background:#c62828; }
+    .btn-auto-post.off:hover { background:#b71c1c; }
+    .btn-auto-post.on { background:#2e7d32; }
+    .btn-auto-post.on:hover { background:#1b5e20; }
+    .loot-event-header { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px; }
+    .loot-event-ts { font-size:11px; color:#888; flex:1; }
+    .btn-post-all { background:#1565c0; padding:4px 8px; font-size:11px; flex-shrink:0; }
+    .btn-post-all:hover { background:#0d47a1; }
+    .btn-post-all:disabled { opacity:0.6; cursor:wait; }
   </style>
+  <script defer src="lib/eqlog-parse.js"></script>
+  <script defer src="lib/opendkp-api.js"></script>
+  <script defer src="lib/loot-queue.js"></script>
   <script defer src="eqlog-monitor.js"></script>
 </head>
 <body>
@@ -26,10 +59,24 @@
     <div class="row" style="margin-top:8px;">
       <label class="small"><input type="checkbox" id="scanLatestNow" checked style="margin-right:6px;">Scan latest line now</label>
     </div>
+    <div class="small" style="margin-top:4px; color:#888;">Matches raid/party/say tells containing your tag (e.g. <code>You tell the raid, 'FG …'</code>).</div>
     <div class="status" id="log"></div>
     <div class="small" style="margin-top:8px;">Paste with <kbd id="pasteShortcut">Ctrl+V</kbd> in-game to paste the copied loot line.</div>
     <div class="small">Window must remain open to monitor. Close to stop monitoring.</div>
   </div>
+
+  <div class="card loot-panel">
+    <div class="loot-panel-header">
+      <h3>Today's loot → bidding queue</h3>
+      <div class="loot-panel-actions">
+        <button type="button" id="toggleAutoPost" class="btn-auto-post off">Auto post: Off</button>
+        <button type="button" id="clearTodayLoot" class="btn-clear" title="Remove today's captured loot from this list">Clear today</button>
+      </div>
+    </div>
+    <div id="raidStatus" class="raid-status"></div>
+    <div id="lootEvents" class="loot-events">
+      <div class="empty-loot">No loot captured yet today.</div>
+    </div>
+  </div>
 </body>
 </html>
-

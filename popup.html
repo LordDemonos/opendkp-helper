@@ -90,6 +90,13 @@
       transition: box-shadow 0.2s, background 0.2s;
       user-select: none;
     }
+
+    .volume-pct {
+      min-width: 32px;
+      text-align: right;
+      font-weight: 600;
+      color: #1976d2;
+    }
     .vol-dirty { box-shadow: 0 0 0 2px rgba(244,67,54,0.35); background: rgba(244,67,54,0.08); }
     .vol-saved { box-shadow: 0 0 0 2px rgba(76,175,80,0.35); background: rgba(76,175,80,0.08); }
     
@@ -243,9 +250,17 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
+      gap: 8px;
       margin-bottom: 8px;
       padding-bottom: 6px;
       border-bottom: 1px solid #e0e0e0;
+    }
+
+    .eq-log-event-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
     }
     
     .eq-log-event-timestamp {
@@ -301,6 +316,227 @@
       padding: 4px 8px;
       font-size: 11px;
     }
+
+    .eq-log-item-actions {
+      display: flex;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+
+    .eq-log-item-queue {
+      padding: 4px 8px;
+      font-size: 11px;
+      background: #2e7d32;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .eq-log-item-queue:hover {
+      background: #1b5e20;
+    }
+
+    .eq-log-item-queue:disabled {
+      opacity: 0.6;
+      cursor: wait;
+    }
+
+    .eq-log-raid-status {
+      font-size: 11px;
+      color: #555;
+      margin-bottom: 8px;
+    }
+
+    .eq-log-raid-status.eq-log-raid-status-invalid {
+      color: #c62828;
+    }
+
+    .api-session-row {
+      display: none;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 6px;
+      margin-bottom: 12px;
+      flex-shrink: 0;
+    }
+
+    .api-session-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      width: 100%;
+    }
+
+    .api-session-btn {
+      flex-shrink: 0;
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      font-size: 16px;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .api-raid-select {
+      flex: 1 1 0;
+      min-width: 0;
+      font-size: 11px;
+      padding: 5px 6px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      background: #fff;
+      color: #333;
+    }
+
+    .api-session-hint {
+      width: 100%;
+      font-size: 10px;
+      color: #666;
+      line-height: 1.3;
+    }
+
+    .api-session-hint.api-session-hint-invalid {
+      color: #c62828;
+    }
+
+    body.dark-mode .api-raid-select {
+      background: #2d2d2d;
+      border-color: #555;
+      color: #e0e0e0;
+    }
+
+    body.dark-mode .api-session-hint {
+      color: #90a4b8;
+    }
+
+    body.dark-mode .api-session-hint.api-session-hint-invalid {
+      color: #ef5350;
+    }
+
+    .api-create-raid-name {
+      flex: 1 1 0;
+      min-width: 0;
+      box-sizing: border-box;
+      font-size: 11px;
+      padding: 5px 6px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      background: #fff;
+      color: #333;
+    }
+
+    body.dark-mode .api-create-raid-name {
+      background: #2d2d2d;
+      border-color: #555;
+      color: #e0e0e0;
+    }
+
+    .api-raidtick-queue-row {
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .api-raidtick-slots {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      flex: 1 1 0;
+      min-width: 0;
+    }
+
+    .api-raidtick-slot-btn {
+      font-size: 11px;
+      width: auto;
+      min-width: 36px;
+      padding: 0 6px;
+      gap: 1px;
+    }
+
+    .api-raidtick-slot-num {
+      font-weight: 700;
+      font-size: 12px;
+      line-height: 1;
+      color: #1565c0;
+    }
+
+    .api-raidtick-slot-btn.api-raidtick-slot-queued {
+      box-shadow: inset 0 0 0 2px #2e7d32;
+      background: rgba(46, 125, 50, 0.14);
+    }
+
+    body.dark-mode .api-raidtick-slot-btn.api-raidtick-slot-queued {
+      box-shadow: inset 0 0 0 2px #66bb6a;
+      background: rgba(102, 187, 106, 0.18);
+    }
+
+    .api-session-hint.api-session-hint-queued {
+      color: #2e7d32;
+      font-weight: 600;
+    }
+
+    body.dark-mode .api-session-hint.api-session-hint-queued {
+      color: #81c784;
+    }
+
+    .api-raidtick-upload:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .eq-log-header-actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .eq-log-auto-post {
+      padding: 4px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      color: #fff;
+      min-width: 118px;
+    }
+
+    .eq-log-auto-post.off { background: #c62828; }
+    .eq-log-auto-post.on { background: #2e7d32; }
+
+    .eq-log-post-all {
+      padding: 2px 8px;
+      font-size: 10px;
+      background: #1565c0;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .eq-log-post-all:disabled {
+      opacity: 0.6;
+      cursor: wait;
+    }
+
+    body.dark-mode .eq-log-raid-status {
+      color: #90a4b8;
+    }
+
+    body.dark-mode .eq-log-raid-status.eq-log-raid-status-invalid {
+      color: #ef5350;
+    }
+
+    body.dark-mode .eq-log-item-queue {
+      background: #388e3c;
+    }
+
+    body.dark-mode .eq-log-item-queue:hover {
+      background: #2e7d32;
+    }
     /* Dark mode styles */
     body.dark-mode {
       background: #1a1a1a;
@@ -311,12 +547,24 @@
       color: #e0e0e0;
     }
     
+    body.dark-mode .icon-btn {
+      color: #e8edf4;
+    }
+
     body.dark-mode .icon-btn:hover {
       background-color: #333;
     }
-    
+
     body.dark-mode .icon-btn:active {
       background-color: #444;
+    }
+
+    body.dark-mode .api-raidtick-slot-btn .api-raidtick-slot-num {
+      color: #90caf9;
+    }
+
+    body.dark-mode .api-raidtick-upload:disabled {
+      color: #78909c;
     }
     
     body.dark-mode .status {
@@ -468,8 +716,8 @@
       color: #e0e0e0;
     }
     
-    body.dark-mode #volumePct {
-      color: #64b5f6 !important;
+    body.dark-mode .volume-pct {
+      color: #90caf9;
     }
     
     /* Folder and file path text in dark mode */
@@ -516,17 +764,41 @@
   <div class="volume-inline" id="inlineVolume">
     <span id="volumeIcon" class="vol-icon" title="Save volume">🔊</span>
     <input id="volumeSlider" type="range" min="0" max="100" value="70" />
-    <span id="volumePct" style="min-width:32px; text-align:right; font-weight:600; color:#1976d2;">70%</span>
+    <span id="volumePct" class="volume-pct">70%</span>
   </div>
   
   <div id="status" class="status">
     <div id="statusText">Checking status...</div>
   </div>
+
+  <div id="apiSessionRow" class="api-session-row">
+    <div class="api-session-toolbar">
+      <button type="button" id="apiSessionBtn" class="icon-btn api-session-btn" title="Sign in to OpenDKP API">🔑</button>
+      <select id="apiRaidSelect" class="api-raid-select" title="Current raid for loot queue">
+        <option value="">— Select raid —</option>
+      </select>
+    </div>
+    <div id="apiCreateRaidRow" class="api-session-toolbar" style="display: none;">
+      <button type="button" id="apiCreateRaidBtn" class="icon-btn api-session-btn" title="Create raid">➕</button>
+      <input type="text" id="apiCreateRaidName" class="api-create-raid-name" placeholder="New raid name" autocomplete="off">
+    </div>
+    <div id="apiRaidtickQueueRow" class="api-session-toolbar api-raidtick-queue-row" style="display: none;">
+      <div id="apiRaidtickSlotButtons" class="api-raidtick-slots"></div>
+      <button type="button" id="apiRaidtickUploadBtn" class="icon-btn api-session-btn api-raidtick-upload" title="Upload all queued tick logs to OpenDKP" disabled>⬆️</button>
+    </div>
+    <div id="apiSessionHint" class="api-session-hint"></div>
+  </div>
   
   
   <div id="eqLogSection" class="eq-log-section" style="display: none;">
     <div style="margin-bottom: 12px;">
-      <h3>⚔️ Loot Parser</h3>
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap;">
+        <h3 style="margin: 0;">⚔️ Loot Parser</h3>
+        <div class="eq-log-header-actions">
+          <button type="button" id="toggleAutoPost" class="eq-log-auto-post off">Auto post: Off</button>
+          <button type="button" id="clearTodayLoot" class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px;" title="Remove today's captured loot from this list">Clear today</button>
+        </div>
+      </div>
     </div>
     <div id="eqLogEvents" class="eq-log-events">
       <div class="empty-state">No loot events captured yet.</div>

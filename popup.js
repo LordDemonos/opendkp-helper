@@ -56,8 +56,6 @@ function initializePopup() {
   const selectEQLogFile = document.getElementById('selectEQLogFile');
   const eqLogFilePath = document.getElementById('eqLogFilePath');
   const eqLogTag = document.getElementById('eqLogTag');
-  
-  
   // Force immediate visual update
   console.log('Popup script loaded - Firefox debug');
   
@@ -111,8 +109,12 @@ function initializePopup() {
       }
     }
     
-    // Build extras (TTS voice, time-based features, etc.)
-    const extras = [];
+    // Build detail line (profile, sound, volume, TTS, etc.)
+    const detailParts = [
+      `Profile: ${escapeHtml(profile)}`,
+      `Sound: ${escapeHtml(soundType)}`,
+      `Volume: ${escapeHtml(String(volume))}%`
+    ];
     if (settings.enableTTS) {
       const v = String(settings.voice || 'Default');
       let short = v;
@@ -120,36 +122,36 @@ function initializePopup() {
       else if (/david/i.test(v)) short = 'David';
       else if (/mark/i.test(v)) short = 'Mark';
       else short = (v.split(' ').find(Boolean)) || 'Default';
-      extras.push(`TTS: ${short}`);
+      detailParts.push(`TTS: ${escapeHtml(short)}`);
     }
     if (settings.announceAuctions) {
       const active = isTimeWindowActive(settings.announceStart, settings.announceEnd);
-      extras.push(`Read Auctions: ${active ? 'active' : 'scheduled'}`);
+      detailParts.push(`Read Auctions: ${active ? 'active' : 'scheduled'}`);
     }
     if (settings.quietHours && isTimeWindowActive(settings.quietStart, settings.quietEnd)) {
-      extras.push('Quiet Hours: active');
+      detailParts.push('Quiet Hours: active');
     }
     if (settings.eqLogTag) {
-      extras.push(`Loot Tag: ${escapeHtml(settings.eqLogTag)}`);
+      detailParts.push(`Loot Tag: ${escapeHtml(settings.eqLogTag)}`);
     }
-    
-    const extrasHtml = extras.length ? `<br><small>${extras.join(' • ')}</small>` : '';
+
+    const detailsHtml = `<small>${detailParts.join(' | ')}</small>`;
     
     if (isOpenDKP) {
       return `
         ✅ Active on OpenDKP<br>
-        <small>Profile: ${escapeHtml(profile)} | Sound: ${escapeHtml(soundType)} | Volume: ${escapeHtml(String(volume))}%</small>${extrasHtml}
+        ${detailsHtml}
       `;
     } else {
       if (settings.raidTickEnabled && settings.raidTickFolder) {
         return `
           📁 RaidTick Mode<br>
-          <small>Profile: ${escapeHtml(profile)} | Sound: ${escapeHtml(soundType)} | Volume: ${escapeHtml(String(volume))}%</small>${extrasHtml}
+          ${detailsHtml}
         `;
       } else {
         return `
           ⚠️ Not on OpenDKP page<br>
-          <small>Profile: ${escapeHtml(profile)} | Sound: ${escapeHtml(soundType)} | Volume: ${escapeHtml(String(volume))}%</small>${extrasHtml}
+          ${detailsHtml}
         `;
       }
     }
@@ -158,7 +160,82 @@ function initializePopup() {
   // Load current settings and update UI
   // Chrome/Firefox compatibility - use browser API directly
   const api = typeof browser !== 'undefined' ? browser : chrome;
-  
+
+  const defaultSettings = {
+    soundProfile: 'raidleader',
+    soundType: 'bell',
+    volume: 70,
+    raidTickEnabled: false
+  };
+
+  let statusUpdated = false;
+  const updateStatus = function(isOpenDKP, settings) {
+    if (statusUpdated) return;
+    statusUpdated = true;
+    const s = settings || defaultSettings;
+    if (statusDiv) {
+      statusDiv.className = isOpenDKP ? 'status active' : 'status inactive';
+    }
+    if (statusText) {
+      try {
+        const statusHtml = buildStatusText(s, isOpenDKP);
+        statusText.innerHTML = statusHtml || '⚠️ Status unavailable';
+      } catch (error) {
+        console.error('Error building status text:', error);
+        statusText.innerHTML = '⚠️ Status unavailable';
+      }
+    }
+  };
+
+  // Header controls: wire before async storage so Chrome popup stays usable if sync hangs
+  if (openOptionsBtn && openOptionsBtn.dataset.odkpOptionsWired !== '1') {
+    openOptionsBtn.dataset.odkpOptionsWired = '1';
+    openOptionsBtn.addEventListener('click', function() {
+      api.runtime.openOptionsPage();
+    });
+  }
+
+  if (darkModeToggle && darkModeIcon) {
+    darkModeToggle.addEventListener('click', function() {
+      const isDarkMode = document.body.classList.contains('dark-mode');
+
+      if (isDarkMode) {
+        document.body.classList.remove('dark-mode');
+        darkModeIcon.textContent = '☀️';
+        api.storage.sync.set({ darkMode: false });
+        try { api.runtime.sendMessage({ type: 'darkModeChanged', value: false }); } catch(_) {}
+      } else {
+        document.body.classList.add('dark-mode');
+        darkModeIcon.textContent = '🌙';
+        api.storage.sync.set({ darkMode: true });
+        try { api.runtime.sendMessage({ type: 'darkModeChanged', value: true }); } catch(_) {}
+      }
+    });
+  }
+
+  if (modeToggle && modeIcon) {
+    modeToggle.addEventListener('click', function() {
+      const currentMode = modeIcon.textContent === '👑' ? 'raidleader' : 'raider';
+      const newMode = currentMode === 'raidleader' ? 'raider' : 'raidleader';
+
+      modeIcon.textContent = newMode === 'raidleader' ? '👑' : '⚔️';
+
+      api.storage.sync.set({ soundProfile: newMode }, function() {
+        setTimeout(function() {
+          location.reload();
+        }, 100);
+      });
+    });
+  }
+
+  // If storage or tabs never respond, do not leave "Checking status..." forever
+  setTimeout(function() {
+    if (!statusUpdated) {
+      console.warn('[OpenDKP Popup] Init timeout — showing default status');
+      updateStatus(false, defaultSettings);
+    }
+  }, 2500);
+
   api.storage.sync.get([
     'soundProfile',
     'soundType',
@@ -189,12 +266,7 @@ function initializePopup() {
     if (api.runtime.lastError) {
       console.warn('Storage API error:', api.runtime.lastError.message);
       console.log('Using default settings for popup display');
-      settings = {
-        soundProfile: 'raidleader',
-        soundType: 'bell',
-        volume: 70,
-        raidTickEnabled: false
-      };
+      settings = defaultSettings;
     }
     
     // Apply dark mode if enabled
@@ -221,44 +293,24 @@ function initializePopup() {
     } catch(_) {}
     
     // Check if we're on an OpenDKP page - with timeout fallback
-    let statusUpdated = false;
-    const updateStatus = function(isOpenDKP) {
-      if (statusUpdated) return; // Prevent multiple updates
-      statusUpdated = true;
-      
-      if (statusDiv) {
-        statusDiv.className = isOpenDKP ? 'status active' : 'status inactive';
-      }
-      if (statusText) {
-        try {
-          const statusHtml = buildStatusText(settings, isOpenDKP);
-          statusText.innerHTML = statusHtml || '⚠️ Status unavailable';
-        } catch (error) {
-          console.error('Error building status text:', error);
-          statusText.innerHTML = '⚠️ Status unavailable';
-        }
-      }
-    };
-    
-    // Fallback: if tabs API doesn't respond in 2 seconds, default to inactive
     setTimeout(function() {
       if (!statusUpdated) {
         console.warn('Tabs API timeout - defaulting to inactive status');
-        updateStatus(false);
+        updateStatus(false, settings);
       }
     }, 2000);
-    
+
     api.tabs.query({active: true, currentWindow: true}, function(tabs) {
       // Handle errors or missing tabs gracefully
       if (api.runtime.lastError) {
         console.warn('Tabs API error:', api.runtime.lastError.message);
-        updateStatus(false);
+        updateStatus(false, settings);
         return;
       }
-      
+
       const currentTab = tabs && tabs[0];
       const isOpenDKP = currentTab && currentTab.url && currentTab.url.includes('opendkp.com');
-      updateStatus(isOpenDKP);
+      updateStatus(isOpenDKP, settings);
     });
     
     // Initialize EQ Log parser for raid leaders (Chrome: displays inline in popup)
@@ -283,7 +335,10 @@ function initializePopup() {
             });
           } catch (error) {
             console.error('Error opening loot monitor:', error);
-            showStatus('Error opening loot monitor: ' + error.message, 'error');
+            if (statusDiv && statusText) {
+              statusDiv.className = 'status error';
+              statusText.textContent = 'Error opening loot monitor: ' + error.message;
+            }
           }
         });
       } else {
@@ -307,6 +362,9 @@ function initializePopup() {
         // Shrink body height when section is hidden
         document.body.style.height = 'auto';
       }
+      if (window.PopupApiSession) {
+        PopupApiSession.init({ isRaidLeader: true });
+      }
       // Will initialize after settings are processed
       setTimeout(() => {
         initializeEQLogParser(settings);
@@ -317,6 +375,9 @@ function initializePopup() {
         // Shrink body height when section is hidden in Raider mode
         document.body.style.height = 'auto';
       }
+      if (window.PopupApiSession) {
+        PopupApiSession.init({ isRaidLeader: false });
+      }
     }
     
     // Update quick actions text
@@ -325,53 +386,6 @@ function initializePopup() {
       infoDiv.innerHTML = POPUP_QUICK_ACTIONS_TEXT.replace(/\n/g, '<br>');
     }
   });
-  
-  // Open options page
-  if (openOptionsBtn) {
-    openOptionsBtn.addEventListener('click', function() {
-      api.runtime.openOptionsPage();
-    });
-  }
-  
-  // Dark mode toggle functionality
-  if (darkModeToggle && darkModeIcon) {
-    darkModeToggle.addEventListener('click', function() {
-      const isDarkMode = document.body.classList.contains('dark-mode');
-      
-      if (isDarkMode) {
-        // Switch to light mode
-        document.body.classList.remove('dark-mode');
-        darkModeIcon.textContent = '☀️';
-        api.storage.sync.set({ darkMode: false });
-        try { api.runtime.sendMessage({ type: 'darkModeChanged', value: false }); } catch(_) {}
-      } else {
-        // Switch to dark mode
-        document.body.classList.add('dark-mode');
-        darkModeIcon.textContent = '🌙';
-        api.storage.sync.set({ darkMode: true });
-        try { api.runtime.sendMessage({ type: 'darkModeChanged', value: true }); } catch(_) {}
-      }
-    });
-  }
-  
-  // Mode toggle functionality (Raid Leader/Raider)
-  if (modeToggle && modeIcon) {
-    modeToggle.addEventListener('click', function() {
-      const currentMode = modeIcon.textContent === '👑' ? 'raidleader' : 'raider';
-      const newMode = currentMode === 'raidleader' ? 'raider' : 'raidleader';
-      
-      // Update icon
-      modeIcon.textContent = newMode === 'raidleader' ? '👑' : '⚔️';
-      
-      // Update sound profile in storage
-      api.storage.sync.set({ soundProfile: newMode }, function() {
-        // Reload popup to reflect changes
-        setTimeout(() => {
-          location.reload();
-        }, 100);
-      });
-    });
-  }
   
   // Loot Monitor button - Chrome: Show/hide based on profile (loot also displays inline)
   // Button visibility is handled above in the profile check section
@@ -733,6 +747,33 @@ function initializePopup() {
     events: [],
     monitoring: false
   };
+  let autoPostEnabled = false;
+
+  async function loadAutoPostSetting() {
+    const data = await api.storage.sync.get(['eqLogAutoPost']);
+    autoPostEnabled = !!data.eqLogAutoPost;
+    updateAutoPostButton();
+  }
+
+  function updateAutoPostButton() {
+    const btn = document.getElementById('toggleAutoPost');
+    if (!btn) return;
+    if (autoPostEnabled) {
+      btn.textContent = 'Auto post: On';
+      btn.classList.remove('off');
+      btn.classList.add('on');
+    } else {
+      btn.textContent = 'Auto post: Off';
+      btn.classList.remove('on');
+      btn.classList.add('off');
+    }
+  }
+
+  async function toggleAutoPostSetting() {
+    autoPostEnabled = !autoPostEnabled;
+    await api.storage.sync.set({ eqLogAutoPost: autoPostEnabled });
+    updateAutoPostButton();
+  }
   
   /**
    * Initialize EQ Log Parser (Chrome: displays inline in popup)
@@ -779,10 +820,31 @@ function initializePopup() {
       // Load and display existing events
       console.log('[EQ Log Init] Calling displayEQLogEvents()...');
       displayEQLogEvents();
+
+      const clearTodayBtn = document.getElementById('clearTodayLoot');
+      if (clearTodayBtn && !clearTodayBtn.dataset.bound) {
+        clearTodayBtn.dataset.bound = '1';
+        clearTodayBtn.addEventListener('click', async function () {
+          const ok = confirm('Clear all loot captured today from this list?');
+          if (!ok) return;
+          await clearTodayLootEvents();
+        });
+      }
+
+      loadAutoPostSetting();
+      const autoPostBtn = document.getElementById('toggleAutoPost');
+      if (autoPostBtn && !autoPostBtn.dataset.bound) {
+        autoPostBtn.dataset.bound = '1';
+        autoPostBtn.addEventListener('click', toggleAutoPostSetting);
+      }
       
       // Listen for storage changes (background script updates and monitor window status)
       api.storage.onChanged.addListener(function(changes, namespace) {
         if (namespace === 'sync') {
+          if (changes.eqLogAutoPost) {
+            autoPostEnabled = !!changes.eqLogAutoPost.newValue;
+            updateAutoPostButton();
+          }
           if (changes.eqLogEvents) {
             console.log('[EQ Log Storage] eqLogEvents updated, refreshing list', changes.eqLogEvents.newValue?.length || 0, 'events');
             eqLogSettings.events = changes.eqLogEvents.newValue || [];
@@ -895,15 +957,28 @@ function initializePopup() {
     
     const eventsHtml = displayEvents.map(event => createEventGroup(event)).join('');
     eqLogEvents.innerHTML = eventsHtml;
+    updateLootRaidStatus();
     
     // Scroll to top to show newest events (events are sorted newest first)
     eqLogEvents.scrollTop = 0;
     
-    // Add event listeners for copy and delete buttons
+    // Add event listeners for copy, queue, and delete buttons
     eqLogEvents.querySelectorAll('.eq-log-item-copy').forEach(btn => {
       btn.addEventListener('click', function() {
         const itemText = this.dataset.item;
         copyItemToClipboard(itemText);
+      });
+    });
+
+    eqLogEvents.querySelectorAll('.eq-log-item-queue').forEach(btn => {
+      btn.addEventListener('click', function() {
+        queueItemsToRaid([this.dataset.item], this);
+      });
+    });
+
+    eqLogEvents.querySelectorAll('.eq-log-post-all').forEach(btn => {
+      btn.addEventListener('click', function() {
+        postAllForEvent(this.dataset.eventId, this);
       });
     });
     
@@ -930,7 +1005,10 @@ function initializePopup() {
       <div class="eq-log-event" data-event-id="${eventId}">
         <div class="eq-log-event-header">
           <span class="eq-log-event-timestamp">${timestamp}</span>
-          <button class="eq-log-event-close" data-event-id="${eventId}" title="Remove">×</button>
+          <div class="eq-log-event-header-actions">
+            <button type="button" class="eq-log-post-all" data-event-id="${eventId}" title="Queue all items in this loot line">Post all</button>
+            <button class="eq-log-event-close" data-event-id="${eventId}" title="Remove">×</button>
+          </div>
         </div>
         <div class="eq-log-items">
           ${itemsHtml}
@@ -950,11 +1028,105 @@ function initializePopup() {
     return `
       <div class="eq-log-item">
         <span class="eq-log-item-name">${escapedItem}</span>
-        <button class="btn btn-small eq-log-item-copy" data-item="${escapedItemAttr}" data-event-id="${escapedEventId}">Copy</button>
+        <div class="eq-log-item-actions">
+          <button class="btn btn-small eq-log-item-copy" data-item="${escapedItemAttr}" data-event-id="${escapedEventId}">Copy</button>
+          <button class="eq-log-item-queue" data-item="${escapedItemAttr}" data-event-id="${escapedEventId}" title="Add to current raid bidding queue">Queue</button>
+        </div>
       </div>
     `;
   }
   
+  /**
+   * Refresh raid hint under API session row (replaces inline loot parser raid line).
+   */
+  async function updateLootRaidStatus() {
+    if (!window.PopupApiSession) return;
+    const hint = document.getElementById('apiSessionHint');
+    await PopupApiSession.refreshHint(hint);
+  }
+
+  /**
+   * Queue items to current raid via OpenDKP Create Auction API
+   */
+  async function queueItemsToRaid(itemNames, btn) {
+    if (window.LootQueue && LootQueue.readSoundProfile) {
+      const profile = await LootQueue.readSoundProfile();
+      if (profile !== 'raidleader') {
+        alert('Loot queue is available in Raid Leader mode only.');
+        return;
+      }
+    }
+    if (!window.LootQueue || !LootQueue.queueItemsToCurrentRaid) {
+      alert('Loot queue module not loaded. Reload the extension.');
+      return;
+    }
+    const names = (itemNames || []).filter(function (n) { return String(n || '').trim(); });
+    if (!names.length) return;
+    const originalText = btn ? btn.textContent : '';
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '…';
+    }
+    try {
+      const result = await LootQueue.queueItemsToCurrentRaid(names);
+      const labels = result.queued.map(function (q) { return q.label; }).join(', ');
+      if (statusDiv && statusText) {
+        const originalStatus = statusText.innerHTML;
+        const originalClass = statusDiv.className;
+        statusDiv.className = 'status success';
+        var statusHtml =
+          '✅ Queued ' + result.queued.length + ' item(s) for auction<br><small>' +
+          escapeHtml(labels) +
+          ' → Raid #' +
+          escapeHtml(String(result.raidId)) +
+          (result.raidName ? ' (' + escapeHtml(result.raidName) + ')' : '') +
+          '</small>';
+        if (result.failed && result.failed.length) {
+          statusHtml +=
+            '<br><small>Could not queue: ' +
+            escapeHtml(result.failed.map(function (f) { return f.rawName; }).join(', ')) +
+            '</small>';
+        }
+        statusText.innerHTML = statusHtml;
+        setTimeout(function () {
+          statusDiv.className = originalClass;
+          statusText.innerHTML = originalStatus;
+        }, 3000);
+      }
+      if (btn) {
+        btn.textContent = '✓';
+        setTimeout(function () {
+          btn.textContent = originalText;
+          btn.disabled = false;
+        }, 1500);
+      }
+    } catch (err) {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
+      alert(err && err.message ? err.message : String(err));
+    }
+  }
+
+  async function postAllForEvent(eventId, btn) {
+    const event = eqLogSettings.events.find(function (e) {
+      return String(e.id) === String(eventId);
+    });
+    if (!event || !event.items || !event.items.length) {
+      alert('No items found for that loot line.');
+      return;
+    }
+    await queueItemsToRaid(event.items, btn);
+  }
+
+  /**
+   * Queue item to current raid via OpenDKP Create Auction API
+   */
+  async function queueItemToRaid(itemName, btn) {
+    await queueItemsToRaid([itemName], btn);
+  }
+
   /**
    * Copy item to clipboard
    */
@@ -979,6 +1151,20 @@ function initializePopup() {
     });
   }
   
+  /**
+   * Remove all loot events captured today from storage.
+   */
+  async function clearTodayLootEvents() {
+    const today = formatDate(new Date());
+    const before = eqLogSettings.events.length;
+    eqLogSettings.events = eqLogSettings.events.filter(function (event) {
+      return event.date !== today;
+    });
+    await saveEQLogEvents();
+    displayEQLogEvents();
+    console.log('[EQ Log] Cleared today:', before - eqLogSettings.events.length, 'event(s)');
+  }
+
   /**
    * Delete an event group
    */

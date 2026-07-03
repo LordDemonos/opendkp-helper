@@ -8,6 +8,9 @@
 # Docs folder (documentation for reference, not included in builds)
 Docs/
 
+# Tracked API planning docs (exceptions to *.md)
+!docs/PHASE_0_INTEGRATION_MAP.md
+
 # Development and Build Scripts
 node_modules/
 /generate_chime*.html

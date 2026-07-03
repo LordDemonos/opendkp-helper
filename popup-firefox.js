@@ -194,22 +194,19 @@ function buildStatusTextStructured(container, config) {
   // Line break
   container.appendChild(document.createElement('br'));
   
-  // Details in small tag
+  // Details in small tag (single line: profile, sound, volume, TTS, …)
   const small = document.createElement('small');
   const details = [];
   if (profile) details.push(`Profile: ${profile}`);
   if (soundType) details.push(`Sound: ${soundType}`);
   if (volume) details.push(`Volume: ${volume}%`);
+  if (extras.length > 0) {
+    extras.forEach(function (item) {
+      details.push(item);
+    });
+  }
   small.textContent = details.join(' | ');
   container.appendChild(small);
-  
-  // Extras (if any)
-  if (extras.length > 0) {
-    container.appendChild(document.createElement('br'));
-    const extrasSmall = document.createElement('small');
-    extrasSmall.textContent = extras.join(' • ');
-    container.appendChild(extrasSmall);
-  }
 }
 
 /**
@@ -442,6 +439,9 @@ function initializePopup() {
         // Shrink body height when section is hidden
         document.body.style.height = 'auto';
       }
+      if (window.PopupApiSession) {
+        PopupApiSession.init({ isRaidLeader: true });
+      }
       initializeEQLogParser(settings);
     } else {
       console.log('Hiding EQ Log section (not Raid Leader)');
@@ -450,6 +450,9 @@ function initializePopup() {
         eqSection.style.display = 'none';
         // Shrink body height when section is hidden in Raider mode
         document.body.style.height = 'auto';
+      }
+      if (window.PopupApiSession) {
+        PopupApiSession.init({ isRaidLeader: false });
       }
     }
     
@@ -660,6 +663,15 @@ function initializePopup() {
         setTimeout(() => {
           location.reload();
         }, 500);
+      }
+      if (changes.eqLogAutoPost) {
+        autoPostEnabled = !!changes.eqLogAutoPost.newValue;
+        updateAutoPostButton();
+      }
+      if (changes.eqLogLootExceptions && eqLogSettings && typeof eqLogSettings === 'object') {
+        eqLogSettings.lootExceptions = Array.isArray(changes.eqLogLootExceptions.newValue)
+          ? changes.eqLogLootExceptions.newValue
+          : [];
       }
       // Refresh loot events immediately when updated by helper window
       if (changes.eqLogEvents) {
@@ -1134,6 +1146,33 @@ function initializePopup() {
     events: [],
     monitoring: false
   };
+  let autoPostEnabled = false;
+
+  async function loadAutoPostSetting() {
+    const data = await browser.storage.sync.get(['eqLogAutoPost']);
+    autoPostEnabled = !!data.eqLogAutoPost;
+    updateAutoPostButton();
+  }
+
+  function updateAutoPostButton() {
+    const btn = document.getElementById('toggleAutoPost');
+    if (!btn) return;
+    if (autoPostEnabled) {
+      btn.textContent = 'Auto post: On';
+      btn.classList.remove('off');
+      btn.classList.add('on');
+    } else {
+      btn.textContent = 'Auto post: Off';
+      btn.classList.remove('on');
+      btn.classList.add('off');
+    }
+  }
+
+  async function toggleAutoPostSetting() {
+    autoPostEnabled = !autoPostEnabled;
+    await browser.storage.sync.set({ eqLogAutoPost: autoPostEnabled });
+    updateAutoPostButton();
+  }
   
   /**
    * Debug logging function - shows messages in popup UI
@@ -1185,7 +1224,7 @@ function initializePopup() {
     const isRaidLeader = settings.soundProfile === 'raidleader';
     
     // Load saved events and tag from storage
-    const storedData = await browser.storage.sync.get(['eqLogEvents', 'eqLogTag','eqLogFileMeta']);
+    const storedData = await browser.storage.sync.get(['eqLogEvents', 'eqLogTag', 'eqLogFileMeta', 'eqLogLootExceptions']);
     
     console.log('[EQ Log Init] Loaded from storage:', {
       eventsCount: storedData.eqLogEvents?.length || 0,
@@ -1198,7 +1237,8 @@ function initializePopup() {
       fileHandle: null, // Will be set when user selects file in popup
       tag: (storedData.eqLogTag || settings.eqLogTag || 'FG').trim(),
       events: storedData.eqLogEvents || [],
-      monitoring: settings.eqLogMonitoring || false
+      monitoring: settings.eqLogMonitoring || false,
+      lootExceptions: Array.isArray(storedData.eqLogLootExceptions) ? storedData.eqLogLootExceptions : []
     };
     
     console.log('[EQ Log Init] Initialized eqLogSettings:', {
@@ -1223,6 +1263,23 @@ function initializePopup() {
     // Load and display existing events
     console.log('[EQ Log Init] Calling displayEQLogEvents()...');
     displayEQLogEvents();
+
+    const clearTodayBtn = document.getElementById('clearTodayLoot');
+    if (clearTodayBtn && !clearTodayBtn.dataset.bound) {
+      clearTodayBtn.dataset.bound = '1';
+      clearTodayBtn.addEventListener('click', async function () {
+          const ok = confirm('Clear all loot captured today from this list?');
+        if (!ok) return;
+        await clearTodayLootEvents();
+      });
+    }
+
+    loadAutoPostSetting();
+    const autoPostBtn = document.getElementById('toggleAutoPost');
+    if (autoPostBtn && !autoPostBtn.dataset.bound) {
+      autoPostBtn.dataset.bound = '1';
+      autoPostBtn.addEventListener('click', toggleAutoPostSetting);
+    }
     
     // File selection is handled by the monitor window - no button needed
     
@@ -1629,46 +1686,25 @@ function initializePopup() {
   
   
   /**
-   * Detect if line contains loot tag
-   * Tag must appear before any delimiter (pipe or comma)
+   * Detect if line contains loot tag (delegates to lib/eqlog-parse.js)
    */
   function detectLootLine(line, tag) {
-    if (!tag || !line) return false;
-    // Try to match the standard EQ log format: [timestamp] name tells the raid, 'message'
-    const m = line.match(/^\[[^\]]+\]\s.*?(?:tells the raid|tell the raid|tell your raid|tell your party|tells your party|say),\s*'(.*)'\s*$/i);
-    if (!m) return false;
-    const quoted = m[1];
-    if (!quoted) return false;
-    // Check if quoted text starts with the tag (case-insensitive, word boundary)
-    const re = new RegExp('^\s*' + tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
-    return re.test(quoted);
+    if (!window.EqLogParse) return false;
+    return EqLogParse.detectLootLine(line, tag);
   }
-  
+
   /**
-   * Extract items from loot line
-   * Supports both pipe (|) and comma (,) delimiters
+   * Extract items from loot line (delegates to lib/eqlog-parse.js)
    */
   function extractItems(line, tag) {
-    if (!line || !tag) return [];
-    // Match the standard EQ log format: [timestamp] name tells the raid, 'message'
-    const m = line.match(/^\[[^\]]+\]\s.*?(?:tells the raid|tell the raid|tell your raid|tell your party|tells your party|say),\s*'(.*)'\s*$/i);
-    if (!m) return [];
-    const quoted = m[1];
-    if (!quoted) return [];
-    // Remove tag from start of quoted text
-    const after = quoted.replace(new RegExp('^\n?\r?\t?\uFEFF?\s*' + tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*', 'i'), '').trim();
-    if (!after) return [];
-    const hasPipe = after.includes('|');
-    const hasComma = after.includes(',');
-    let items = [];
-    if (!hasPipe && !hasComma) {
-      items = [after];
-    } else {
-      items = after.split(hasPipe ? '|' : ',').map(s => s.trim());
+    if (!window.EqLogParse) return [];
+    var raw = EqLogParse.extractItems(line, tag);
+    if (EqLogParse.filterExcludedItems) {
+      return EqLogParse.filterExcludedItems(raw, eqLogSettings.lootExceptions || []);
     }
-    return items.filter(Boolean);
+    return raw;
   }
-  
+
   /**
    * Extract timestamp from log line
    */
@@ -1807,15 +1843,28 @@ function initializePopup() {
     });
     
     eventsContainer.appendChild(fragment);
+    updateLootRaidStatus();
     
     // Scroll to top to show newest events (events are sorted newest first)
     eventsContainer.scrollTop = 0;
     
-    // Add event listeners for copy and delete buttons
+    // Add event listeners for copy, queue, and delete buttons
     eventsContainer.querySelectorAll('.eq-log-item-copy').forEach(btn => {
       btn.addEventListener('click', function() {
         const itemText = this.dataset.item;
         copyItemToClipboard(itemText);
+      });
+    });
+
+    eventsContainer.querySelectorAll('.eq-log-item-queue').forEach(btn => {
+      btn.addEventListener('click', function() {
+        queueItemsToRaid([this.dataset.item], this);
+      });
+    });
+
+    eventsContainer.querySelectorAll('.eq-log-post-all').forEach(btn => {
+      btn.addEventListener('click', function() {
+        postAllForEvent(this.dataset.eventId, this);
       });
     });
     
@@ -1850,9 +1899,21 @@ function initializePopup() {
     closeBtn.setAttribute('data-event-id', escapeHtmlAttr(String(event.id)));
     closeBtn.setAttribute('title', 'Remove');
     closeBtn.textContent = '×';
+
+    const postAllBtn = document.createElement('button');
+    postAllBtn.type = 'button';
+    postAllBtn.className = 'eq-log-post-all';
+    postAllBtn.setAttribute('data-event-id', escapeHtmlAttr(String(event.id)));
+    postAllBtn.setAttribute('title', 'Queue all items in this loot line');
+    postAllBtn.textContent = 'Post all';
+
+    const headerActions = document.createElement('div');
+    headerActions.className = 'eq-log-event-header-actions';
+    headerActions.appendChild(postAllBtn);
+    headerActions.appendChild(closeBtn);
     
     header.appendChild(timestamp);
-    header.appendChild(closeBtn);
+    header.appendChild(headerActions);
     
     // Items container
     const itemsContainer = document.createElement('div');
@@ -1892,11 +1953,102 @@ function initializePopup() {
     copyBtn.setAttribute('data-event-id', escapeHtmlAttr(String(eventId)));
     copyBtn.setAttribute('data-item-index', escapeHtmlAttr(String(itemIndex)));
     copyBtn.textContent = 'Copy';
+
+    const queueBtn = document.createElement('button');
+    queueBtn.className = 'eq-log-item-queue';
+    queueBtn.setAttribute('data-item', escapeHtmlAttr(item));
+    queueBtn.setAttribute('data-event-id', escapeHtmlAttr(String(eventId)));
+    queueBtn.setAttribute('title', 'Add to current raid bidding queue');
+    queueBtn.textContent = 'Queue';
+
+    const actions = document.createElement('div');
+    actions.className = 'eq-log-item-actions';
+    actions.appendChild(copyBtn);
+    actions.appendChild(queueBtn);
     
     itemDiv.appendChild(nameSpan);
-    itemDiv.appendChild(copyBtn);
+    itemDiv.appendChild(actions);
     
     return itemDiv;
+  }
+
+  /**
+   * Refresh raid hint under API session row (replaces inline loot parser raid line).
+   */
+  async function updateLootRaidStatus() {
+    if (!window.PopupApiSession) return;
+    const hint = document.getElementById('apiSessionHint');
+    await PopupApiSession.refreshHint(hint);
+  }
+
+  /**
+   * Queue items to current raid via OpenDKP Create Auction API
+   */
+  async function queueItemsToRaid(itemNames, btn) {
+    if (window.LootQueue && LootQueue.readSoundProfile) {
+      const profile = await LootQueue.readSoundProfile();
+      if (profile !== 'raidleader') {
+        alert('Loot queue is available in Raid Leader mode only.');
+        return;
+      }
+    }
+    if (!window.LootQueue || !LootQueue.queueItemsToCurrentRaid) {
+      alert('Loot queue module not loaded. Reload the extension.');
+      return;
+    }
+    const names = (itemNames || []).filter(function (n) { return String(n || '').trim(); });
+    if (!names.length) return;
+    const originalText = btn ? btn.textContent : '';
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '…';
+    }
+    try {
+      const result = await LootQueue.queueItemsToCurrentRaid(names);
+      const labels = result.queued.map(function (q) { return q.label; }).join(', ');
+      var details = labels + ' → Raid #' + result.raidId + (result.raidName ? ' (' + result.raidName + ')' : '');
+      if (result.failed && result.failed.length) {
+        details += '. Could not queue: ' + result.failed.map(function (f) { return f.rawName; }).join(', ');
+      }
+      setStatusMessageStructured(statusText, statusDiv, {
+        icon: '✅',
+        mainText: 'Queued ' + result.queued.length + ' item(s) for auction',
+        details: details,
+        type: 'success',
+        autoRestoreMs: 3000
+      });
+      if (btn) {
+        btn.textContent = '✓';
+        setTimeout(function () {
+          btn.textContent = originalText;
+          btn.disabled = false;
+        }, 1500);
+      }
+    } catch (err) {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
+      alert(err && err.message ? err.message : String(err));
+    }
+  }
+
+  async function postAllForEvent(eventId, btn) {
+    const event = eqLogSettings.events.find(function (e) {
+      return String(e.id) === String(eventId);
+    });
+    if (!event || !event.items || !event.items.length) {
+      alert('No items found for that loot line.');
+      return;
+    }
+    await queueItemsToRaid(event.items, btn);
+  }
+
+  /**
+   * Queue item to current raid via OpenDKP Create Auction API
+   */
+  async function queueItemToRaid(itemName, btn) {
+    await queueItemsToRaid([itemName], btn);
   }
   
   /**
@@ -1926,6 +2078,18 @@ function initializePopup() {
     });
   }
   
+  /**
+   * Remove all loot events captured today from storage.
+   */
+  async function clearTodayLootEvents() {
+    const today = formatDate(new Date());
+    eqLogSettings.events = eqLogSettings.events.filter(function (event) {
+      return event.date !== today;
+    });
+    await saveEQLogEvents();
+    displayEQLogEvents();
+  }
+
   /**
    * Delete an event group
    */

@@ -104,8 +104,26 @@ A comprehensive browser extension for opendkp.com that provides intelligent auct
 
 ![RaidTick Reminder Settings](assets/images/RaidTickReminderSettings.png)
 
+### OpenDKP API & Loot Queue (Raid Leader Only) — **v2.0**
+
+Connect the extension to the OpenDKP HTTP API to manage raids and queue loot without leaving the game flow.
+
+- ✅ **API sign-in** — Guild subdomain + OpenDKP username/password (Cognito); session refresh from Settings or popup
+- ✅ **Current raid** — Select or create a raid in Settings; picker in the extension popup (🔑 / raid dropdown)
+- ✅ **Create raids** — Name, pool, attendance, and RaidTick tick definitions from Settings
+- ✅ **Loot → bidding queue** — Queue items from the loot monitor or popup to the current raid (Create Auction API)
+- ✅ **Auto post** — Optional automatic queue when new loot lines are captured in the monitor window
+- ✅ **Auction defaults** — Pay strategy (exact / second+1 / etc.) and duration in Settings → OpenDKP API
+- ✅ **Loot exceptions** — Exclude spell lines and fixed item names from parser matching
+- ✅ **RaidTick queue (popup)** — Stage parsed tick files to numbered slots and upload ticks to the current raid (when enabled in Settings)
+- ✅ **Backup & restore** — Export/import JSON backup including API settings, watchlist, reminders, and custom sounds
+
+**Setup (Raid Leader):** Settings → **OpenDKP API** → enter guild subdomain → sign in → refresh pools → create or select current raid. Use the popup 🔑 control to refresh session and pick the active raid during a raid night.
+
 ### Other Features
-- ✅ **Settings Page** - Comprehensive options page with all settings
+- ✅ **Appearance theme** — Light, dark, or follow system (Settings → Appearance)
+- ✅ **Backup & Restore** — Export/import all settings and custom sounds (Settings → Backup & Restore)
+- ✅ **Settings Page** — Comprehensive options page with all settings
 - ✅ **Dark Mode** - Dark theme for easier viewing
 - ✅ **Cross-Browser** - Works in Firefox and Chrome
 - ✅ **Persistent Storage** - All settings saved and synced across browser instances
@@ -217,19 +235,26 @@ The `manifest.json` should use `background.scripts`:
    ![RaidTick Integration](assets/images/RaidTick.png)
 
 6. **For Raid Leaders - Set Up Loot Parser:**
-   - Enable **Loot Parser** (visible in Raid Leader profile)
-   - Select your EverQuest log file
+   - Open the **Loot Monitor** from the popup (🕒) or use inline loot UI in Chrome popup
+   - Choose your EQ log file (Chrome uses a native file picker when available)
    - Configure your loot tag (e.g., "FG" for Former Glory)
-   - The parser will monitor your log and display loot events in the popup
+   - Sign in to the **OpenDKP API** and select a **current raid** (see step 7)
+   - Optionally enable **Auto post** to queue loot to OpenDKP automatically
    
    ![Loot Parser](assets/images/LootParser.png)
 
-7. **Configure Audio & Visuals:**
+7. **For Raid Leaders - OpenDKP API (v2.0):**
+   - Settings → **OpenDKP API** → guild subdomain → **Sign in to API**
+   - **Refresh pools**, then **Create raid** or pick from the raid list
+   - In the popup: use 🔑 to refresh session and the raid dropdown for the active raid
+   - Queue loot from the monitor or popup; configure **Pay Strategy** / duration under API settings
+
+8. **Configure Audio & Visuals:**
    - Set up **Quiet Hours** to silence notifications during sleep hours
    - Configure **Text-to-Speech** if you want audio announcements
    - Adjust volume and notification preferences
 
-8. **Save Settings** and start using!
+9. **Save Settings** and start using!
 
    ![Extension Popup](assets/images/Popup.png)
 
@@ -279,12 +304,25 @@ The `manifest.json` should use `background.scripts`:
 - **Reminders**: Schedule reminders for tasks like "Run /outputfile raidlist"
 
 ### Loot Parser (Raid Leader Only)
-- **Loot Parser Enabled**: Enable/disable EQ log monitoring
-- **EQ Log File**: Select your EverQuest log file
-- **Loot Tag**: Configure the tag to search for in log messages (e.g., "FG")
-- **Monitoring Window**: Open dedicated window to monitor log activity
+- **Loot Monitor window** — Real-time EQ log polling, today's loot list, copy/queue buttons
+- **Auto post** — Queue new loot to OpenDKP when a current raid is set and API session is active
+- **Loot tag** — Tag used in raid/party/say tell lines (Settings or monitor)
+- **Loot exceptions** — Lines/items to ignore (Settings → OpenDKP API, or exceptions editor window)
 
 ![Upload Logs Reminder](assets/images/UploadLogsReminder.png)
+
+### OpenDKP API (Raid Leader Only)
+- **Guild subdomain** — Your guild slug from `https://YOURGUILD.opendkp.com`
+- **Sign in / refresh / sign out** — Cognito session; tokens stored locally in the browser
+- **Raids** — List recent raids, create raid, set **current raid** for loot queue and tick upload
+- **Pools** — Refresh guild pools for raid creation
+- **RaidTick definitions** — Default tick rows used when creating raids
+- **Loot queue defaults** — Pay strategy and auction duration for queued items
+- **RaidTick upload toggle** — Enable/disable popup tick upload (see in-app note if upload is temporarily disabled)
+
+### Backup & Restore
+- **Download backup** — JSON export of sync settings, API config, watchlist, reminders, custom sound metadata
+- **Restore backup** — Import after reinstall or when testing new versions
 
 ### Visual Settings
 - **Screen Flash**: Enable/disable screen flash alerts
@@ -297,29 +335,29 @@ The `manifest.json` should use `background.scripts`:
 
 ```
 opendkp-helper/
-├── manifest.json              # Extension manifest
-├── background.js              # Background script (reminders)
+├── manifest.json              # Extension manifest (version source of truth)
+├── background.js              # Background script (reminders, custom sounds)
 ├── content.js                 # Main content script (timer monitoring)
-├── options.html               # Settings page HTML
-├── options.js                 # Settings page logic
-├── popup.html                 # Popup window HTML
+├── options.html / options.js  # Settings page
+├── popup.html                 # Popup shell
+├── popup-loader.js            # Loads lib/* then popup.js or popup-firefox.js
 ├── popup.js                   # Popup logic (Chrome)
 ├── popup-firefox.js           # Popup logic (Firefox)
-├── reminder.html              # Reminder popup window
-├── reminder.js                # Reminder logic
-├── eqlog-monitor.html         # EQ Log monitoring window
-├── eqlog-monitor.js           # EQ Log monitoring logic
-├── eqlog-window.html          # EQ Log viewer window
-├── eqlog-window.js            # EQ Log viewer logic
-├── copy-window.html           # Copy utility window
-├── copy-window.js             # Copy utility logic
-├── icons/                      # Extension icons
-│   ├── icon.svg
-│   ├── icon-16.png
-│   ├── icon-48.png
-│   └── icon-128.png
-├── *.mp3, *.wav               # Audio files
-└── README.md                   # This file
+├── lib/                       # Shared modules (v2.0+)
+│   ├── opendkp-api.js         # Cognito + OpenDKP HTTP client
+│   ├── loot-queue.js          # Queue loot → Create Auction API
+│   ├── raidtick-queue.js      # Popup RaidTick slot queue / upload
+│   ├── raidtick-parse.js      # RaidTick file parsing
+│   ├── eqlog-parse.js         # EQ log loot line parsing
+│   └── popup-api-session.js   # Popup sign-in & raid picker
+├── eqlog-monitor.html/js      # Loot monitor window
+├── eqlog-exceptions.html/js   # Loot exception rules editor
+├── raidtick-pick-window.html/js
+├── copy-window.html/js        # Firefox RaidTick copy helper
+├── reminder.html/js           # RaidTick reminder popup
+├── icons/                     # Extension icons
+├── scripts/                   # build-chrome.js, build-firefox.js, package-release.js
+└── README.md
 ```
 
 ## 🎨 Browser Compatibility
@@ -329,52 +367,81 @@ opendkp-helper/
 
 **Note**: Both browsers require Manifest V3. Chrome uses `background.service_worker` while Firefox uses `background.scripts`. The extension automatically detects and uses the appropriate API based on the browser.
 
+## 🏪 Publishing to Chrome & Firefox stores
+
+Both stores use the **same `manifest.json` version** (currently **2.0.0**). Mozilla rejects duplicate version strings; always bump before a new AMO submission.
+
+### GitHub Actions (on **Release published**)
+
+Creating a GitHub Release with tag **`v2.0.0`** (must match `manifest.json` without the `v`) triggers:
+
+| Workflow | Purpose |
+|----------|---------|
+| [`build-release.yml`](.github/workflows/build-release.yml) | Builds `opendkp-helper-v2.0.0-chrome.zip` and `-firefox.zip` and **attaches them to the Release** |
+| [`publish-chrome.yml`](.github/workflows/publish-chrome.yml) | Builds Chrome package; **auto-uploads only if** `CHROME_*` secrets are set (optional) |
+| [`publish-firefox.yml`](.github/workflows/publish-firefox.yml) | Builds Firefox tree; **`web-ext sign --channel listed`** if `AMO_JWT_ISSUER` + `AMO_JWT_SECRET` are set |
+
+Also on tag push `v*.*.*`: [`release-packages.yml`](.github/workflows/release-packages.yml) runs `npm run package:release` → `dist/*.zip` workflow artifact.
+
+**Repo secrets (optional automation):**
+
+- **Firefox AMO:** `AMO_JWT_ISSUER`, `AMO_JWT_SECRET` — [AMO API credentials](https://extensionworkshop.com/documentation/develop/getting-started-with-web-ext/web-ext-command-reference/#sign). Optional repo variable `AMO_CHANNEL`: `listed` (default, public updates) or `unlisted`.
+- **Chrome Web Store:** `CHROME_EXTENSION_ID`, `CHROME_CLIENT_ID`, `CHROME_CLIENT_SECRET`, `CHROME_REFRESH_TOKEN` — only if you want CI upload via `chrome-webstore-upload-cli`. See [`CURSOR.md`](CURSOR.md): **manual Chrome upload is the preferred path** (OAuth refresh tokens were painful to maintain).
+
+### Recommended release checklist
+
+1. **Version** — `node scripts/update-version.js 2.0.0` (updates `manifest.json` + options footer); keep `package.json` in sync.
+2. **Test locally** — Firefox: `npm run build:firefox` → load `build/temp-firefox-build`. Chrome: `npm run build:chrome` → load `build/temp-chrome-build` (not the repo root).
+3. **Optional:** `npm run package:release` → store-ready zips in `dist/` + checksums.
+4. **Commit & push** to `master` (your branch is ahead of origin — merge/push before releasing).
+5. **GitHub Release** — Tag `v2.0.0`, title `v2.0.0`, paste `CHANGELOG.md` section; publish release.
+6. **Chrome (manual, recommended)** — Download release ZIP *or* zip contents of `build/temp-chrome-build` → [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole) → **Upload new package** → submit for review.
+7. **Firefox** — If AMO secrets are configured, the workflow signs and submits the **listed** add-on. Otherwise download the Firefox ZIP from the Release and upload/sign via [AMO Developer Hub](https://addons.mozilla.org/developers/), or run locally:
+   ```bash
+   npm run build:firefox
+   web-ext sign --source-dir build/temp-firefox-build --api-key ... --api-secret ... --channel listed
+   ```
+
+See also [`CURSOR.md`](CURSOR.md) for maintainer notes on manual Chrome vs CI upload.
+
 ## 🔨 Building from Source
 
-The repository includes GitHub Actions workflows that automatically build browser-specific packages:
+Local build scripts (restore `manifest.json` after each run):
 
-- **Release Builds**: `.github/workflows/build-release.yml` - Builds both Chrome and Firefox ZIP files for GitHub Releases
-- **Chrome Store**: `.github/workflows/publish-chrome.yml` - Builds and optionally uploads to Chrome Web Store
-- **Firefox Store**: `.github/workflows/publish-firefox.yml` - Builds and publishes to Firefox Add-ons (AMO)
+```bash
+npm run build:chrome    # → build/temp-chrome-build/
+npm run build:firefox   # → build/temp-firefox-build/
+npm run package:release # → dist/opendkp-helper-{browser}-2.0.0.zip + SHA256SUMS.txt
+npm run lint:webext     # Firefox addons-linter on source tree
+npm run test:chrome     # Puppeteer smoke test (after build:chrome)
+```
 
-### Release Builds
+When building from source without scripts, edit `manifest.json` manually (`background.service_worker` for Chrome, `background.scripts` for Firefox). The GitHub workflows handle this automatically for release packages.
 
-The `build-release.yml` workflow automatically:
-1. Triggers on new GitHub releases (or can be manually triggered)
-2. Builds both Chrome and Firefox packages with correct manifest configurations
-3. Attaches both ZIP files to the release
+### Legacy workflow summary
 
-**To create a new release:**
-1. Create a new release on GitHub (tagged with version number)
-2. The workflow will automatically build and attach both packages
-3. Users can download the appropriate ZIP for their browser
-
-### Store Builds
-
-Store-specific workflows:
-1. Configure `manifest.json` for the target browser (scripts vs service_worker)
-2. Package all necessary files
-3. Create ZIP files ready for store submission
-
-To build manually:
-
-1. **For Chrome**: The workflow sets `background.service_worker` in manifest.json
-2. **For Firefox**: The workflow sets `background.scripts` in manifest.json
-
-When building from source, you must edit `manifest.json` manually (see [Installation](#-installation) above).
+- **Release Builds**: `build-release.yml` — ZIPs attached to GitHub Releases
+- **Chrome Store**: `publish-chrome.yml` — optional automated upload
+- **Firefox Store**: `publish-firefox.yml` — optional `web-ext sign` when AMO JWT secrets exist
 
 ## 🔐 Permissions
 
-This extension requires the following permissions:
+**Extension permissions:**
 
-- **activeTab** - Access current tab to monitor auction timers
-- **storage** - Save your settings and preferences
-- **notifications** - Display browser notifications
-- **clipboardWrite** - Copy auction information to clipboard
-- **management** - Extension management (for future features)
-- **scripting** - Inject content scripts
+- **activeTab** — Access the active tab when you open the popup (e.g. detect opendkp.com)
+- **storage** — Save settings locally (and sync where the browser supports it)
+- **notifications** — Desktop notifications for auctions and reminders
+- **clipboardWrite** — Copy RaidTick data and loot lines
+- **scripting** — Inject content script on OpenDKP when needed (e.g. reminder flash)
+- **alarms** — Reliable RaidTick reminder scheduling (especially Chrome MV3 service worker)
 
-All data is stored locally in your browser - nothing is sent to external servers.
+**Host permissions:**
+
+- **opendkp.com** — Auction timer monitoring and page integration
+- **api.opendkp.com / api-test.opendkp.com** — OpenDKP HTTP API (loot queue, raids, pools)
+- **cognito-idp.us-east-2.amazonaws.com** — API sign-in only (no data sent elsewhere)
+
+Auction alerts and settings stay local in your browser. **OpenDKP API features** send requests only to OpenDKP and AWS Cognito using credentials you enter in Settings; tokens are stored in extension local storage, not on third-party servers.
 
 ## 📄 License
 

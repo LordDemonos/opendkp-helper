@@ -39,7 +39,9 @@
     ANNOUNCE_NEW_AUCTIONS: false,
     ANNOUNCE_START: '19:00',
     ANNOUNCE_END: '23:59',
-    ANNOUNCE_NEW_AUCTIONS_DAYS: [0, 1, 2, 3, 4, 5, 6] // 0=Sun .. 6=Sat; all days by default
+    ANNOUNCE_NEW_AUCTIONS_DAYS: [0, 1, 2, 3, 4, 5, 6], // 0=Sun .. 6=Sat; all days by default
+    WATCHLIST_ALARM_ENABLED: false,
+    WATCHLIST_ITEMS: ''
   };
   
   // Settings loaded from storage
@@ -170,6 +172,202 @@
       }
     } catch (_) {}
   }
+
+  const WATCHLIST_ALARM_MS = 5000;
+  const WATCHLIST_FLASH_COUNT = 5;
+  const watchlistAlertedTimers = new WeakSet();
+  let watchlistAlarmAudio = null;
+  let watchlistTtsTimerIds = [];
+  let watchlistFlashTimerIds = [];
+
+  function parseWatchlistItems(raw) {
+    if (!raw || typeof raw !== 'string') return [];
+    return raw.split('\n').map(function(line) { return line.trim(); }).filter(Boolean);
+  }
+
+  function normalizeWatchlistName(name) {
+    return String(name || '').toLowerCase().trim();
+  }
+
+  function itemMatchesWatchlist(itemName, watchlist) {
+    const normalized = normalizeWatchlistName(itemName);
+    if (!normalized || !watchlist.length) return false;
+    return watchlist.some(function(entry) {
+      const needle = normalizeWatchlistName(entry);
+      if (!needle) return false;
+      return normalized.includes(needle) || needle.includes(normalized);
+    });
+  }
+
+  function stopWatchlistAlarmEffects() {
+    if (watchlistAlarmAudio) {
+      watchlistAlarmAudio.pause();
+      watchlistAlarmAudio.currentTime = 0;
+      watchlistAlarmAudio = null;
+    }
+    watchlistTtsTimerIds.forEach(function(id) { clearTimeout(id); });
+    watchlistTtsTimerIds = [];
+    watchlistFlashTimerIds.forEach(function(id) { clearTimeout(id); });
+    watchlistFlashTimerIds = [];
+    document.querySelectorAll('[data-opendkp-watchlist-flash]').forEach(function(el) {
+      if (el.parentNode) el.parentNode.removeChild(el);
+    });
+  }
+
+  function configureWatchlistUtterance(utterance) {
+    if (settings.VOICE) {
+      const voices = speechSynthesis.getVoices();
+      const selected = voices.find(function(v) {
+        return v.name.toLowerCase() === settings.VOICE.toLowerCase();
+      });
+      if (selected) utterance.voice = selected;
+    }
+    const isFirefox = typeof browser !== 'undefined' && navigator.userAgent.includes('Firefox');
+    const maxRate = isFirefox ? 2.5 : 2.0;
+    utterance.rate = Math.min(settings.VOICE_SPEED || 1.0, maxRate);
+    utterance.volume = Math.max(0, Math.min(1, settings.VOLUME !== undefined ? settings.VOLUME : 0.7));
+  }
+
+  function speakWatchlistItemOnce(itemName) {
+    if (!itemName || typeof speechSynthesis === 'undefined') return;
+    const utterance = new SpeechSynthesisUtterance(itemName);
+    configureWatchlistUtterance(utterance);
+    speechSynthesis.speak(utterance);
+  }
+
+  function speakWatchlistItemRepeated(itemName) {
+    if (!itemName || typeof speechSynthesis === 'undefined') return;
+    try { speechSynthesis.cancel(); } catch (_) {}
+
+    for (let i = 0; i < WATCHLIST_FLASH_COUNT; i++) {
+      const timerId = setTimeout(function() {
+        speakWatchlistItemOnce(itemName);
+      }, i * 1000);
+      watchlistTtsTimerIds.push(timerId);
+    }
+    log('Watchlist alarm: repeating TTS for', itemName, 'every second for', WATCHLIST_ALARM_MS + 'ms');
+  }
+
+  function playWatchlistAlarmSound() {
+    try {
+      let audioUrl;
+      try {
+        audioUrl = api.runtime.getURL('alarm.mp3');
+      } catch (e) {
+        log('Extension context invalidated, cannot play watchlist alarm:', e);
+        playBeepFallback();
+        return;
+      }
+      const audio = new Audio(audioUrl);
+      const volume = settings.VOLUME !== undefined ? settings.VOLUME : 0.7;
+      audio.volume = Math.max(0, Math.min(1, volume));
+      audio.loop = true;
+      watchlistAlarmAudio = audio;
+      playAudioWithUnlock(audio, function() {
+        log('Failed to play watchlist alarm, using beep fallback');
+        playBeepFallback();
+      });
+      const stopId = setTimeout(function() {
+        if (watchlistAlarmAudio === audio) {
+          audio.pause();
+          audio.currentTime = 0;
+          watchlistAlarmAudio = null;
+        }
+      }, WATCHLIST_ALARM_MS);
+      watchlistTtsTimerIds.push(stopId);
+      log('Playing watchlist alarm for', WATCHLIST_ALARM_MS + 'ms');
+    } catch (error) {
+      log('Error playing watchlist alarm:', error);
+      playBeepFallback();
+    }
+  }
+
+  function flashWatchlistAlarm() {
+    try {
+      const overlay = document.createElement('div');
+      overlay.setAttribute('data-opendkp-watchlist-flash', '');
+      overlay.style.position = 'fixed';
+      overlay.style.left = '0';
+      overlay.style.top = '0';
+      overlay.style.width = '100vw';
+      overlay.style.height = '100vh';
+      overlay.style.inset = '0';
+      overlay.style.zIndex = '2147483647';
+      overlay.style.background = '#dc2626';
+      overlay.style.opacity = '0';
+      overlay.style.pointerEvents = 'none';
+      overlay.style.transition = 'opacity 120ms ease';
+
+      const container = document.body || document.documentElement;
+      if (!container) return;
+      container.appendChild(overlay);
+
+      for (let i = 0; i < WATCHLIST_FLASH_COUNT; i++) {
+        const onId = setTimeout(function() {
+          overlay.style.opacity = '0.9';
+          const offId = setTimeout(function() {
+            overlay.style.opacity = '0';
+          }, 450);
+          watchlistFlashTimerIds.push(offId);
+        }, i * 1000);
+        watchlistFlashTimerIds.push(onId);
+      }
+
+      const removeId = setTimeout(function() {
+        if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      }, WATCHLIST_ALARM_MS + 200);
+      watchlistFlashTimerIds.push(removeId);
+
+      log('Watchlist alarm: flashing red once per second for', WATCHLIST_ALARM_MS + 'ms');
+    } catch (e) {
+      log('flashWatchlistAlarm error:', e);
+    }
+  }
+
+  function triggerWatchlistAlarm(itemName) {
+    log('Watchlist alarm triggered for:', itemName);
+    stopWatchlistAlarmEffects();
+    playWatchlistAlarmSound();
+    flashWatchlistAlarm();
+    speakWatchlistItemRepeated(itemName);
+
+    if (settings.BROWSER_NOTIFICATIONS && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      try {
+        new Notification('OpenDKP Watchlist Alert!', {
+          body: itemName + ' is now up for bid!',
+          icon: api.runtime.getURL('icons/icon-128.png')
+        });
+      } catch (_) {}
+    }
+  }
+
+  function maybeTriggerWatchlistAlarm(timerElement) {
+    try {
+      if (!settingsLoaded || !settings.WATCHLIST_ALARM_ENABLED) return;
+
+      const watchlist = parseWatchlistItems(settings.WATCHLIST_ITEMS);
+      if (!watchlist.length) return;
+
+      if (watchlistAlertedTimers.has(timerElement)) return;
+
+      const initialWidth = getWidthPercent(timerElement);
+      if (initialWidth !== null && initialWidth < 50) return;
+      if (initialWidth !== null && initialWidth <= 0) return;
+
+      watchlistAlertedTimers.add(timerElement);
+
+      const tryMatch = function(attemptsLeft) {
+        const ctx = extractTableContext(timerElement) || extractTimerContext(timerElement);
+        const name = ctx && ctx.itemName && String(ctx.itemName).trim();
+        if (name && itemMatchesWatchlist(name, watchlist)) {
+          triggerWatchlistAlarm(name);
+        } else if (attemptsLeft > 0 && !name) {
+          setTimeout(function() { tryMatch(attemptsLeft - 1); }, 200);
+        }
+      };
+      tryMatch(15);
+    } catch (_) {}
+  }
   
   // Flag to prevent alerts during initialization
   let initializationComplete = false;
@@ -244,6 +442,8 @@
       announceAuctions: false,
       announceStart: '19:00',
       announceEnd: '23:59',
+      watchlistAlarmEnabled: false,
+      watchlistItems: '',
       enableTTS: false,
       voice: '',
       voiceSpeed: 1.0,
@@ -304,6 +504,10 @@
       settings.ANNOUNCE_NEW_AUCTIONS_DAYS = Array.isArray(rawDays) && rawDays.length > 0
         ? rawDays.filter(d => typeof d === 'number' && d >= 0 && d <= 6)
         : CONFIG.ANNOUNCE_NEW_AUCTIONS_DAYS;
+      settings.WATCHLIST_ALARM_ENABLED = storedSettings.watchlistAlarmEnabled === true;
+      settings.WATCHLIST_ITEMS = typeof storedSettings.watchlistItems === 'string'
+        ? storedSettings.watchlistItems
+        : CONFIG.WATCHLIST_ITEMS;
       
       // Automatically enable smart bidding for raider profile
       if (settings.SOUND_PROFILE === 'raider') {
@@ -1470,6 +1674,7 @@
         newTimerCount++;
         // Announce new auctions if enabled and within window
         maybeAnnounceNewAuction(timer);
+        maybeTriggerWatchlistAlarm(timer);
         
         // Only pre-mark completed timers during the brief navigation
         // protection window. Outside of this window, allow checkTimer()
@@ -1547,6 +1752,7 @@
             allTimers.add(timer);
             // Immediately consider announcing newly added auction
             maybeAnnounceNewAuction(timer);
+            maybeTriggerWatchlistAlarm(timer);
           }
         });
         log(`Monitoring ${allTimers.size} timer(s)`);
@@ -1676,6 +1882,15 @@
         sendResponse({success: true, duration: soundDuration});
       }
       return false; // Synchronous response
+    } else if (message.action === 'testWatchlistAlarm') {
+      const itemName = message.itemName && String(message.itemName).trim();
+      if (itemName) {
+        triggerWatchlistAlarm(itemName);
+      }
+      if (sendResponse) {
+        sendResponse({ success: true });
+      }
+      return false;
     } else if (message.action === 'reminderFlash') {
       try { 
         // Always log (not conditional on DEBUG) so we can diagnose flash issues

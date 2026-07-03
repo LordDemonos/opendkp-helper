@@ -132,6 +132,8 @@ const DEFAULT_SETTINGS = {
   announceStart: '19:00',
   announceEnd: '23:59',
   announceNewAuctionsDays: [0, 1, 2, 3, 4, 5, 6], // 0=Sun .. 6=Sat
+  watchlistAlarmEnabled: false,
+  watchlistItems: '',
   disableVisuals: false,
   flashScreen: true,
   browserNotifications: true,
@@ -144,8 +146,43 @@ const DEFAULT_SETTINGS = {
   raidTickFileList: [],
   // RaidTick Reminders
   reminders: [],
-  reminderPrefs: { flash: true, notifications: true, enabledDays: [0,1,2,3,4,5,6] } // All days enabled by default (0=Sunday, 6=Saturday)
+  reminderPrefs: { flash: true, notifications: true, enabledDays: [0,1,2,3,4,5,6] }, // All days enabled by default (0=Sunday, 6=Saturday)
+  // OpenDKP HTTP API (v2 raid workflow) — never hardcode a guild slug in code
+  opendkpClientSlug: '',
+  opendkpCurrentRaidId: null,
+  opendkpCurrentRaidSummaryJson: '',
+  opendkpRaidtickUploadEnabled: false,
+  opendkpTickDkpValue: 1,
+  opendkpRaidTickDefs: [
+    { id: 't-hour1', description: 'Hour #1', value: 25 },
+    { id: 't-hour2', description: 'Hour #2', value: 25 },
+    { id: 't-hour3', description: 'Hour #3', value: 25 }
+  ],
+  opendkpAttendance: 1,
+  opendkpCognitoUsername: '',
+  opendkpPreferredPoolId: '',
+  opendkpAuctionPayStrategy: 'exact',
+  opendkpAuctionDuration: 2,
+  eqLogLootExceptions: ['Spell:', 'A Glowing Orb of Luclinite']
 };
+
+/** Cognito app ClientId from OpenDKP Postman collection (Get Access Token). Bundled for API sign-in. */
+const OPEN_DKP_COGNITO_CLIENT_ID = '2sq61k8dj39e309tnh5tm70dd4';
+const OPEN_DKP_API_HOST = 'api.opendkp.com';
+const OPEN_DKP_PASSWORD_STORAGE_KEY = 'opendkpCognitoPassword';
+/** Local keys omitted from backup unless user opts in (plain-text secrets). */
+const BACKUP_SENSITIVE_LOCAL_KEYS = [
+  OPEN_DKP_PASSWORD_STORAGE_KEY,
+  'opendkpIdToken',
+  'opendkpAccessToken',
+  'opendkpRefreshToken',
+  'opendkpTokenExpiresAtMs'
+];
+const OPEN_DKP_ROSTER_CACHE_STORAGE_KEY = 'opendkpRosterCacheBySlug';
+const OPEN_DKP_POOLS_CACHE_STORAGE_KEY = 'opendkpPoolsCache';
+/** Local mirror when sync is empty, quota-limited, or lost on reload (Firefox). */
+const LOCAL_SETTINGS_MIRROR_KEY = 'opendkpSettingsLocalMirror';
+const OPEN_DKP_MAX_RAID_TICK_DEFS = 10;
 
 // Sound options with their implementations
 const SOUND_OPTIONS = {
@@ -236,11 +273,76 @@ if (typeof browser !== 'undefined') {
   });
 }
 
+/**
+ * Load OpenDKP API scripts via runtime.getURL so they work in Firefox/Chrome even when
+ * relative script tags for lib/ paths fail (e.g. certain packaged layouts).
+ */
+function loadOpenDkpHelperLibs() {
+  return new Promise(function (resolve) {
+    const ext = typeof browser !== 'undefined' ? browser : chrome;
+    function inject(path, hasGlobal, next) {
+      if (hasGlobal()) {
+        next();
+        return;
+      }
+      const url = ext.runtime.getURL(path);
+      const s = document.createElement('script');
+      s.src = url;
+      s.onload = function () {
+        if (!hasGlobal()) {
+          console.error('[OpenDKP] Script ran but global missing:', path);
+        }
+        next();
+      };
+      s.onerror = function () {
+        console.error('[OpenDKP] Failed to load (missing from add-on package?):', url);
+        next();
+      };
+      (document.head || document.documentElement).appendChild(s);
+    }
+    inject(
+      'lib/opendkp-api.js',
+      function () {
+        return typeof window.OpenDkpApi !== 'undefined';
+      },
+      function () {
+        inject(
+          'lib/raidtick-parse.js',
+          function () {
+            return typeof window.RaidTickParse !== 'undefined';
+          },
+          function () {
+            inject(
+              'lib/raidtick-queue.js',
+              function () {
+                return typeof window.RaidTickQueue !== 'undefined';
+              },
+              function () {
+                resolve();
+              }
+            );
+          }
+        );
+      }
+    );
+  });
+}
+
 // Initialize the options page
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', async function() {
+  await loadOpenDkpHelperLibs();
   initializePage();
   loadSettings();
   setupEventListeners();
+  api.storage.onChanged.addListener(function (changes, area) {
+    if (area !== 'sync' || !changes.eqLogLootExceptions) return;
+    currentSettings.eqLogLootExceptions = Array.isArray(changes.eqLogLootExceptions.newValue)
+      ? changes.eqLogLootExceptions.newValue
+      : [];
+    const el = document.getElementById('eqLogLootExceptions');
+    if (el) el.value = currentSettings.eqLogLootExceptions.join('\n');
+    updateEqLogLootExceptionsSummary();
+  });
   
   // Firefox-specific adjustments: use direct file copy tool instead of folder scanning
   try {
@@ -683,7 +785,16 @@ function loadSettings() {
     });
   });
 
-  Promise.all([getSync(), getLocalFallback()]).then(([settings, local]) => {
+  const getLocalOpenDkp = () => new Promise((resolve) => {
+    if (!api.storage.local) return resolve({});
+    api.storage.local.get(
+      [OPEN_DKP_PASSWORD_STORAGE_KEY, OPEN_DKP_ROSTER_CACHE_STORAGE_KEY, OPEN_DKP_POOLS_CACHE_STORAGE_KEY, LOCAL_SETTINGS_MIRROR_KEY],
+      (result) => {
+      resolve(api.runtime?.lastError ? {} : result || {});
+    });
+  });
+
+  Promise.all([getSync(), getLocalFallback(), getLocalOpenDkp()]).then(([settings, local, localOpenDkp]) => {
     // Ensure Chrome defaults to Raid Leader mode if no profile is set
     if (!settings.soundProfile && typeof chrome !== 'undefined' && !navigator.userAgent.includes('Firefox')) {
       settings.soundProfile = 'raidleader';
@@ -695,7 +806,20 @@ function loadSettings() {
         settings.reminderPrefs = local.reminderPrefs;
       }
     }
+    applyCriticalSettingsMirror(settings, localOpenDkp[LOCAL_SETTINGS_MIRROR_KEY]);
     currentSettings = { ...DEFAULT_SETTINGS, ...settings };
+    currentSettings.opendkpRaidTickDefs = openDkpNormalizeRaidTickDefs(
+      currentSettings.opendkpRaidTickDefs,
+      currentSettings.opendkpTickDkpValue
+    );
+    if (!Array.isArray(currentSettings.eqLogLootExceptions)) {
+      currentSettings.eqLogLootExceptions = parseEqLogLootExceptionsFromText(
+        currentSettings.eqLogLootExceptions
+      );
+    }
+    __odRosterCacheRoot = localOpenDkp[OPEN_DKP_ROSTER_CACHE_STORAGE_KEY] || {};
+    __odPoolsCache = localOpenDkp[OPEN_DKP_POOLS_CACHE_STORAGE_KEY] || { pools: [] };
+    __odSavedApiPassword = localOpenDkp[OPEN_DKP_PASSWORD_STORAGE_KEY] || '';
     console.log('[LoadSettings] Loaded from storage:', {
       volume: currentSettings.volume,
       soundType: currentSettings.soundType,
@@ -714,6 +838,1457 @@ function loadSettings() {
     currentSettings = { ...DEFAULT_SETTINGS };
     applySettingsToUI();
   });
+}
+
+let persistCriticalSettingsTimer = null;
+
+function isEmptySettingValue(value) {
+  if (value == null) return true;
+  if (typeof value === 'string') return !value.trim();
+  if (Array.isArray(value)) return value.length === 0;
+  return false;
+}
+
+/** Prefer local mirror when sync is missing critical watchlist / OpenDKP fields. */
+function applyCriticalSettingsMirror(target, mirror) {
+  if (!mirror || typeof mirror !== 'object') return target;
+  const keys = [
+    'watchlistAlarmEnabled',
+    'watchlistItems',
+    'opendkpClientSlug',
+    'opendkpCognitoUsername',
+    'opendkpCurrentRaidId',
+    'opendkpCurrentRaidSummaryJson',
+    'opendkpRaidtickUploadEnabled',
+    'opendkpRaidTickDefs',
+    'opendkpAttendance',
+    'opendkpPreferredPoolId',
+    'opendkpAuctionPayStrategy',
+    'opendkpAuctionDuration'
+  ];
+  keys.forEach(function(key) {
+    if (isEmptySettingValue(target[key]) && !isEmptySettingValue(mirror[key])) {
+      target[key] = mirror[key];
+    }
+  });
+  return target;
+}
+
+function collectCriticalSettingsFromUI() {
+  const getVal = (id, def) => { const el = document.getElementById(id); return el ? el.value : def; };
+  const getChecked = (id, def) => { const el = document.getElementById(id); return el ? !!el.checked : def; };
+  const rawOpenSlug = String(getVal('opendkpClientSlug', currentSettings.opendkpClientSlug || '') || '').trim();
+  const normOpenSlug = normalizeOpenDkpClientSlug(rawOpenSlug);
+
+  return {
+    watchlistAlarmEnabled: getChecked('watchlistAlarmEnabled', currentSettings.watchlistAlarmEnabled),
+    watchlistItems: getVal('watchlistItems', currentSettings.watchlistItems || ''),
+    opendkpClientSlug: rawOpenSlug === '' ? '' : (normOpenSlug || currentSettings.opendkpClientSlug || ''),
+    opendkpCognitoUsername: String(getVal('opendkpCognitoUser', currentSettings.opendkpCognitoUsername || '')).trim(),
+    opendkpCurrentRaidId: currentSettings.opendkpCurrentRaidId,
+    opendkpCurrentRaidSummaryJson: currentSettings.opendkpCurrentRaidSummaryJson || '',
+    opendkpRaidtickUploadEnabled: isOpenDkpRaidtickUploadSunset()
+      ? false
+      : getChecked('opendkpRaidtickUploadEnabled', currentSettings.opendkpRaidtickUploadEnabled),
+    opendkpRaidTickDefs: openDkpNormalizeRaidTickDefs(
+      currentSettings.opendkpRaidTickDefs,
+      currentSettings.opendkpTickDkpValue
+    ).slice(0, OPEN_DKP_MAX_RAID_TICK_DEFS),
+    opendkpAttendance: openDkpParseAttendance(getVal('opendkpAttendance', currentSettings.opendkpAttendance)),
+    opendkpPreferredPoolId: (() => {
+      const el = document.getElementById('opendkpPoolSelect');
+      return el && el.value ? String(el.value) : (currentSettings.opendkpPreferredPoolId || '');
+    })(),
+    opendkpAuctionPayStrategy: (() => {
+      const el = document.getElementById('opendkpAuctionPayStrategy');
+      const v = el ? el.value : (currentSettings.opendkpAuctionPayStrategy || 'exact');
+      if (v === 'second_plus_one' || v === 'second_plus_one_equal') return v;
+      return 'exact';
+    })(),
+    opendkpAuctionDuration: (() => {
+      const el = document.getElementById('opendkpAuctionDuration');
+      const raw = el ? el.value : currentSettings.opendkpAuctionDuration;
+      const n = parseInt(String(raw != null ? raw : 2), 10);
+      return Number.isNaN(n) || n < 1 ? 2 : n;
+    })(),
+    savedAt: Date.now()
+  };
+}
+
+function persistCriticalSettingsToStorage(options) {
+  const opts = options || {};
+  const payload = collectCriticalSettingsFromUI();
+  Object.assign(currentSettings, payload);
+
+  const syncPayload = Object.assign({}, payload);
+  delete syncPayload.savedAt;
+
+  return new Promise(function(resolve, reject) {
+    const finishLocalMirror = function() {
+      if (!api.storage.local || !api.storage.local.set) {
+        if (!opts.silent) showStatus('Watchlist & API settings saved locally', 'success');
+        resolve(payload);
+        return;
+      }
+      api.storage.local.set({ [LOCAL_SETTINGS_MIRROR_KEY]: payload }, function() {
+        if (!opts.silent) showStatus('Watchlist & API settings saved', 'success');
+        resolve(payload);
+      });
+    };
+
+    api.storage.sync.set(syncPayload, function() {
+      const syncErr = api.runtime?.lastError || chrome.runtime?.lastError;
+      if (syncErr) {
+        console.warn('[Settings] sync.set failed for critical settings (may exceed quota); using local mirror:', syncErr.message || syncErr);
+        finishLocalMirror();
+        return;
+      }
+      finishLocalMirror();
+    });
+  });
+}
+
+function schedulePersistCriticalSettings() {
+  clearTimeout(persistCriticalSettingsTimer);
+  persistCriticalSettingsTimer = setTimeout(function() {
+    persistCriticalSettingsToStorage({ silent: true }).catch(function(err) {
+      console.warn('[Settings] Auto-save failed:', err);
+    });
+  }, 800);
+}
+
+function countWatchlistLines(raw) {
+  return String(raw || '').split('\n').map(function(line) { return line.trim(); }).filter(Boolean).length;
+}
+
+function buildBackupManifest(syncData, localData) {
+  const mirror = (localData && localData[LOCAL_SETTINGS_MIRROR_KEY]) || {};
+  const watchlistRaw = syncData.watchlistItems || mirror.watchlistItems || '';
+  return {
+    watchlistItemCount: countWatchlistLines(watchlistRaw),
+    watchlistAlarmEnabled: !!(syncData.watchlistAlarmEnabled || mirror.watchlistAlarmEnabled),
+    opendkpClientSlug: syncData.opendkpClientSlug || mirror.opendkpClientSlug || '',
+    opendkpCognitoUsername: syncData.opendkpCognitoUsername || mirror.opendkpCognitoUsername || '',
+    hasApiPassword: !!(localData && localData[OPEN_DKP_PASSWORD_STORAGE_KEY]),
+    hasApiTokens: !!(localData && localData.opendkpIdToken),
+    opendkpRaidTickDefCount: Array.isArray(syncData.opendkpRaidTickDefs)
+      ? syncData.opendkpRaidTickDefs.length
+      : (Array.isArray(mirror.opendkpRaidTickDefs) ? mirror.opendkpRaidTickDefs.length : 0)
+  };
+}
+
+function formatBackupRestoreSummary(backup) {
+  const sync = backup.sync || {};
+  const local = backup.local || {};
+  const mirror = local[LOCAL_SETTINGS_MIRROR_KEY] || {};
+  const watchlistRaw = sync.watchlistItems || mirror.watchlistItems || '';
+  const parts = [countWatchlistLines(watchlistRaw) + ' watchlist item(s)'];
+  const slug = sync.opendkpClientSlug || mirror.opendkpClientSlug;
+  if (slug) parts.push('guild ' + slug);
+  const user = sync.opendkpCognitoUsername || mirror.opendkpCognitoUsername;
+  if (user) parts.push('API user ' + user);
+  if (local[OPEN_DKP_PASSWORD_STORAGE_KEY]) parts.push('API password');
+  if (local.opendkpIdToken) parts.push('API tokens');
+  const tickCount = Array.isArray(sync.opendkpRaidTickDefs)
+    ? sync.opendkpRaidTickDefs.length
+    : (Array.isArray(mirror.opendkpRaidTickDefs) ? mirror.opendkpRaidTickDefs.length : 0);
+  if (tickCount) parts.push(tickCount + ' raid tick def(s)');
+  return parts.join(', ');
+}
+
+function wireCriticalSettingsAutoSave() {
+  ['opendkpClientSlug', 'opendkpCognitoUser', 'opendkpAttendance', 'opendkpAuctionPayStrategy', 'opendkpAuctionDuration'].forEach(function(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', schedulePersistCriticalSettings);
+    el.addEventListener('change', schedulePersistCriticalSettings);
+  });
+
+  const passEl = document.getElementById('opendkpCognitoPassword');
+  if (passEl) {
+    passEl.addEventListener('blur', function() {
+      const user = (document.getElementById('opendkpCognitoUser') || {}).value || currentSettings.opendkpCognitoUsername || '';
+      const pass = passEl.value || '';
+      if (pass) {
+        openDkpPersistApiCredentials(user, pass).then(function() {
+          return persistCriticalSettingsToStorage({ silent: true });
+        }).catch(function(err) {
+          console.warn('[Settings] Failed to persist API password:', err);
+        });
+      } else {
+        schedulePersistCriticalSettings();
+      }
+    });
+  }
+
+  ['opendkpRaidtickUploadEnabled'].forEach(function(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('change', schedulePersistCriticalSettings);
+  });
+
+  const poolSel = document.getElementById('opendkpPoolSelect');
+  if (poolSel) poolSel.addEventListener('change', schedulePersistCriticalSettings);
+
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'hidden') {
+      persistCriticalSettingsToStorage({ silent: true }).catch(function() {});
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// OpenDKP API v2 — raid workflow (options page; uses lib/opendkp-api.js)
+// ---------------------------------------------------------------------------
+let __odRosterNameToId = {};
+let __odClientId = '';
+/** @type {Record<string, { fileName: string, names: string[] }>} tickId -> staged roster */
+let __odRaidtickStageByTickId = {};
+let __odRaidtickSelectWired = false;
+let __odRosterCacheRoot = {};
+let __odPoolsCache = { pools: [] };
+let __odSavedApiPassword = '';
+
+function openDkpFormatApiError(e) {
+  const parts = [];
+  if (e && e.status) parts.push('HTTP ' + e.status);
+  const bodyMsg =
+    e &&
+    e.body &&
+    typeof e.body === 'object' &&
+    (e.body.ErrorMessage || e.body.message || e.body.Message);
+  if (bodyMsg && (!e.message || String(e.message).indexOf(String(bodyMsg)) === -1)) {
+    parts.push(String(bodyMsg));
+  } else if (e && e.message) {
+    parts.push(e.message);
+  }
+  return parts.join(' — ') || 'Request failed';
+}
+
+function isOpenDkpRaidtickUploadSunset() {
+  return !!(window.RaidTickQueue && window.RaidTickQueue.RAIDTICK_UPLOAD_SUNSET);
+}
+
+function openDkpUpdateRaidtickUploadBlockVisibility() {
+  const block = document.getElementById('opendkpRaidtickUploadBlock');
+  const toggleRow = document.getElementById('opendkpRaidtickUploadToggleRow');
+  const toggle = document.getElementById('opendkpRaidtickUploadEnabled');
+  const desc = document.getElementById('opendkpRaidtickUploadToggleDesc');
+  const sunset = isOpenDkpRaidtickUploadSunset();
+
+  if (sunset) {
+    currentSettings.opendkpRaidtickUploadEnabled = false;
+    if (toggle) {
+      toggle.checked = false;
+      toggle.disabled = true;
+    }
+    if (toggleRow) toggleRow.classList.add('feature-sunset');
+    if (desc) {
+      desc.textContent =
+        'Temporarily disabled while upload is being fixed (HTTP 500). Code remains for a future release.';
+    }
+    if (block) block.style.display = 'none';
+    try {
+      api.storage.sync.set({ opendkpRaidtickUploadEnabled: false });
+    } catch (_) {}
+    return;
+  }
+
+  if (toggleRow) toggleRow.classList.remove('feature-sunset');
+  if (toggle) toggle.disabled = false;
+  if (desc) {
+    desc.textContent =
+      'When off, tick log upload controls are hidden in the extension popup while upload is being fixed.';
+  }
+  const enabled = !!currentSettings.opendkpRaidtickUploadEnabled;
+  if (block) block.style.display = enabled ? '' : 'none';
+}
+
+function updateOpenDkpApiGroupVisibility(profile) {
+  const activeProfile = profile != null ? profile : currentSettings.soundProfile;
+  const apiGroup = document.getElementById('openDkpApiGroup');
+  if (apiGroup) {
+    apiGroup.style.display = activeProfile === 'raidleader' ? 'block' : 'none';
+  }
+}
+
+function openDkpGatherRaidtickApplyInputs() {
+  return openDkpGatherRaidtickBatchInputs({ allowPartialExisting: false });
+}
+
+function openDkpTickIdToSlotIndex(tickId) {
+  const s = openDkpGetCurrentRaidSummary();
+  if (!s || !Array.isArray(s.ticks)) return -1;
+  for (let i = 0; i < s.ticks.length; i++) {
+    if (String(s.ticks[i].id) === String(tickId)) return i;
+  }
+  return -1;
+}
+
+async function openDkpSyncStageFromPopupQueue() {
+  const rid = currentSettings.opendkpCurrentRaidId;
+  const s = openDkpGetCurrentRaidSummary();
+  if (rid == null || rid === '' || !window.RaidTickQueue || !RaidTickQueue.hydrateStageByTickId) {
+    return;
+  }
+  try {
+    __odRaidtickStageByTickId = await RaidTickQueue.hydrateStageByTickId(rid, s && s.ticks ? s.ticks : []);
+  } catch (_) {
+    __odRaidtickStageByTickId = {};
+  }
+}
+
+function openDkpFormatRaidtickStageOverview() {
+  const s = openDkpGetCurrentRaidSummary();
+  if (!s || !Array.isArray(s.ticks) || !s.ticks.length) {
+    return 'Set a current raid to stage tick files.';
+  }
+  return s.ticks
+    .map(function (t, index) {
+      const tickId = String(t.id != null ? t.id : '');
+      const staged = tickId ? __odRaidtickStageByTickId[tickId] : null;
+      const label = t.description || 'Tick #' + (index + 1);
+      if (staged && staged.names && staged.names.length) {
+        return '[' + tickId + '] ' + label + ': ' + staged.fileName + ' (' + staged.names.length + ')';
+      }
+      return '[' + tickId + '] ' + label + ': — not staged —';
+    })
+    .join('\n');
+}
+
+function openDkpRenderRaidtickStageUi() {
+  const sel = document.getElementById('opendkpRaidtickTickSelect');
+  const prev = document.getElementById('opendkpRaidtickPreview');
+  const status = document.getElementById('opendkpRaidtickStageStatus');
+  const fileLabel = document.getElementById('opendkpRaidtickFileLabel');
+  const tickId = sel && sel.value;
+  const overview = openDkpFormatRaidtickStageOverview();
+
+  if (status) status.textContent = overview;
+
+  if (!prev) return;
+
+  if (!tickId) {
+    prev.textContent =
+      'Select a target tick, then browse that hour\u2019s RaidTick file.\n\n' + overview;
+    if (fileLabel) fileLabel.textContent = '';
+    return;
+  }
+
+  const staged = __odRaidtickStageByTickId[tickId];
+  if (fileLabel) {
+    fileLabel.textContent = staged
+      ? 'Staged: ' + staged.fileName
+      : 'No file staged for this tick yet';
+  }
+  if (staged && staged.names && staged.names.length) {
+    prev.textContent =
+      staged.names.length +
+      ' attendee(s) for tick ' +
+      tickId +
+      ':\n\n' +
+      JSON.stringify(staged.names, null, 2) +
+      '\n\n' +
+      overview;
+  } else {
+    prev.textContent =
+      'Browse a RaidTick file while this tick is selected.\n\n' + overview;
+  }
+}
+
+function openDkpGatherRaidtickBatchInputs(opts) {
+  opts = opts || {};
+  const allowPartialExisting = !!opts.allowPartialExisting;
+  const cfg = getOpenDkpApiConfig();
+  const rid = currentSettings.opendkpCurrentRaidId;
+  if (rid == null || rid === '') {
+    return { ok: false, message: 'Set a current raid first.' };
+  }
+  const s = openDkpGetCurrentRaidSummary();
+  if (!s || !Array.isArray(s.ticks) || !s.ticks.length) {
+    return { ok: false, message: 'Refresh raid list and set a current raid first.' };
+  }
+  if (!Object.keys(__odRosterNameToId).length) {
+    return { ok: false, message: 'Load roster for name \u2192 ID map before applying.' };
+  }
+
+  const namesBySlotIndex = [];
+  const missing = [];
+  let stagedCount = 0;
+
+  s.ticks.forEach(function (t, index) {
+    const tickId = String(t.id != null ? t.id : '');
+    const staged = tickId ? __odRaidtickStageByTickId[tickId] : null;
+    if (staged && staged.names && staged.names.length) {
+      namesBySlotIndex[index] = window.RaidTickParse
+        ? RaidTickParse.dedupeCharacterNames(staged.names)
+        : staged.names.slice();
+      stagedCount++;
+    } else if (allowPartialExisting) {
+      namesBySlotIndex[index] = null;
+    } else {
+      missing.push(t.description || 'Tick #' + (index + 1));
+    }
+  });
+
+  if (missing.length) {
+    return {
+      ok: false,
+      message: 'Stage a log file for every tick. Missing: ' + missing.join(', ')
+    };
+  }
+
+  const allNames = [];
+  namesBySlotIndex.forEach(function (names) {
+    if (names && names.length) allNames.push.apply(allNames, names);
+  });
+  if (!allNames.length) {
+    return { ok: false, message: 'Choose at least one RaidTick .txt file first.' };
+  }
+
+  if (window.RaidTickParse && RaidTickParse.auditRosterMapping) {
+    const audit = RaidTickParse.auditRosterMapping(allNames, __odRosterNameToId);
+    if (audit.unmapped.length > 0) {
+      const sample = audit.unmapped.slice(0, 8).join(', ');
+      const suffix = audit.unmapped.length > 8 ? '\u2026' : '';
+      return {
+        ok: false,
+        message:
+          audit.unmapped.length + ' name(s) not found in OpenDKP roster: ' + sample + suffix
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    cfg: cfg,
+    rid: rid,
+    namesBySlotIndex: namesBySlotIndex,
+    allStaged: stagedCount === s.ticks.length,
+    stagedCount: stagedCount,
+    totalTicks: s.ticks.length
+  };
+}
+
+async function openDkpBuildRaidtickPostBodyBatch(inputs) {
+  const full = await OpenDkpApi.getRaid(inputs.cfg, inputs.rid);
+  const updatedBy = await OpenDkpApi.getCognitoUsername({ clientId: OPEN_DKP_COGNITO_CLIENT_ID });
+  const postBody = RaidTickParse.buildRaidUpdateBodyForQueuedTickRosters(
+    full,
+    inputs.namesBySlotIndex,
+    __odRosterNameToId,
+    updatedBy
+  );
+  return { full: full, postBody: postBody };
+}
+
+function normalizeOpenDkpClientSlug(raw) {
+  const s = String(raw || '').trim().toLowerCase();
+  if (!s) return '';
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(s)) return '';
+  return s;
+}
+
+function getOpenDkpApiConfig() {
+  const domSlug = (document.getElementById('opendkpClientSlug') || {}).value;
+  const slug = normalizeOpenDkpClientSlug(domSlug != null ? domSlug : currentSettings.opendkpClientSlug);
+  return {
+    apiHost: OPEN_DKP_API_HOST,
+    clientSlug: slug,
+    cognitoClientId: OPEN_DKP_COGNITO_CLIENT_ID
+  };
+}
+
+function openDkpParseAttendance(raw) {
+  if (raw === 0 || raw === '0' || raw === false) return 0;
+  if (raw === 1 || raw === '1' || raw === true) return 1;
+  const n = parseInt(String(raw != null ? raw : '1'), 10);
+  return n === 0 ? 0 : 1;
+}
+
+function openDkpParseTickDkpValue(raw) {
+  const n = parseInt(String(raw != null ? raw : '1'), 10);
+  return Number.isNaN(n) || n < 0 ? 1 : n;
+}
+
+function openDkpDefaultRaidTickDefs(tickDkpValue) {
+  const value = openDkpParseTickDkpValue(tickDkpValue);
+  return [
+    { id: 't-hour1', description: 'Hour #1', value: value },
+    { id: 't-hour2', description: 'Hour #2', value: value },
+    { id: 't-hour3', description: 'Hour #3', value: value }
+  ];
+}
+
+function openDkpNormalizeRaidTickDefs(raw, fallbackDkp) {
+  if (!Array.isArray(raw)) {
+    return openDkpDefaultRaidTickDefs(fallbackDkp);
+  }
+  if (!raw.length) return [];
+  const out = [];
+  raw.forEach(function (t, i) {
+    if (!t || typeof t !== 'object') return;
+    const description = String(
+      t.description != null ? t.description : t.name != null ? t.name : 'Tick ' + (i + 1)
+    ).trim();
+    if (!description) return;
+    out.push({
+      id: t.id || 't-' + i + '-' + Date.now().toString(36),
+      description: description,
+      value: openDkpParseTickDkpValue(t.value != null ? t.value : t.dkp)
+    });
+  });
+  return out.length ? out : openDkpDefaultRaidTickDefs(fallbackDkp);
+}
+
+function openDkpBuildCreateRaidTicksFromDefs(defs) {
+  return (defs || []).map(function (t) {
+    return {
+      Characters: [],
+      Description: t.description,
+      Value: String(openDkpParseTickDkpValue(t.value))
+    };
+  });
+}
+
+function openDkpRaidTickDefRowStyles(row) {
+  const isDarkMode = document.body.classList.contains('dark-mode');
+  if (isDarkMode) {
+    row.style.background = '#2a2a2a';
+    row.style.border = '1px solid #444';
+    row.style.color = '#e0e0e0';
+  } else {
+    row.style.background = '#f8f9fa';
+    row.style.border = '1px solid #e0e0e0';
+    row.style.color = '#333';
+  }
+}
+
+function renderOpenDkpRaidTickDefsUI() {
+  const list = document.getElementById('opendkpRaidTickDefsList');
+  const btn = document.getElementById('opendkpAddRaidTickDef');
+  if (!list) return;
+  currentSettings.opendkpRaidTickDefs = openDkpNormalizeRaidTickDefs(
+    currentSettings.opendkpRaidTickDefs,
+    currentSettings.opendkpTickDkpValue
+  );
+  if (btn) btn.disabled = currentSettings.opendkpRaidTickDefs.length >= OPEN_DKP_MAX_RAID_TICK_DEFS;
+  list.textContent = '';
+  const labelColor = document.body.classList.contains('dark-mode') ? '#e0e0e0' : '#333';
+  currentSettings.opendkpRaidTickDefs.forEach(function (t, idx) {
+    const row = document.createElement('div');
+    row.style.display = 'flex';
+    row.style.alignItems = 'center';
+    row.style.gap = '8px';
+    row.style.padding = '8px';
+    row.style.borderRadius = '4px';
+    row.style.flexWrap = 'wrap';
+    openDkpRaidTickDefRowStyles(row);
+
+    const nameLabel = document.createElement('label');
+    nameLabel.style.flex = '1 1 180px';
+    nameLabel.style.minWidth = '140px';
+    nameLabel.style.color = labelColor;
+    nameLabel.appendChild(document.createTextNode('Name: '));
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.setAttribute('data-k', 'description');
+    nameInput.value = t.description || '';
+    nameInput.style.width = '100%';
+    nameInput.style.maxWidth = '220px';
+    nameInput.style.padding = '6px';
+    nameLabel.appendChild(nameInput);
+    row.appendChild(nameLabel);
+
+    const dkpLabel = document.createElement('label');
+    dkpLabel.style.flexShrink = '0';
+    dkpLabel.style.color = labelColor;
+    dkpLabel.appendChild(document.createTextNode('DKP: '));
+    const dkpInput = document.createElement('input');
+    dkpInput.type = 'number';
+    dkpInput.min = '0';
+    dkpInput.step = '1';
+    dkpInput.setAttribute('data-k', 'value');
+    dkpInput.value = String(openDkpParseTickDkpValue(t.value));
+    dkpInput.style.width = '72px';
+    dkpInput.style.padding = '6px';
+    dkpLabel.appendChild(dkpInput);
+    row.appendChild(dkpLabel);
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'btn btn-secondary';
+    deleteBtn.setAttribute('data-action', 'delete');
+    deleteBtn.style.flexShrink = '0';
+    deleteBtn.style.minWidth = '36px';
+    deleteBtn.style.padding = '6px 8px';
+    deleteBtn.title = 'Remove tick';
+    deleteBtn.textContent = '🗑️';
+    row.appendChild(deleteBtn);
+
+    row.querySelectorAll('[data-k]').forEach(function (inp) {
+      inp.addEventListener('change', function () {
+        const key = this.getAttribute('data-k');
+        let val = this.value;
+        if (key === 'value') val = openDkpParseTickDkpValue(val);
+        if (key === 'description') val = String(val || '').trim();
+        currentSettings.opendkpRaidTickDefs[idx] = Object.assign({}, currentSettings.opendkpRaidTickDefs[idx], { [key]: val });
+        saveOpenDkpRaidTickDefsPartial();
+      });
+    });
+    deleteBtn.addEventListener('click', function () {
+      currentSettings.opendkpRaidTickDefs.splice(idx, 1);
+      renderOpenDkpRaidTickDefsUI();
+      saveOpenDkpRaidTickDefsPartial();
+    });
+    list.appendChild(row);
+  });
+}
+
+function addOpenDkpRaidTickDef() {
+  currentSettings.opendkpRaidTickDefs = openDkpNormalizeRaidTickDefs(
+    currentSettings.opendkpRaidTickDefs,
+    currentSettings.opendkpTickDkpValue
+  );
+  if (currentSettings.opendkpRaidTickDefs.length >= OPEN_DKP_MAX_RAID_TICK_DEFS) return;
+  const defs = currentSettings.opendkpRaidTickDefs;
+  const lastVal = defs.length
+    ? openDkpParseTickDkpValue(defs[defs.length - 1].value)
+    : openDkpParseTickDkpValue(currentSettings.opendkpTickDkpValue);
+  defs.push({
+    id: 't-' + Date.now().toString(36),
+    description: 'Hour #' + (defs.length + 1),
+    value: lastVal
+  });
+  renderOpenDkpRaidTickDefsUI();
+  saveOpenDkpRaidTickDefsPartial();
+}
+
+let _openDkpRaidTickDefsSaveTimer = null;
+function saveOpenDkpRaidTickDefsPartial() {
+  currentSettings.opendkpRaidTickDefs = openDkpNormalizeRaidTickDefs(
+    currentSettings.opendkpRaidTickDefs,
+    currentSettings.opendkpTickDkpValue
+  );
+  try {
+    if (_openDkpRaidTickDefsSaveTimer) clearTimeout(_openDkpRaidTickDefsSaveTimer);
+    _openDkpRaidTickDefsSaveTimer = setTimeout(function () {
+      const payload = {
+        opendkpRaidTickDefs: (currentSettings.opendkpRaidTickDefs || []).slice(0, OPEN_DKP_MAX_RAID_TICK_DEFS)
+      };
+      api.storage.sync.set(payload, function () {
+        const err = (api.runtime && api.runtime.lastError) || (chrome.runtime && chrome.runtime.lastError);
+        if (err) console.error('[Options] Error saving raid tick defs:', err.message);
+        persistCriticalSettingsToStorage({ silent: true }).catch(function(e) {
+          console.warn('[Options] Failed to mirror raid tick defs locally:', e);
+        });
+      });
+    }, 250);
+  } catch (e) {
+    console.error('[Options] Exception saving raid tick defs:', e);
+  }
+}
+
+function openDkpCoerceArray(body) {
+  if (Array.isArray(body)) return body;
+  if (!body || typeof body !== 'object') return [];
+  if (Array.isArray(body.Models)) return body.Models;
+  if (Array.isArray(body.Raids)) return body.Raids;
+  if (Array.isArray(body.Items)) return body.Items;
+  if (Array.isArray(body.Characters)) return body.Characters;
+  return [];
+}
+
+async function openDkpUpdateTokenStatusEl() {
+  const el = document.getElementById('opendkpTokenStatus');
+  if (!el || !window.OpenDkpApi) return;
+  try {
+    const m = await OpenDkpApi.getTokenMeta();
+    el.textContent = m.hasToken ? ('Token OK' + (m.expiresAt ? ' (expires ' + new Date(m.expiresAt).toLocaleString() + ')' : '')) : 'Not signed in';
+  } catch (_) {
+    el.textContent = 'Token status unknown';
+  }
+}
+
+function openDkpPersistCurrentRaid(id, summaryObj) {
+  currentSettings.opendkpCurrentRaidId = id == null ? null : Number(id);
+  currentSettings.opendkpCurrentRaidSummaryJson = summaryObj ? JSON.stringify(summaryObj) : '';
+  const api = typeof browser !== 'undefined' ? browser : chrome;
+  const payload = {
+    opendkpCurrentRaidId: currentSettings.opendkpCurrentRaidId,
+    opendkpCurrentRaidSummaryJson: currentSettings.opendkpCurrentRaidSummaryJson
+  };
+  api.storage.sync.set(payload, () => {
+    if (window.LootQueue && LootQueue.mirrorRaidContextToLocal) {
+      LootQueue.mirrorRaidContextToLocal(
+        Object.assign({ opendkpClientSlug: currentSettings.opendkpClientSlug || '' }, payload)
+      );
+    } else if (api.storage && api.storage.local) {
+      api.storage.local.set(payload);
+    }
+    if (window.LootQueue && LootQueue.invalidateValidatedContextCache) {
+      LootQueue.invalidateValidatedContextCache();
+    }
+    try { openDkpRenderCurrentRaid(); openDkpPopulateTickSelect(); } catch (_) {}
+  });
+}
+
+function openDkpGetCurrentRaidSummary() {
+  try {
+    return currentSettings.opendkpCurrentRaidSummaryJson
+      ? JSON.parse(currentSettings.opendkpCurrentRaidSummaryJson)
+      : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function openDkpRenderCurrentRaid() {
+  const el = document.getElementById('opendkpCurrentRaid');
+  if (!el) return;
+  const id = currentSettings.opendkpCurrentRaidId;
+  const s = openDkpGetCurrentRaidSummary();
+  if (id == null || id === '' || Number.isNaN(Number(id))) {
+    el.textContent = 'No current raid selected.';
+    return;
+  }
+  let ticks = '';
+  if (s && Array.isArray(s.ticks)) {
+    ticks = '\nTicks:\n' + s.ticks.map((t) => '- [' + (t.id != null ? t.id : '?') + '] ' + (t.description || '') + '').join('\n');
+  }
+  el.textContent = 'Current raid ID: ' + id + (s && s.name ? '\nName: ' + s.name : '') + ticks;
+}
+
+function openDkpPopulateTickSelect() {
+  const sel = document.getElementById('opendkpRaidtickTickSelect');
+  if (!sel) return;
+  const s = openDkpGetCurrentRaidSummary();
+  sel.innerHTML = '';
+  const opt0 = document.createElement('option');
+  opt0.value = '';
+  opt0.textContent = s && Array.isArray(s.ticks) && s.ticks.length ? '— Select tick —' : '— Load current raid —';
+  sel.appendChild(opt0);
+  if (s && Array.isArray(s.ticks)) {
+    s.ticks.forEach((t) => {
+      const o = document.createElement('option');
+      o.value = String(t.id != null ? t.id : '');
+      o.textContent = '[' + o.value + '] ' + (t.description || 'tick');
+      sel.appendChild(o);
+    });
+  }
+  if (!__odRaidtickSelectWired) {
+    __odRaidtickSelectWired = true;
+    sel.addEventListener('change', openDkpRenderRaidtickStageUi);
+  }
+  openDkpSyncStageFromPopupQueue().then(function () {
+    openDkpRenderRaidtickStageUi();
+  });
+}
+
+function openDkpHydrateRosterFromCache(slug) {
+  slug = normalizeOpenDkpClientSlug(slug);
+  if (!slug || !__odRosterCacheRoot || !__odRosterCacheRoot[slug]) return false;
+  const entry = __odRosterCacheRoot[slug];
+  __odRosterNameToId = Object.assign({}, entry.map || {});
+  __odClientId = entry.clientId || '';
+  return Object.keys(__odRosterNameToId).length > 0;
+}
+
+function openDkpRosterCacheWrite(slug, map, clientId) {
+  slug = normalizeOpenDkpClientSlug(slug);
+  if (!slug) return Promise.resolve();
+  const entry = {
+    map: Object.assign({}, map),
+    clientId: clientId || '',
+    updatedAt: new Date().toISOString()
+  };
+  __odRosterCacheRoot = Object.assign({}, __odRosterCacheRoot || {}, { [slug]: entry });
+  if (!api.storage.local || !api.storage.local.set) return Promise.resolve();
+  return new Promise((resolve) => {
+    api.storage.local.set({ [OPEN_DKP_ROSTER_CACHE_STORAGE_KEY]: __odRosterCacheRoot }, () => resolve());
+  });
+}
+
+function openDkpBuildRosterMapFromCharacters(chars) {
+  const map = {};
+  let clientId = '';
+  (chars || []).forEach((c) => {
+    const n = (c.Name || '').trim().toLowerCase();
+    const id = c.Id != null ? c.Id : c.CharacterId;
+    const numId = window.RaidTickParse
+      ? RaidTickParse.coerceCharacterId(id)
+      : parseInt(String(id), 10);
+    if (n && numId > 0) map[n] = { id: numId, name: (c.Name || '').trim() };
+    if (!clientId && c.ClientId) clientId = String(c.ClientId);
+  });
+  return { map, clientId };
+}
+
+function openDkpMergeRosterMaps(base, incoming) {
+  return Object.assign({}, base || {}, incoming || {});
+}
+
+function openDkpRosterEntryId(entry) {
+  if (entry == null) return 0;
+  if (typeof entry === 'object') {
+    const raw = entry.id != null ? entry.id : entry.CharacterId;
+    return window.RaidTickParse
+      ? RaidTickParse.coerceCharacterId(raw)
+      : parseInt(String(raw), 10) || 0;
+  }
+  return window.RaidTickParse
+    ? RaidTickParse.coerceCharacterId(entry)
+    : parseInt(String(entry), 10) || 0;
+}
+
+function openDkpRosterEntryName(entry) {
+  if (entry && typeof entry === 'object') {
+    const name = entry.name != null ? entry.name : entry.Name;
+    if (name != null && String(name).trim()) return String(name).trim();
+  }
+  return '';
+}
+
+function openDkpRosterEntryChanged(before, after) {
+  if (before === undefined || after === undefined) return false;
+  if (openDkpRosterEntryId(before) !== openDkpRosterEntryId(after)) return true;
+  const beforeName = openDkpRosterEntryName(before).toLowerCase();
+  const afterName = openDkpRosterEntryName(after).toLowerCase();
+  return beforeName !== afterName;
+}
+
+async function openDkpPersistApiCredentials(username, password) {
+  const trimmedUser = String(username || '').trim();
+  currentSettings.opendkpCognitoUsername = trimmedUser;
+  __odSavedApiPassword = password || __odSavedApiPassword || '';
+  const syncPayload = { opendkpCognitoUsername: trimmedUser };
+  await new Promise((resolve) => {
+    api.storage.sync.set(syncPayload, () => {
+      if (api.storage.local && password) {
+        api.storage.local.set({ [OPEN_DKP_PASSWORD_STORAGE_KEY]: password }, () => resolve());
+      } else {
+        resolve();
+      }
+    });
+  });
+  await persistCriticalSettingsToStorage({ silent: true }).catch(function() {});
+  const userEl = document.getElementById('opendkpCognitoUser');
+  const passEl = document.getElementById('opendkpCognitoPassword');
+  if (userEl) userEl.value = trimmedUser;
+  if (passEl && password) passEl.value = password;
+}
+
+function openDkpNormalizePoolRecord(pool) {
+  const idPool = pool.IdPool != null ? pool.IdPool : pool.PoolId != null ? pool.PoolId : pool.Id;
+  return {
+    id: String(idPool),
+    name: pool.Name || '',
+    desc: pool.Description || '',
+    order: pool.Order != null ? pool.Order : 0
+  };
+}
+
+function openDkpGetPreferredPoolId() {
+  return currentSettings.opendkpPreferredPoolId || '';
+}
+
+function openDkpFindPoolSelectIndex(pools, preferredPoolId) {
+  if (preferredPoolId) {
+    const pref = String(preferredPoolId);
+    for (let i = 0; i < pools.length; i++) {
+      if (String(pools[i].id) === pref) return i;
+    }
+  }
+  for (let i = 0; i < pools.length; i++) {
+    if (String(pools[i].name || '').trim().toLowerCase() === 'classic') return i;
+  }
+  return 0;
+}
+
+function openDkpRenderPoolsToSelect(pools, preferredPoolId) {
+  const sel = document.getElementById('opendkpPoolSelect');
+  if (!sel) return 0;
+  sel.innerHTML = '';
+  if (!pools || !pools.length) {
+    const empty = document.createElement('option');
+    empty.value = '';
+    empty.textContent = '— Load pools first —';
+    sel.appendChild(empty);
+    return 0;
+  }
+  pools.forEach((p) => {
+    const o = document.createElement('option');
+    o.value = String(p.id);
+    o.textContent = (p.name || 'Pool') + (p.desc ? ' — ' + p.desc : '');
+    o.dataset.name = p.name || '';
+    o.dataset.desc = p.desc || '';
+    o.dataset.order = String(p.order != null ? p.order : 0);
+    sel.appendChild(o);
+  });
+  sel.selectedIndex = openDkpFindPoolSelectIndex(pools, preferredPoolId);
+  return pools.length;
+}
+
+function openDkpHydratePoolsFromCache() {
+  const pools = (__odPoolsCache && __odPoolsCache.pools) || [];
+  if (!pools.length) return false;
+  openDkpRenderPoolsToSelect(pools, openDkpGetPreferredPoolId());
+  return true;
+}
+
+function openDkpPoolsCacheWrite(pools) {
+  const normalized = (pools || []).filter((p) => p && p.id);
+  __odPoolsCache = {
+    pools: normalized.slice(),
+    updatedAt: new Date().toISOString()
+  };
+  if (!api.storage.local || !api.storage.local.set) return Promise.resolve();
+  return new Promise((resolve) => {
+    api.storage.local.set({ [OPEN_DKP_POOLS_CACHE_STORAGE_KEY]: __odPoolsCache }, () => resolve());
+  });
+}
+
+async function openDkpFetchAndRenderPools(cfg, options) {
+  options = options || {};
+  if (!options.forceRefresh && openDkpHydratePoolsFromCache()) {
+    return __odPoolsCache.pools.length;
+  }
+  const body = await OpenDkpApi.getPools(cfg);
+  const raw = openDkpCoerceArray(body);
+  const filtered = raw.map(openDkpNormalizePoolRecord).filter((p) => p.id);
+  await openDkpPoolsCacheWrite(filtered);
+  openDkpRenderPoolsToSelect(filtered, openDkpGetPreferredPoolId());
+  return filtered.length;
+}
+
+async function openDkpFetchAndRenderRaids(cfg) {
+  const body = await OpenDkpApi.getRaids(cfg, { count: 3 });
+  const raids = openDkpCoerceArray(body);
+  const ul = document.getElementById('opendkpRaidList');
+  if (ul) {
+    ul.textContent = '';
+    raids.forEach((r) => {
+      const id = r.Id != null ? r.Id : r.RaidId;
+      const li = document.createElement('li');
+      li.style.marginBottom = '6px';
+      const name = r.Name || ('Raid ' + id);
+      li.textContent = name + ' (id ' + id + ') ';
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = 'Set current';
+      btn.style.marginLeft = '8px';
+      btn.addEventListener('click', async () => {
+        if (!window.confirm('Set raid ' + id + ' (' + name + ') as current working raid?')) return;
+        try {
+          const full = await OpenDkpApi.getRaid(cfg, id);
+          const ticks = (full.Ticks || []).map((t) => ({
+            id: t.Id != null ? t.Id : t.TickId,
+            description: t.Description,
+            value: t.Value
+          }));
+          openDkpPersistCurrentRaid(id, { name: full.Name, ticks });
+          showStatus('Current raid set.', 'success');
+        } catch (e) {
+          showStatus('Could not load raid: ' + (e.message || e), 'error');
+        }
+      });
+      li.appendChild(btn);
+      ul.appendChild(li);
+    });
+  }
+  return raids.length;
+}
+
+async function openDkpRefreshRosterFromApi(cfg, options) {
+  options = options || {};
+  const slug = cfg.clientSlug;
+  if (!slug) throw new Error('Guild subdomain required');
+
+  const body = await OpenDkpApi.getCharacters(cfg, { includeInactives: true });
+  const chars = openDkpCoerceArray(body);
+  const built = openDkpBuildRosterMapFromCharacters(chars);
+
+  let base = {};
+  if (options.merge !== false) {
+    base = Object.assign({}, __odRosterNameToId || {});
+    if (!Object.keys(base).length) {
+      openDkpHydrateRosterFromCache(slug);
+      base = Object.assign({}, __odRosterNameToId || {});
+    }
+  }
+
+  const merged = openDkpMergeRosterMaps(base, built.map);
+  __odRosterNameToId = merged;
+  __odClientId = built.clientId || __odClientId || '';
+  await openDkpRosterCacheWrite(slug, merged, __odClientId);
+
+  const added = Object.keys(built.map).filter(function(k) { return base[k] === undefined; }).length;
+  const updated = Object.keys(built.map).filter(function(k) {
+    return openDkpRosterEntryChanged(base[k], built.map[k]);
+  }).length;
+  const total = Object.keys(merged).length;
+
+  if (!options.silent) {
+    let msg;
+    if (!added && !updated) {
+      msg = 'Roster unchanged (' + total + ' names).';
+    } else {
+      msg = 'Roster updated (' + total + ' names';
+      if (added) msg += ', ' + added + ' new';
+      if (updated) msg += ', ' + updated + ' changed';
+      msg += ').';
+    }
+    showStatus(msg, 'success');
+  }
+  return { total, added, updated };
+}
+
+async function openDkpPostSignInBootstrap(cfg) {
+  const loaded = [];
+  const errors = [];
+
+  try {
+    const raidCount = await openDkpFetchAndRenderRaids(cfg);
+    loaded.push('raids (' + raidCount + ')');
+  } catch (e) {
+    errors.push('raids: ' + (e.message || e));
+  }
+
+  try {
+    const poolCount = await openDkpFetchAndRenderPools(cfg);
+    loaded.push('pools (' + poolCount + ')');
+  } catch (e) {
+    errors.push('pools: ' + (e.message || e));
+  }
+
+  try {
+    const roster = await openDkpRefreshRosterFromApi(cfg, { merge: true, silent: true });
+    loaded.push('roster (' + roster.total + ' names' + (roster.added ? ', +' + roster.added + ' new' : '') + ')');
+  } catch (e) {
+    errors.push('roster: ' + (e.message || e));
+  }
+
+  if (loaded.length && !errors.length) {
+    return 'Signed in — loaded ' + loaded.join(', ') + '.';
+  }
+  if (loaded.length && errors.length) {
+    return 'Signed in — loaded ' + loaded.join(', ') + '. Failed: ' + errors.join('; ');
+  }
+  if (errors.length) {
+    throw new Error(errors.join('; '));
+  }
+  return 'Signed in.';
+}
+
+function openDkpWireRaidWorkflowUi() {
+  const odRoot = document.getElementById('openDkpApiGroup');
+  if (odRoot && odRoot.dataset.odkpWired === '1') {
+    return;
+  }
+
+  const signIn = document.getElementById('opendkpSignIn');
+  if (signIn) {
+    signIn.addEventListener('click', async () => {
+      const statusLine = document.getElementById('opendkpTokenStatus');
+      const setLine = (text) => {
+        if (statusLine) statusLine.textContent = text;
+      };
+      try {
+        if (!window.OpenDkpApi) {
+          const msg = 'API module not loaded. Reload the extension; ensure lib/opendkp-api.js is in the package.';
+          setLine(msg);
+          showStatus(msg, 'error');
+          console.error('[OpenDKP]', msg);
+          return;
+        }
+        const user = (document.getElementById('opendkpCognitoUser') || {}).value || '';
+        const pass = (document.getElementById('opendkpCognitoPassword') || {}).value || '';
+        if (!user || !pass) {
+          const msg = 'Enter your OpenDKP username and password (API sign-in; same account as the OpenDKP site).';
+          setLine(msg);
+          showStatus(msg, 'error');
+          return;
+        }
+        signIn.disabled = true;
+        setLine('Signing in…');
+        await OpenDkpApi.cognitoInitiatePasswordAuth({
+          clientId: OPEN_DKP_COGNITO_CLIENT_ID,
+          username: user,
+          password: pass
+        });
+        await openDkpPersistApiCredentials(user, pass);
+        await openDkpUpdateTokenStatusEl();
+        const cfg = getOpenDkpApiConfig();
+        if (!cfg.clientSlug) {
+          showStatus('Signed in (credentials saved). Enter guild subdomain to load raids, pools, and roster.', 'success');
+          return;
+        }
+        try {
+          const summary = await openDkpPostSignInBootstrap(cfg);
+          showStatus(summary, 'success');
+        } catch (bootstrapErr) {
+          console.error('[OpenDKP] Post sign-in bootstrap failed', bootstrapErr);
+          showStatus('Signed in, but auto-load failed: ' + (bootstrapErr.message || bootstrapErr), 'warning');
+        }
+      } catch (e) {
+        const detail = (e && e.message) ? e.message : String(e);
+        console.error('[OpenDKP] Sign-in failed', e);
+        setLine('Sign-in failed: ' + detail);
+        showStatus('Sign-in failed: ' + detail, 'error');
+      } finally {
+        signIn.disabled = false;
+      }
+    });
+  }
+  const signOut = document.getElementById('opendkpSignOut');
+  if (signOut) {
+    signOut.addEventListener('click', async () => {
+      if (!window.OpenDkpApi) return;
+      await OpenDkpApi.clearTokens();
+      showStatus('Signed out.', 'success');
+      await openDkpUpdateTokenStatusEl();
+    });
+  }
+  const refBtn = document.getElementById('opendkpRefreshToken');
+  if (refBtn) {
+    refBtn.addEventListener('click', async () => {
+      if (!window.OpenDkpApi) return;
+      const api = typeof browser !== 'undefined' ? browser : chrome;
+      const local = await new Promise((res) => api.storage.local.get([OpenDkpApi.STORAGE_KEYS.refreshToken], res));
+      const rt = local[OpenDkpApi.STORAGE_KEYS.refreshToken];
+      if (!rt) return showStatus('No refresh token; sign in again.', 'error');
+      try {
+        await OpenDkpApi.cognitoRefresh({ clientId: OPEN_DKP_COGNITO_CLIENT_ID, refreshToken: rt });
+        showStatus('Session refreshed.', 'success');
+        await openDkpUpdateTokenStatusEl();
+      } catch (e) {
+        showStatus('Refresh failed: ' + (e.message || e), 'error');
+      }
+    });
+  }
+  const probe = document.getElementById('opendkpProbeTokens');
+  if (probe) {
+    probe.addEventListener('click', async () => {
+      if (!window.OpenDkpApi) return;
+      const cfg = getOpenDkpApiConfig();
+      if (!cfg.clientSlug) return showStatus('Enter guild subdomain first.', 'error');
+      const api = typeof browser !== 'undefined' ? browser : chrome;
+      const r = await new Promise((res) => api.storage.local.get([OpenDkpApi.STORAGE_KEYS.idToken, OpenDkpApi.STORAGE_KEYS.accessToken], res));
+      const idT = r[OpenDkpApi.STORAGE_KEYS.idToken];
+      const acT = r[OpenDkpApi.STORAGE_KEYS.accessToken];
+      try {
+        const out = await OpenDkpApi.probeTokenForRaids(cfg, idT, acT);
+        showStatus('Probe: idToken ' + (out.idToken.ok ? 'OK' : 'fail') + '; accessToken ' + (out.accessToken.ok ? 'OK' : 'fail'), 'success');
+      } catch (e) {
+        showStatus('Probe error: ' + (e.message || e), 'error');
+      }
+    });
+  }
+
+  const fetchPoolsBtn = document.getElementById('opendkpFetchPools');
+  if (fetchPoolsBtn) {
+    fetchPoolsBtn.addEventListener('click', async () => {
+      if (!window.OpenDkpApi) return;
+      const cfg = getOpenDkpApiConfig();
+      if (!cfg.clientSlug) return showStatus('Enter guild subdomain.', 'error');
+      try {
+        const count = await openDkpFetchAndRenderPools(cfg, { forceRefresh: true });
+        showStatus('Pools refreshed (' + count + '; Classic selected when no saved preference).', 'success');
+      } catch (e) {
+        showStatus('Pools failed: ' + (e.message || e), 'error');
+      }
+    });
+  }
+
+  const fetchRaidsBtn = document.getElementById('opendkpFetchRaids');
+  if (fetchRaidsBtn) {
+    fetchRaidsBtn.addEventListener('click', async () => {
+      if (!window.OpenDkpApi) return;
+      const cfg = getOpenDkpApiConfig();
+      if (!cfg.clientSlug) return showStatus('Enter guild subdomain.', 'error');
+      try {
+        await openDkpFetchAndRenderRaids(cfg);
+        showStatus('Raid list updated.', 'success');
+      } catch (e) {
+        showStatus('Raids failed: ' + (e.message || e), 'error');
+      }
+    });
+  }
+
+  const createBtn = document.getElementById('opendkpCreateRaid');
+  if (createBtn) {
+    createBtn.addEventListener('click', async () => {
+      if (!window.OpenDkpApi || !window.confirm('Create a new raid on OpenDKP?')) return;
+      const cfg = getOpenDkpApiConfig();
+      if (!cfg.clientSlug) return showStatus('Enter guild subdomain.', 'error');
+      const nameEl = document.getElementById('opendkpCreateRaidName');
+      const nm = nameEl && nameEl.value ? nameEl.value.trim() : '';
+      if (!nm) return showStatus('Raid name is required.', 'error');
+      const poolSel = document.getElementById('opendkpPoolSelect');
+      const opt = poolSel && poolSel.selectedOptions && poolSel.selectedOptions[0];
+      if (!opt || !opt.value) return showStatus('Select a pool (load pools first).', 'error');
+      const attendance = openDkpParseAttendance(
+        (document.getElementById('opendkpAttendance') || {}).value
+      );
+      const ticks = openDkpBuildCreateRaidTicksFromDefs(currentSettings.opendkpRaidTickDefs);
+      const body = {
+        Name: nm,
+        Timestamp: new Date().toISOString(),
+        Attendance: attendance,
+        Pool: {
+          Name: opt.dataset.name || opt.textContent,
+          Description: opt.dataset.desc || '',
+          Order: parseInt(opt.dataset.order || '0', 10),
+          PoolId: parseInt(opt.value, 10)
+        },
+        Items: [],
+        Ticks: ticks
+      };
+      try {
+        const created = await OpenDkpApi.putRaid(cfg, body);
+        const rid = created && (created.Id != null ? created.Id : created.RaidId);
+        if (rid == null) {
+          showStatus('Raid created but response had no id; refresh list.', 'success');
+        } else {
+          const ticksOut = (created.Ticks || []).map((t) => ({
+            id: t.Id != null ? t.Id : t.TickId,
+            description: t.Description,
+            value: t.Value
+          }));
+          openDkpPersistCurrentRaid(rid, { name: created.Name || nm, ticks: ticksOut });
+          showStatus('Raid created.', 'success');
+        }
+      } catch (e) {
+        showStatus('Create failed: ' + (e.message || e), 'error');
+      }
+    });
+  }
+
+  const raidtickFile = document.getElementById('opendkpRaidtickFile');
+  if (raidtickFile) {
+    raidtickFile.addEventListener('change', () => {
+      const sel = document.getElementById('opendkpRaidtickTickSelect');
+      const tickId = sel && sel.value;
+      if (!tickId) {
+        showStatus('Select a target tick before choosing a file.', 'error');
+        raidtickFile.value = '';
+        return;
+      }
+      const f = raidtickFile.files && raidtickFile.files[0];
+      if (!f || !window.RaidTickParse) return;
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const parsed = RaidTickParse.parseRaidTickFileContent(reader.result);
+        const names = RaidTickParse.dedupeCharacterNames
+          ? RaidTickParse.dedupeCharacterNames(parsed.characterNames)
+          : parsed.characterNames;
+        if (!names.length) {
+          showStatus('No player names found in that file.', 'error');
+          return;
+        }
+        const slotIndex = openDkpTickIdToSlotIndex(tickId);
+        if (slotIndex < 0) {
+          showStatus('Target tick not found on current raid summary.', 'error');
+          return;
+        }
+        const s = openDkpGetCurrentRaidSummary();
+        const tickMeta = s && s.ticks ? s.ticks[slotIndex] : null;
+        const rid = currentSettings.opendkpCurrentRaidId;
+        __odRaidtickStageByTickId[tickId] = {
+          fileName: f.name,
+          names: names
+        };
+        if (window.RaidTickQueue && RaidTickQueue.stageNamesForSlot && rid != null) {
+          try {
+            await RaidTickQueue.stageNamesForSlot(
+              rid,
+              slotIndex,
+              tickId,
+              tickMeta && tickMeta.description ? tickMeta.description : '',
+              names,
+              f.name
+            );
+          } catch (e) {
+            showStatus('Staged locally but popup queue sync failed: ' + (e.message || e), 'warning');
+            openDkpRenderRaidtickStageUi();
+            return;
+          }
+        }
+        openDkpRenderRaidtickStageUi();
+        showStatus('Staged ' + names.length + ' name(s) for tick ' + tickId + '.', 'success');
+      };
+      reader.readAsText(f);
+      raidtickFile.value = '';
+    });
+  }
+
+  const clearStageBtn = document.getElementById('opendkpRaidtickClearStage');
+  if (clearStageBtn) {
+    clearStageBtn.addEventListener('click', async () => {
+      __odRaidtickStageByTickId = {};
+      const rid = currentSettings.opendkpCurrentRaidId;
+      if (window.RaidTickQueue && RaidTickQueue.clearQueueForRaid && rid != null) {
+        try {
+          await RaidTickQueue.clearQueueForRaid(rid);
+        } catch (_) {}
+      }
+      openDkpRenderRaidtickStageUi();
+      showStatus('Cleared staged tick files (Settings and popup queue).', 'info');
+    });
+  }
+
+  const rosterMapBtn = document.getElementById('opendkpRaidtickLoadRosterMap');
+  if (rosterMapBtn) {
+    rosterMapBtn.addEventListener('click', async () => {
+      if (!window.OpenDkpApi) return;
+      const cfg = getOpenDkpApiConfig();
+      if (!cfg.clientSlug) return showStatus('Enter guild subdomain.', 'error');
+      try {
+        await openDkpRefreshRosterFromApi(cfg, { merge: true, silent: false });
+      } catch (e) {
+        showStatus('Characters failed: ' + (e.message || e), 'error');
+      }
+    });
+  }
+
+  const previewPostBtn = document.getElementById('opendkpRaidtickPreviewPost');
+  if (previewPostBtn) {
+    previewPostBtn.addEventListener('click', async () => {
+      if (!window.OpenDkpApi || !window.RaidTickParse) return;
+      const prev = document.getElementById('opendkpRaidtickPreview');
+      const inputs = openDkpGatherRaidtickBatchInputs({ allowPartialExisting: true });
+      if (!inputs.ok) {
+        if (prev) prev.textContent = 'Cannot build POST body:\n\n' + inputs.message;
+        return showStatus(inputs.message, 'error');
+      }
+      try {
+        const built = await openDkpBuildRaidtickPostBodyBatch(inputs);
+        const tickSummary = (built.postBody.Ticks || [])
+          .map(function (t, i) {
+            return (
+              '#' +
+              (i + 1) +
+              ' ' +
+              (t.Description || 'tick') +
+              ': ' +
+              ((t.Attendees && t.Attendees.length) || 0) +
+              ' attendee(s)'
+            );
+          })
+          .join('\n');
+        const summary =
+          'IdRaid=' +
+          built.postBody.IdRaid +
+          ', UpdatedBy=' +
+          (built.postBody.UpdatedBy || '?') +
+          ', Ticks=' +
+          (built.postBody.Ticks || []).length +
+          (inputs.allStaged ? '' : ' (partial — unstaged ticks use existing rosters)') +
+          '\n' +
+          tickSummary;
+        const text = summary + '\n\n' + JSON.stringify(built.postBody, null, 2);
+        if (prev) prev.textContent = text;
+        console.log('[OpenDKP] Preview POST raid update', built.postBody);
+        showStatus('POST body preview ready (not sent).', 'success');
+      } catch (e) {
+        const msg = e && e.message ? e.message : String(e);
+        if (prev) prev.textContent = 'Cannot build POST body:\n\n' + msg;
+        showStatus('Preview failed: ' + msg, 'error');
+      }
+    });
+  }
+
+  const applyTick = document.getElementById('opendkpRaidtickApply');
+  if (applyTick) {
+    applyTick.addEventListener('click', async () => {
+      if (!window.OpenDkpApi || !window.RaidTickParse) return;
+      const inputs = openDkpGatherRaidtickBatchInputs({ allowPartialExisting: false });
+      if (!inputs.ok) return showStatus(inputs.message, 'error');
+      if (
+        !window.confirm(
+          'POST all staged tick rosters to the current raid on OpenDKP?\n\n' +
+            inputs.stagedCount +
+            ' tick file(s) staged for ' +
+            inputs.totalTicks +
+            ' raid tick(s).'
+        )
+      ) {
+        return;
+      }
+      const cfg = inputs.cfg;
+      const rid = inputs.rid;
+
+      try {
+        const built = await openDkpBuildRaidtickPostBodyBatch(inputs);
+        const full = built.full;
+        const postBody = built.postBody;
+        if (Number(full.Attendance) === 0) {
+          const proceed = window.confirm(
+            'This raid has Attendance = No. OpenDKP\u2019s working examples use Attendance = Yes — ' +
+              'that is a common cause of HTTP 500.\n\n' +
+              'Try a test raid with Attendance = Yes, or use Preview POST body first.\n\nApply anyway?'
+          );
+          if (!proceed) return;
+        }
+        if (!postBody.IdRaid) {
+          return showStatus('Raid is missing IdRaid; refresh the current raid and try again.', 'error');
+        }
+        const guildClientId = OpenDkpApi.resolveGuildClientId
+          ? OpenDkpApi.resolveGuildClientId(full, __odClientId)
+          : full.ClientId || __odClientId || '';
+        if (!guildClientId) {
+          return showStatus('Guild ClientId is missing; reload roster in Settings and try again.', 'error');
+        }
+        if (__odClientId && full.ClientId && String(__odClientId) !== String(full.ClientId)) {
+          console.warn(
+            '[OpenDKP] Roster cache ClientId differed from raid ClientId; using raid value for POST.',
+            { cached: __odClientId, raid: full.ClientId }
+          );
+        }
+        console.log('[OpenDKP] POST raid update', JSON.stringify(postBody));
+        await OpenDkpApi.postRaidUpdate(cfg, rid, postBody, { clientId: guildClientId });
+        const refreshed = await OpenDkpApi.getRaid(cfg, rid);
+        const ticks = (refreshed.Ticks || []).map((t) => ({
+          id: t.Id != null ? t.Id : t.TickId,
+          description: t.Description,
+          value: t.Value
+        }));
+        openDkpPersistCurrentRaid(rid, { name: refreshed.Name, ticks });
+        __odRaidtickStageByTickId = {};
+        if (window.RaidTickQueue && RaidTickQueue.clearQueueForRaid) {
+          await RaidTickQueue.clearQueueForRaid(rid);
+        }
+        openDkpRenderRaidtickStageUi();
+        showStatus('Raid ticks updated.', 'success');
+      } catch (e) {
+        const prev = document.getElementById('opendkpRaidtickPreview');
+        const msg = openDkpFormatApiError(e);
+        if (prev) {
+          prev.textContent =
+            'Upload failed:\n\n' +
+            msg +
+            '\n\nUse Preview POST body to inspect the JSON. Every tick must have Attendees; unmapped roster names and Attendance = No also cause HTTP 500.';
+        }
+        showStatus('Apply failed: ' + msg, 'error');
+      }
+    });
+  }
+
+  const uploadToggle = document.getElementById('opendkpRaidtickUploadEnabled');
+  if (uploadToggle && !isOpenDkpRaidtickUploadSunset()) {
+    uploadToggle.addEventListener('change', function () {
+      currentSettings.opendkpRaidtickUploadEnabled = uploadToggle.checked;
+      openDkpUpdateRaidtickUploadBlockVisibility();
+    });
+  }
+
+  openDkpUpdateTokenStatusEl();
+  openDkpRenderCurrentRaid();
+  openDkpPopulateTickSelect();
+
+  if (odRoot) {
+    odRoot.dataset.odkpWired = '1';
+  }
 }
 
 /**
@@ -787,6 +2362,11 @@ function applySettingsToUI() {
     const cb = document.getElementById('announceDay' + d);
     if (cb) cb.checked = annDays.includes(d);
   }
+  const watchlistEnabledEl = document.getElementById('watchlistAlarmEnabled');
+  if (watchlistEnabledEl) watchlistEnabledEl.checked = !!currentSettings.watchlistAlarmEnabled;
+  const watchlistItemsEl = document.getElementById('watchlistItems');
+  if (watchlistItemsEl) watchlistItemsEl.value = currentSettings.watchlistItems || '';
+  updateWatchlistSettings();
   const flashEl = document.getElementById('flashScreen'); if (flashEl) flashEl.checked = currentSettings.flashScreen;
   document.getElementById('browserNotifications').checked = currentSettings.browserNotifications;
   document.getElementById('checkInterval').value = currentSettings.checkInterval;
@@ -812,6 +2392,7 @@ function applySettingsToUI() {
       if (remSec) remSec.style.display = 'block';
       renderRemindersUI();
     } catch(_) {}
+    updateOpenDkpApiGroupVisibility('raidleader');
   } else {
     if (raidTickGroup) {
       raidTickGroup.style.display = 'none';
@@ -819,7 +2400,48 @@ function applySettingsToUI() {
     if (lootGroup) lootGroup.style.display = 'none';
     try { const remSec = document.getElementById('raidTickReminders'); if (remSec) remSec.style.display = 'none'; } catch(_) {}
   }
-  
+  updateOpenDkpApiGroupVisibility(currentSettings.soundProfile);
+  const odSlug = document.getElementById('opendkpClientSlug');
+  if (odSlug) odSlug.value = currentSettings.opendkpClientSlug || '';
+  const odUpload = document.getElementById('opendkpRaidtickUploadEnabled');
+  if (odUpload) odUpload.checked = !!currentSettings.opendkpRaidtickUploadEnabled;
+  openDkpUpdateRaidtickUploadBlockVisibility();
+  const odAtt = document.getElementById('opendkpAttendance');
+  if (odAtt) {
+    odAtt.value = String(openDkpParseAttendance(currentSettings.opendkpAttendance));
+  }
+  const odPayStrategy = document.getElementById('opendkpAuctionPayStrategy');
+  if (odPayStrategy) {
+    const ps = currentSettings.opendkpAuctionPayStrategy || 'exact';
+    odPayStrategy.value =
+      ps === 'second_plus_one' || ps === 'second_plus_one_equal' ? ps : 'exact';
+  }
+  const odAuctionDuration = document.getElementById('opendkpAuctionDuration');
+  if (odAuctionDuration) {
+    const dur = parseInt(String(currentSettings.opendkpAuctionDuration != null ? currentSettings.opendkpAuctionDuration : 2), 10);
+    odAuctionDuration.value = String(Number.isNaN(dur) || dur < 1 ? 2 : dur);
+  }
+  const eqLogExceptionsEl = document.getElementById('eqLogLootExceptions');
+  if (eqLogExceptionsEl) {
+    const rules = Array.isArray(currentSettings.eqLogLootExceptions)
+      ? currentSettings.eqLogLootExceptions
+      : DEFAULT_SETTINGS.eqLogLootExceptions;
+    eqLogExceptionsEl.value = rules.join('\n');
+  }
+  updateEqLogLootExceptionsSummary();
+  const odUser = document.getElementById('opendkpCognitoUser');
+  if (odUser) odUser.value = currentSettings.opendkpCognitoUsername || '';
+  const odPass = document.getElementById('opendkpCognitoPassword');
+  if (odPass && __odSavedApiPassword) odPass.value = __odSavedApiPassword;
+  if (currentSettings.opendkpClientSlug) {
+    openDkpHydrateRosterFromCache(currentSettings.opendkpClientSlug);
+  }
+  openDkpHydratePoolsFromCache();
+  try { renderOpenDkpRaidTickDefsUI(); } catch (_) {}
+  try { openDkpRenderCurrentRaid(); } catch (_) {}
+  try { openDkpPopulateTickSelect(); } catch (_) {}
+  try { openDkpUpdateTokenStatusEl(); } catch (_) {}
+
   updateVolumeDisplay();
   updateSoundProfile();
   updateCustomSoundOptions();
@@ -832,10 +2454,67 @@ function applySettingsToUI() {
 }
 
 
+function parseEqLogLootExceptionsFromText(raw) {
+  if (window.EqLogParse && EqLogParse.normalizeExceptionRules) {
+    return EqLogParse.normalizeExceptionRules(raw);
+  }
+  return String(raw || '')
+    .split(/\r?\n/)
+    .map(function (s) {
+      return s.trim();
+    })
+    .filter(Boolean);
+}
+
+function updateEqLogLootExceptionsSummary() {
+  const el = document.getElementById('eqLogLootExceptionsSummary');
+  if (!el) return;
+  const rules = Array.isArray(currentSettings.eqLogLootExceptions)
+    ? currentSettings.eqLogLootExceptions
+    : [];
+  if (!rules.length) {
+    el.textContent = 'No exception rules active.';
+    return;
+  }
+  const preview = rules.slice(0, 3).join(', ');
+  el.textContent =
+    rules.length +
+    ' rule(s): ' +
+    preview +
+    (rules.length > 3 ? '…' : '');
+}
+
+function openEqLogExceptionsWindow() {
+  const ext = typeof browser !== 'undefined' ? browser : chrome;
+  const url = ext.runtime.getURL('eqlog-exceptions.html');
+  if (typeof browser !== 'undefined' && browser.windows && browser.windows.create) {
+    browser.windows.create({ url: url, type: 'popup', width: 520, height: 460 }).catch(function () {
+      window.open(url, '_blank', 'width=520,height=460');
+    });
+    return;
+  }
+  if (typeof chrome !== 'undefined' && chrome.windows && chrome.windows.create) {
+    chrome.windows.create({ url: url, type: 'popup', width: 520, height: 460 });
+    return;
+  }
+  window.open(url, '_blank', 'width=520,height=460');
+}
+
 /**
  * Setup event listeners
  */
 function setupEventListeners() {
+  wireCriticalSettingsAutoSave();
+  // OpenDKP API: wire first so a failure later in this function cannot skip these handlers
+  openDkpWireRaidWorkflowUi();
+
+  const addRaidTickDefBtn = document.getElementById('opendkpAddRaidTickDef');
+  if (addRaidTickDefBtn) {
+    addRaidTickDefBtn.addEventListener('click', function () {
+      addOpenDkpRaidTickDef();
+    });
+  }
+
   // Volume slider
   const volumeEl = document.getElementById('volume');
   if (volumeEl) volumeEl.addEventListener('input', function() {
@@ -916,6 +2595,20 @@ function setupEventListeners() {
       if (currentSettings.announceNewAuctionsDays.length === 0) currentSettings.announceNewAuctionsDays = [0,1,2,3,4,5,6];
     });
   }
+
+  const watchlistEnabledChk = document.getElementById('watchlistAlarmEnabled');
+  if (watchlistEnabledChk) watchlistEnabledChk.addEventListener('change', function() {
+    currentSettings.watchlistAlarmEnabled = this.checked;
+    updateWatchlistSettings();
+    persistCriticalSettingsToStorage({ silent: true });
+  });
+  const watchlistItemsInput = document.getElementById('watchlistItems');
+  if (watchlistItemsInput) watchlistItemsInput.addEventListener('input', function() {
+    currentSettings.watchlistItems = this.value;
+    schedulePersistCriticalSettings();
+  });
+  const testWatchlistAlarmEl = document.getElementById('testWatchlistAlarm');
+  if (testWatchlistAlarmEl) testWatchlistAlarmEl.addEventListener('click', testWatchlistAlarm);
   
   const testTplEl = document.getElementById('testCustomTemplate');
   if (testTplEl) testTplEl.addEventListener('click', testCustomTemplate);
@@ -1102,6 +2795,19 @@ function setupEventListeners() {
     if (file) importBackup(file);
     this.value = '';
   });
+  const backupIncludeCredentialsEl = document.getElementById('backupIncludeCredentials');
+  if (backupIncludeCredentialsEl) {
+    backupIncludeCredentialsEl.addEventListener('change', updateBackupCredentialsWarning);
+    updateBackupCredentialsWarning();
+  }
+
+  const openEqLogExceptionsBtn = document.getElementById('openEqLogExceptionsWindow');
+  if (openEqLogExceptionsBtn) {
+    openEqLogExceptionsBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      openEqLogExceptionsWindow();
+    });
+  }
 }
 
 // ==========================
@@ -1330,8 +3036,11 @@ function updateVolumeDisplay() {
  */
 function updateSoundProfile() {
   preserveScrollPosition(() => {
-  const profile = document.getElementById('soundProfile').value;
+  const soundProfileEl = document.getElementById('soundProfile');
   const soundTypeSelect = document.getElementById('soundType');
+  if (!soundProfileEl || !soundTypeSelect) return;
+
+  const profile = PROFILE_SOUNDS[soundProfileEl.value] ? soundProfileEl.value : 'raidleader';
   const raidLeaderSettings = document.getElementById('raidLeaderOnlySettings');
   
   // Clear existing options - use DOM API instead of innerHTML
@@ -1340,7 +3049,7 @@ function updateSoundProfile() {
   }
   
   // Add profile-specific sounds
-  const profileSounds = PROFILE_SOUNDS[profile];
+  const profileSounds = PROFILE_SOUNDS[profile] || PROFILE_SOUNDS.raidleader;
   profileSounds.sounds.forEach(soundType => {
     const option = document.createElement('option');
     option.value = soundType;
@@ -1376,10 +3085,8 @@ function updateSoundProfile() {
   }
   
   // Show/hide raid leader only settings
-  if (profile === 'raidleader') {
-    raidLeaderSettings.style.display = 'block';
-  } else {
-    raidLeaderSettings.style.display = 'none';
+  if (raidLeaderSettings) {
+    raidLeaderSettings.style.display = profile === 'raidleader' ? 'block' : 'none';
   }
   
   // Update current settings
@@ -1395,21 +3102,23 @@ function updateSoundProfile() {
   
   // Handle Smart Bidding Mode visibility and settings
   const smartBiddingCheckbox = document.getElementById('smartBidding');
+  if (smartBiddingCheckbox) {
   const smartBiddingRow = smartBiddingCheckbox.closest('.setting-row');
-  const smartBiddingDescription = smartBiddingRow.nextElementSibling;
+  const smartBiddingDescription = smartBiddingRow && smartBiddingRow.nextElementSibling;
   
   if (profile === 'raider') {
     // Show Smart Bidding Mode for Raider and auto-enable it
-    smartBiddingRow.style.display = 'flex';
-    smartBiddingDescription.style.display = 'block';
+    if (smartBiddingRow) smartBiddingRow.style.display = 'flex';
+    if (smartBiddingDescription) smartBiddingDescription.style.display = 'block';
     currentSettings.smartBidding = true;
     smartBiddingCheckbox.checked = true;
     console.log('Smart bidding automatically enabled for raider profile');
   } else if (profile === 'raidleader') {
     // Hide Smart Bidding Mode entirely for Raid Leader
-    smartBiddingRow.style.display = 'none';
-    smartBiddingDescription.style.display = 'none';
+    if (smartBiddingRow) smartBiddingRow.style.display = 'none';
+    if (smartBiddingDescription) smartBiddingDescription.style.display = 'none';
     console.log('Raid leader profile - smart bidding mode hidden');
+  }
   }
   
   // Handle RaidTick Integration visibility
@@ -1434,6 +3143,7 @@ function updateSoundProfile() {
     lootGroup.style.display = profile === 'raidleader' ? 'block' : 'none';
     console.log('Loot Parser visibility set for profile:', profile);
   }
+  updateOpenDkpApiGroupVisibility(profile);
   }); // Close preserveScrollPosition wrapper
 }
 
@@ -1849,6 +3559,85 @@ function updateAnnounceSettings() {
   const enabled = document.getElementById('announceAuctions')?.checked;
   if (row) row.style.display = enabled ? 'flex' : 'none';
   if (daysRow) daysRow.style.display = enabled ? 'flex' : 'none';
+}
+
+function updateWatchlistSettings() {
+  const itemsRow = document.getElementById('watchlistItemsRow');
+  const enabled = document.getElementById('watchlistAlarmEnabled')?.checked;
+  if (itemsRow) itemsRow.style.display = enabled ? 'flex' : 'none';
+}
+
+function testWatchlistAlarm() {
+  const enabled = document.getElementById('watchlistAlarmEnabled')?.checked;
+  if (!enabled) {
+    showStatus('Enable Item Watchlist Alarm first', 'error');
+    return;
+  }
+  const rawItems = document.getElementById('watchlistItems')?.value || '';
+  const firstItem = rawItems.split('\n').map(function(line) { return line.trim(); }).filter(Boolean)[0] || 'Test Item';
+  const tabsApi = api.tabs || chrome.tabs;
+
+  if (tabsApi && tabsApi.query) {
+    tabsApi.query({ url: ['https://opendkp.com/*', 'https://*.opendkp.com/*'] }, function(tabs) {
+      const tab = tabs && tabs.length > 0 ? tabs[0] : null;
+      if (tab && tab.id != null) {
+        tabsApi.sendMessage(tab.id, { action: 'testWatchlistAlarm', itemName: firstItem }, function() {
+          const err = (api.runtime && api.runtime.lastError) || (chrome.runtime && chrome.runtime.lastError);
+          if (err) {
+            runWatchlistAlarmPreview(firstItem, 'Could not reach OpenDKP tab — running audio/TTS preview here.');
+            return;
+          }
+          showStatus('Watchlist alarm running on OpenDKP for "' + firstItem + '" (5s)', 'success');
+        });
+        return;
+      }
+      runWatchlistAlarmPreview(firstItem, 'No OpenDKP tab open — audio/TTS preview here. Open opendkp.com and test again for the red flash.');
+    });
+    return;
+  }
+  runWatchlistAlarmPreview(firstItem, 'Audio/TTS preview only. Open opendkp.com for the full alarm.');
+}
+
+function runWatchlistAlarmPreview(itemName, statusNote) {
+  const alarmMs = 5000;
+  try {
+    const url = (api && api.runtime ? api.runtime : chrome.runtime).getURL('alarm.mp3');
+    const audio = new Audio(url);
+    const volumePct = parseInt(document.getElementById('volume')?.value || currentSettings.volume || 70, 10);
+    audio.volume = Math.max(0, Math.min(1, volumePct / 100));
+    audio.loop = true;
+    audio.play().catch(function() {
+      showStatus('Could not play alarm — click the page first to unlock audio', 'error');
+    });
+    setTimeout(function() {
+      audio.pause();
+      audio.currentTime = 0;
+    }, alarmMs);
+
+    if (typeof speechSynthesis !== 'undefined') {
+      try { speechSynthesis.cancel(); } catch (_) {}
+      const voiceName = document.getElementById('voice')?.value || currentSettings.voice || '';
+      const voiceSpeed = parseFloat(document.getElementById('voiceSpeed')?.value || currentSettings.voiceSpeed || 1);
+      for (let i = 0; i < 5; i++) {
+        setTimeout(function() {
+          const utterance = new SpeechSynthesisUtterance(itemName);
+          if (voiceName) {
+            const selected = speechSynthesis.getVoices().find(function(v) {
+              return v.name.toLowerCase() === voiceName.toLowerCase();
+            });
+            if (selected) utterance.voice = selected;
+          }
+          utterance.rate = Math.min(voiceSpeed, 2.0);
+          utterance.volume = Math.max(0, Math.min(1, volumePct / 100));
+          speechSynthesis.speak(utterance);
+        }, i * 1000);
+      }
+    }
+
+    showStatus(statusNote + ' Item: "' + itemName + '"', 'success');
+  } catch (e) {
+    showStatus('Alarm test failed: ' + (e.message || e), 'error');
+  }
 }
 
 /**
@@ -2893,6 +4682,13 @@ function saveSettings() {
     }
   }
 
+  const rawOpenSlug = (document.getElementById('opendkpClientSlug') && document.getElementById('opendkpClientSlug').value)
+    ? String(document.getElementById('opendkpClientSlug').value).trim() : '';
+  const normOpenSlug = normalizeOpenDkpClientSlug(rawOpenSlug);
+  if (rawOpenSlug && !normOpenSlug) {
+    showStatus('Guild subdomain invalid (lowercase letters, numbers, hyphens only).', 'error');
+    return;
+  }
   const newSettings = {
     enableTTS: getChecked('enableTTS', currentSettings.enableTTS),
     voice: getVal('voice', currentSettings.voice),
@@ -2921,6 +4717,8 @@ function saveSettings() {
       }
       return days.length ? days : [0,1,2,3,4,5,6];
     })(),
+    watchlistAlarmEnabled: getChecked('watchlistAlarmEnabled', currentSettings.watchlistAlarmEnabled),
+    watchlistItems: getVal('watchlistItems', currentSettings.watchlistItems || ''),
     disableVisuals: getChecked('disableVisuals', currentSettings.disableVisuals),
     raidLeaderNotification: getChecked('raidLeaderNotification', currentSettings.raidLeaderNotification),
     flashScreen: getChecked('flashScreen', currentSettings.flashScreen),
@@ -2928,6 +4726,41 @@ function saveSettings() {
     checkInterval: parseInt(getVal('checkInterval', currentSettings.checkInterval)),
     theme: (() => { const el = document.getElementById('theme'); return (el && (el.value === 'light' || el.value === 'dark' || el.value === 'system')) ? el.value : (currentSettings.theme || 'system'); })(),
     darkMode: (() => { const el = document.getElementById('theme'); const t = el ? el.value : (currentSettings.theme || 'system'); return t === 'dark' || (t === 'system' && typeof matchMedia !== 'undefined' && matchMedia('(prefers-color-scheme: dark)').matches); })(),
+    opendkpClientSlug: normOpenSlug,
+    opendkpCurrentRaidId: currentSettings.opendkpCurrentRaidId,
+    opendkpCurrentRaidSummaryJson: currentSettings.opendkpCurrentRaidSummaryJson || '',
+    opendkpRaidtickUploadEnabled: isOpenDkpRaidtickUploadSunset()
+      ? false
+      : getChecked(
+          'opendkpRaidtickUploadEnabled',
+          currentSettings.opendkpRaidtickUploadEnabled
+        ),
+    opendkpRaidTickDefs: openDkpNormalizeRaidTickDefs(
+      currentSettings.opendkpRaidTickDefs,
+      currentSettings.opendkpTickDkpValue
+    ).slice(0, OPEN_DKP_MAX_RAID_TICK_DEFS),
+    opendkpAttendance: openDkpParseAttendance(getVal('opendkpAttendance', currentSettings.opendkpAttendance)),
+    opendkpPreferredPoolId: (() => {
+      const el = document.getElementById('opendkpPoolSelect');
+      return el && el.value ? String(el.value) : (currentSettings.opendkpPreferredPoolId || '');
+    })(),
+    opendkpAuctionPayStrategy: (() => {
+      const el = document.getElementById('opendkpAuctionPayStrategy');
+      const v = el ? el.value : (currentSettings.opendkpAuctionPayStrategy || 'exact');
+      if (v === 'second_plus_one' || v === 'second_plus_one_equal') return v;
+      return 'exact';
+    })(),
+    opendkpAuctionDuration: (() => {
+      const el = document.getElementById('opendkpAuctionDuration');
+      const raw = el ? el.value : currentSettings.opendkpAuctionDuration;
+      const n = parseInt(String(raw != null ? raw : 2), 10);
+      return Number.isNaN(n) || n < 1 ? 2 : n;
+    })(),
+    eqLogLootExceptions: (() => {
+      const el = document.getElementById('eqLogLootExceptions');
+      return parseEqLogLootExceptionsFromText(el ? el.value : currentSettings.eqLogLootExceptions);
+    })(),
+    opendkpCognitoUsername: String(getVal('opendkpCognitoUser', currentSettings.opendkpCognitoUsername || '')).trim(),
     // RaidTick Integration settings
     raidTickEnabled: getChecked('raidTickEnabled', currentSettings.raidTickEnabled),
     raidTickFolder: currentSettings.raidTickFolder,
@@ -2971,8 +4804,16 @@ function saveSettings() {
       if (api.storage.local && api.storage.local.set) {
         api.storage.local.set(reminderPayload, function() {});
       }
+      const cognitoPass = getVal('opendkpCognitoPassword', '');
+      if (cognitoPass && api.storage.local && api.storage.local.set) {
+        __odSavedApiPassword = cognitoPass;
+        api.storage.local.set({ [OPEN_DKP_PASSWORD_STORAGE_KEY]: cognitoPass }, function() {});
+      }
       showStatus('Settings saved successfully!', 'success');
       currentSettings = newSettings;
+      persistCriticalSettingsToStorage({ silent: true }).catch(function(e) {
+        console.warn('[Options] Failed to update local settings mirror:', e);
+      });
       try { applySettingsToUI(); } catch(_) {}
       
       // Notify content scripts of settings change
@@ -2996,50 +4837,198 @@ function saveSettings() {
  */
 function showStatus(message, type) {
   const statusDiv = document.getElementById('status');
+  if (!statusDiv) {
+    console.warn('[Options] showStatus: #status missing —', message);
+    try {
+      alert(message);
+    } catch (_) {}
+    return;
+  }
   statusDiv.textContent = message;
   statusDiv.className = 'status ' + type;
   statusDiv.style.display = 'block';
-  
+
+  const ms = type === 'error' ? 12000 : 5000;
   setTimeout(() => {
     statusDiv.style.display = 'none';
-  }, 3000);
+  }, ms);
 }
 
 /** Backup format version for future migrations */
-const BACKUP_VERSION = 1;
+const BACKUP_VERSION = 3;
+
+function arrayBufferToBase64(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+function base64ToArrayBuffer(base64) {
+  const binary = atob(String(base64 || ''));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
+
+async function blobToBase64(blob) {
+  if (!(blob instanceof Blob)) return '';
+  return arrayBufferToBase64(await blob.arrayBuffer());
+}
+
+/** Collect custom notification sounds from IndexedDB (+ storage.local mirror keys). */
+async function collectCustomSoundsForBackup(localData) {
+  const byName = new Map();
+  try {
+    const records = await listSoundRecordsFromDB();
+    for (const rec of records || []) {
+      if (!rec || !rec.name) continue;
+      const data = await blobToBase64(rec.data);
+      if (!data) continue;
+      byName.set(rec.name, { name: rec.name, data: data, type: rec.type || 'application/octet-stream' });
+    }
+  } catch (e) {
+    try { console.warn('[Backup] Could not read sounds from IndexedDB:', e); } catch (_) {}
+  }
+  Object.keys(localData || {}).forEach(function (key) {
+    if (!key.startsWith('customSound_')) return;
+    const stored = localData[key];
+    if (!stored || !stored.data) return;
+    const name = stored.name || key.replace(/^customSound_/, '');
+    if (!name || byName.has(name)) return;
+    byName.set(name, { name: name, data: stored.data, type: stored.type || 'application/octet-stream' });
+  });
+  return Array.from(byName.values());
+}
+
+/** Restore custom sounds into IndexedDB and storage.local after import. */
+async function restoreCustomSoundsFromBackup(backup, localData) {
+  const sounds = [];
+  if (Array.isArray(backup.customSounds) && backup.customSounds.length) {
+    backup.customSounds.forEach(function (s) {
+      if (s && s.name && s.data) sounds.push(s);
+    });
+  } else {
+    Object.keys(localData || {}).forEach(function (key) {
+      if (!key.startsWith('customSound_')) return;
+      const stored = localData[key];
+      if (!stored || !stored.data) return;
+      sounds.push({
+        name: stored.name || key.replace(/^customSound_/, ''),
+        data: stored.data,
+        type: stored.type || 'application/octet-stream'
+      });
+    });
+  }
+  if (!sounds.length) return 0;
+  for (const sound of sounds) {
+    const arrayBuffer = base64ToArrayBuffer(sound.data);
+    await saveSoundToDB(sound.name, arrayBuffer, sound.type || 'application/octet-stream');
+    if (api.storage && api.storage.local && api.storage.local.set) {
+      await new Promise(function (resolve) {
+        api.storage.local.set({
+          ['customSound_' + sound.name]: {
+            data: sound.data,
+            type: sound.type || 'application/octet-stream',
+            name: sound.name
+          }
+        }, function () { resolve(); });
+      });
+    }
+  }
+  return sounds.length;
+}
+
+const BACKUP_CREDENTIALS_WARNING =
+  'Password and JWT tokens are stored in plain text in the backup file. Store the file somewhere safe—anyone with the file can sign in as you.';
+
+function isBackupIncludeCredentialsChecked() {
+  const el = document.getElementById('backupIncludeCredentials');
+  return !!(el && el.checked);
+}
+
+function updateBackupCredentialsWarning() {
+  const warning = document.getElementById('backupCredentialsWarning');
+  if (!warning) return;
+  warning.style.display = isBackupIncludeCredentialsChecked() ? 'block' : 'none';
+}
+
+function stripSensitiveBackupLocalData(localData) {
+  const out = Object.assign({}, localData || {});
+  BACKUP_SENSITIVE_LOCAL_KEYS.forEach(function(key) {
+    delete out[key];
+  });
+  return out;
+}
 
 /**
- * Export all settings to a JSON file (sync + local storage)
+ * Export all settings to a JSON file (sync + local storage + custom sounds)
  */
 function exportBackup() {
   const storage = api && api.storage ? api.storage : chrome.storage;
-  const getSync = () => new Promise((resolve) => {
-    storage.sync.get(null, (data) => resolve(api.runtime?.lastError || chrome.runtime?.lastError ? {} : data || {}));
-  });
-  const getLocal = () => new Promise((resolve) => {
-    if (!storage.local || !storage.local.get) return resolve({});
-    storage.local.get(null, (data) => resolve(api.runtime?.lastError || chrome.runtime?.lastError ? {} : data || {}));
-  });
-  Promise.all([getSync(), getLocal()]).then(([syncData, localData]) => {
-    const backup = {
-      version: BACKUP_VERSION,
-      exportedAt: new Date().toISOString(),
-      sync: syncData,
-      local: localData
-    };
-    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'opendkp-helper-backup-' + new Date().toISOString().slice(0, 10) + '.json';
-    a.click();
-    URL.revokeObjectURL(url);
-    showStatus('Backup downloaded.', 'success');
-    try { console.log('[Backup] Exported', Object.keys(syncData).length, 'sync keys', Object.keys(localData || {}).length, 'local keys'); } catch(_) {}
-  }).catch((e) => {
-    console.error('Export backup error:', e);
-    showStatus('Export failed: ' + (e.message || e), 'error');
-  });
+  const runExport = function() {
+    const getSync = () => new Promise((resolve) => {
+      storage.sync.get(null, (data) => resolve(api.runtime?.lastError || chrome.runtime?.lastError ? {} : data || {}));
+    });
+    const getLocal = () => new Promise((resolve) => {
+      if (!storage.local || !storage.local.get) return resolve({});
+      storage.local.get(null, (data) => resolve(api.runtime?.lastError || chrome.runtime?.lastError ? {} : data || {}));
+    });
+    return Promise.all([getSync(), getLocal()])
+      .then(function ([syncData, localData]) {
+        return collectCustomSoundsForBackup(localData).then(function (customSounds) {
+          return { syncData: syncData, localData: localData, customSounds: customSounds };
+        });
+      })
+      .then(function ({ syncData, localData, customSounds }) {
+        const includeCredentials = isBackupIncludeCredentialsChecked();
+        const exportLocalData = includeCredentials ? localData : stripSensitiveBackupLocalData(localData);
+        const manifest = Object.assign({}, buildBackupManifest(syncData, exportLocalData), {
+          includesSensitiveCredentials: includeCredentials
+        });
+        const backup = {
+          version: BACKUP_VERSION,
+          exportedAt: new Date().toISOString(),
+          manifest: manifest,
+          sync: syncData,
+          local: exportLocalData,
+          customSounds: customSounds
+        };
+        const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'opendkp-helper-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+        a.click();
+        URL.revokeObjectURL(url);
+        let statusMsg =
+          'Backup downloaded (' + manifest.watchlistItemCount + ' watchlist item(s)' +
+          (manifest.opendkpClientSlug ? ', guild ' + manifest.opendkpClientSlug : '') +
+          (manifest.opendkpCognitoUsername ? ', API user saved' : '') +
+          (includeCredentials ? ', password & tokens included' : ', password & tokens excluded') + ').';
+        if (includeCredentials) {
+          showStatus(BACKUP_CREDENTIALS_WARNING, 'warning');
+          setTimeout(function() {
+            showStatus(statusMsg, 'success');
+          }, 5200);
+        } else {
+          showStatus(statusMsg, 'success');
+        }
+        try {
+          console.log('[Backup] Exported', Object.keys(syncData).length, 'sync keys', Object.keys(localData || {}).length, 'local keys', (customSounds || []).length, 'custom sounds', manifest);
+        } catch (_) {}
+      });
+  };
+
+  persistCriticalSettingsToStorage({ silent: true })
+    .catch(function(e) {
+      console.warn('[Backup] Pre-export persist failed:', e);
+    })
+    .then(runExport)
+    .catch(function(e) {
+      console.error('Export backup error:', e);
+      showStatus('Export failed: ' + (e.message || e), 'error');
+    });
 }
 
 /**
@@ -3068,9 +5057,20 @@ function importBackup(file) {
       if (!storage.local || !storage.local.set) return resolve();
       storage.local.set(data, () => resolve());
     });
-    Promise.all([setSync(backup.sync), setLocal(backup.local || {})]).then(() => {
-      showStatus('Settings restored. Reloading…', 'success');
-      try { console.log('[Backup] Restored', Object.keys(backup.sync || {}).length, 'sync keys'); } catch(_) {}
+    const localPayload = backup.local || {};
+    if (!localPayload[LOCAL_SETTINGS_MIRROR_KEY] && backup.sync && typeof backup.sync === 'object') {
+      localPayload[LOCAL_SETTINGS_MIRROR_KEY] = Object.assign({}, backup.sync, { savedAt: Date.now() });
+    }
+    const restoreSummary = formatBackupRestoreSummary(backup);
+    Promise.all([setSync(backup.sync), setLocal(localPayload)])
+      .then(function () {
+        return restoreCustomSoundsFromBackup(backup, localPayload);
+      })
+      .then(function (soundCount) {
+      showStatus('Restored: ' + restoreSummary + (soundCount ? ' (' + soundCount + ' custom sound(s))' : '') + '. Reloading…', 'success');
+      try {
+        console.log('[Backup] Restored', Object.keys(backup.sync || {}).length, 'sync keys', Object.keys(localPayload).length, 'local keys', soundCount || 0, 'custom sounds');
+      } catch (_) {}
       currentSettings = { ...DEFAULT_SETTINGS };
       setTimeout(() => loadSettings(), 500);
     }).catch((e) => {
