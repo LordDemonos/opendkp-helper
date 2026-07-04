@@ -54,119 +54,19 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Release build version: ${VERSION}"
 
-      - name: Build Chrome package
-        id: chrome
-        run: |
-          set -euo pipefail
-          echo "🔨 Building Chrome package..."
+      - name: Install dependencies
+        run: npm ci
 
-          node -e "
-          const fs = require('fs');
-          const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
-          if (manifest.background && manifest.background.scripts) {
-            delete manifest.background.scripts;
-          }
-          if (!manifest.background) manifest.background = {};
-          manifest.background.service_worker = 'background.js';
-          fs.writeFileSync('manifest-chrome.json', JSON.stringify(manifest, null, 2) + '\n');
-          console.log('✅ Chrome manifest configured');
-          "
-
-          mkdir -p chrome-release
-          rsync -av \
-            --exclude='.git' \
-            --exclude='.github' \
-            --exclude='node_modules' \
-            --exclude='*.md' \
-            --exclude='README.md' \
-            --exclude='CHROME_STORE_SUBMISSION.md' \
-            --exclude='package.json' \
-            --exclude='package-lock.json' \
-            --exclude='test_audio.html' \
-            --exclude='test_audio.js' \
-            --exclude='popup-firefox.js' \
-            --exclude='.gitignore' \
-            --exclude='.DS_Store' \
-            --exclude='*.log' \
-            --exclude='*.tmp' \
-            --exclude='*.bak' \
-            ./ chrome-release/
-
-          cp manifest-chrome.json chrome-release/manifest.json
-
-          FOLDER_NAME="opendkp-helper-v${{ steps.version.outputs.version }}-chrome"
-          ZIP_NAME="${FOLDER_NAME}.zip"
-
-          cd "${{ github.workspace }}"
-          mv chrome-release "${FOLDER_NAME}"
-          zip -r "${ZIP_NAME}" "${FOLDER_NAME}"
-          mkdir -p chrome-release
-          mv "${ZIP_NAME}" chrome-release/
-          rm -rf "${FOLDER_NAME}"
-
-          echo "ZIP_NAME=${ZIP_NAME}" >> "$GITHUB_OUTPUT"
-          echo "✅ Chrome package: ${ZIP_NAME}"
-          ls -lh chrome-release/
-
-      - name: Build Firefox package
-        id: firefox
-        run: |
-          set -euo pipefail
-          echo "🔨 Building Firefox package..."
-
-          node -e "
-          const fs = require('fs');
-          const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
-          if (manifest.background && manifest.background.service_worker) {
-            delete manifest.background.service_worker;
-          }
-          if (!manifest.background) manifest.background = {};
-          if (!manifest.background.scripts || !Array.isArray(manifest.background.scripts)) {
-            manifest.background.scripts = ['background.js'];
-          }
-          fs.writeFileSync('manifest-firefox.json', JSON.stringify(manifest, null, 2) + '\n');
-          console.log('✅ Firefox manifest configured');
-          "
-
-          mkdir -p firefox-release
-          rsync -av \
-            --exclude='.git' \
-            --exclude='.github' \
-            --exclude='node_modules' \
-            --exclude='*.md' \
-            --exclude='README.md' \
-            --exclude='CHROME_STORE_SUBMISSION.md' \
-            --exclude='package.json' \
-            --exclude='package-lock.json' \
-            --exclude='test_audio.html' \
-            --exclude='test_audio.js' \
-            --exclude='popup.js' \
-            --exclude='.gitignore' \
-            --exclude='.DS_Store' \
-            --exclude='*.log' \
-            --exclude='*.tmp' \
-            --exclude='*.bak' \
-            ./ firefox-release/
-
-          cp manifest-firefox.json firefox-release/manifest.json
-
-          cd firefox-release
-          ZIP_NAME="opendkp-helper-v${{ steps.version.outputs.version }}-firefox.zip"
-          zip -r "../${ZIP_NAME}" .
-          cd ..
-          mv "${ZIP_NAME}" firefox-release/
-
-          echo "ZIP_NAME=${ZIP_NAME}" >> "$GITHUB_OUTPUT"
-          echo "✅ Firefox package: ${ZIP_NAME}"
-          ls -lh firefox-release/
+      - name: Package release (dist/*.zip + SHA256SUMS)
+        run: npm run package:release
 
       - name: Upload release assets (GitHub Release)
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2.6.2
         with:
           files: |
-            chrome-release/*.zip
-            firefox-release/*.zip
+            dist/*.zip
+            dist/SHA256SUMS.txt
           tag_name: ${{ github.event.release.tag_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -175,17 +75,18 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: opendkp-helper-v${{ steps.version.outputs.version }}-packages
+          name: opendkp-helper-dist-v${{ steps.version.outputs.version }}
           path: |
-            chrome-release/*.zip
-            firefox-release/*.zip
+            dist/*.zip
+            dist/SHA256SUMS.txt
           if-no-files-found: error
 
       - name: Output summary
         run: |
           echo "✅ Build complete."
-          echo "Chrome ZIP: ${{ steps.chrome.outputs.ZIP_NAME }}"
-          echo "Firefox ZIP: ${{ steps.firefox.outputs.ZIP_NAME }}"
+          echo "Chrome ZIP: dist/opendkp-helper-chrome-${{ steps.version.outputs.version }}.zip"
+          echo "Firefox ZIP: dist/opendkp-helper-firefox-${{ steps.version.outputs.version }}.zip"
+          ls -lh dist/
           if [ "${{ github.event_name }}" = "release" ]; then
             echo "Assets attached to release ${{ github.event.release.tag_name }}."
           else

@@ -67,6 +67,8 @@
   
   // Polling interval ID for cleanup
   let checkIntervalId = null;
+  let autoBidIntervalId = null;
+  let rankBidLimitsSyncIntervalId = null;
   
   // Audio element for playing chime
   let audioElement = null;
@@ -385,6 +387,11 @@
   const recentCompletedMap = new Map(); // signature -> timestamp
   const COMPLETED_SUPPRESS_MS = 2 * 60 * 1000; // Reduced to 2 minutes (was 10 minutes)
 
+  /** @type {Array<Record<string, unknown>>} */
+  const completionAnnounceQueue = [];
+  let completionAnnounceProcessing = false;
+  const COMPLETION_ANNOUNCE_GAP_MS = 450;
+
   function buildCompletionSignature(ctx) {
     const item = (ctx?.itemName || '').toLowerCase().trim();
     const winner = (ctx?.winner || '').toLowerCase().trim();
@@ -422,6 +429,59 @@
   // ===========================================================================
   
   /**
+   * Poll background auto-bid engine while on OpenDKP (requires open tab).
+   */
+  function setupAutoBidPolling() {
+    if (autoBidIntervalId) {
+      clearInterval(autoBidIntervalId);
+      autoBidIntervalId = null;
+    }
+    if (!settings.AUTO_BID_ENABLED) return;
+    var ms = (settings.AUTO_BID_POLL_SEC || 15) * 1000;
+    autoBidIntervalId = setInterval(function () {
+      try {
+        api.runtime.sendMessage({ type: 'autoBidRun' }, function (resp) {
+          if (api.runtime.lastError) return;
+          if (resp && resp.results && resp.results.length) {
+            log('Auto-bid:', resp.results);
+          }
+        });
+      } catch (e) {
+        log('Auto-bid poll error:', e);
+      }
+    }, ms);
+    log('Auto-bid polling every', ms + 'ms');
+  }
+
+  /**
+   * Scrape Bid Rules from the OpenDKP page and cache rank min/max for the extension.
+   */
+  function syncRankBidLimitsFromPage() {
+    try {
+      if (typeof OpenDkpRankBidLimits === 'undefined') return;
+      var slug = OpenDkpRankBidLimits.clientSlugFromHostname(window.location.hostname);
+      if (!slug) return;
+      var ranks = OpenDkpRankBidLimits.parseFromDocument(document);
+      if (!ranks || !Object.keys(ranks).length) return;
+      OpenDkpRankBidLimits.saveForSlug(slug, ranks).then(function () {
+        log('Synced rank bid limits for', slug, Object.keys(ranks).join(', '));
+      }).catch(function (e) {
+        log('Rank bid limits save failed:', e);
+      });
+    } catch (e) {
+      log('Rank bid limits sync failed:', e);
+    }
+  }
+
+  function setupRankBidLimitsSync() {
+    syncRankBidLimitsFromPage();
+    if (rankBidLimitsSyncIntervalId) {
+      clearInterval(rankBidLimitsSyncIntervalId);
+    }
+    rankBidLimitsSyncIntervalId = setInterval(syncRankBidLimitsFromPage, 60000);
+  }
+
+  /**
    * Load settings from storage
    */
   function loadSettings() {
@@ -444,6 +504,11 @@
       announceEnd: '23:59',
       watchlistAlarmEnabled: false,
       watchlistItems: '',
+      autoBidEnabled: false,
+      autoBidIncrement: 10,
+      autoBidPollIntervalSec: 15,
+      autoBidPriority: 1,
+      autoBidRules: [],
       enableTTS: false,
       voice: '',
       voiceSpeed: 1.0,
@@ -508,6 +573,12 @@
       settings.WATCHLIST_ITEMS = typeof storedSettings.watchlistItems === 'string'
         ? storedSettings.watchlistItems
         : CONFIG.WATCHLIST_ITEMS;
+      settings.AUTO_BID_ENABLED = storedSettings.autoBidEnabled === true;
+      var pollSec = parseInt(String(storedSettings.autoBidPollIntervalSec != null ? storedSettings.autoBidPollIntervalSec : 15), 10);
+      settings.AUTO_BID_POLL_SEC = Number.isNaN(pollSec) || pollSec < 5 ? 15 : pollSec;
+      
+      setupAutoBidPolling();
+      setupRankBidLimitsSync();
       
       // Automatically enable smart bidding for raider profile
       if (settings.SOUND_PROFILE === 'raider') {
@@ -1364,6 +1435,8 @@
       let context = extractTableContext(timerElement);
       if (!context) {
         context = extractTimerContext(timerElement);
+      } else {
+        context = finalizeAuctionContext(context, timerElement);
       }
       
       if (!context || !context.itemName) {
@@ -1395,8 +1468,9 @@
         log('🚨 ALERTING! Playing chime and showing notification');
         log('Alert context:', { item: context.itemName, winner: context.winner, bid: context.bidAmount, sig });
         
-        // Show enhanced notification with context (this will play sound and speak TTS)
-        showNotification(context);
+        maybeDisableAutoBidRulesOnWin(context);
+        // Show enhanced notification with context (queued sound + TTS)
+        enqueueCompletionAnnouncement(context);
         // Remember this completion to avoid re-alerts on page switches
         recordCompleted(sig);
       } else {
@@ -1859,6 +1933,8 @@
       checkIntervalId = setInterval(() => {
         checkAllTimers();
       }, settings.CHECK_INTERVAL);
+      setupAutoBidPolling();
+      setupRankBidLimitsSync();
       
       // Update audio volume
       if (audioElement) {
@@ -2066,6 +2142,271 @@
   // ===========================================================================
   // FUTURE EXPANSION POINTS
   // ===========================================================================
+
+  function getTableColumnIndex(table, headerPattern) {
+    const headerRow = table.querySelector('thead tr') || table.querySelector('tr:has(th)');
+    if (!headerRow) return -1;
+    const headers = headerRow.querySelectorAll('th, td');
+    for (let i = 0; i < headers.length; i++) {
+      if (headerPattern.test(headers[i].textContent.trim())) return i;
+    }
+    return -1;
+  }
+
+  /**
+   * @param {HTMLTableElement|null|undefined} table
+   * @param {number|null|undefined} defaultBid
+   * @returns {Array<{ winner: string, bid: number|null }>}
+   */
+  function extractWinnersFromBidsTable(table, defaultBid) {
+    const winnersMap = new Map();
+    if (!table) return [];
+
+    const nameCol = getTableColumnIndex(table, /^name$/i);
+    const valueCol = getTableColumnIndex(table, /^value$/i);
+    const rows = table.querySelectorAll('tbody tr, tr');
+
+    for (const row of rows) {
+      if (row.querySelector('th')) continue;
+      const cells = row.querySelectorAll('td');
+      if (cells.length < 2) continue;
+
+      let name = null;
+      let rowBid = null;
+
+      if (nameCol >= 0 && nameCol < cells.length) {
+        const nameLink = cells[nameCol].querySelector('a[href*="/characters/"], a');
+        name = (nameLink || cells[nameCol]).textContent.trim().replace(/\s*\(.*?$/, '').trim();
+      } else {
+        const nameLink = row.querySelector('a[href*="/characters/"]');
+        if (nameLink) name = nameLink.textContent.trim().replace(/\s*\(.*?$/, '').trim();
+      }
+
+      if (valueCol >= 0 && valueCol < cells.length) {
+        const bidInput = cells[valueCol].querySelector('input[type="number"]');
+        if (bidInput && bidInput.value) {
+          rowBid = parseInt(bidInput.value, 10);
+        } else {
+          const cellText = cells[valueCol].textContent.trim();
+          const bidMatch = cellText.match(/^(\d+)$/);
+          if (bidMatch) rowBid = parseInt(bidMatch[1], 10);
+        }
+      } else {
+        for (let i = 0; i < cells.length; i++) {
+          const bidInput = cells[i].querySelector('input[type="number"]');
+          if (bidInput && bidInput.value) {
+            const bidValue = parseInt(bidInput.value, 10);
+            if (!isNaN(bidValue) && bidValue >= 0) {
+              rowBid = bidValue;
+              break;
+            }
+          }
+          const cellText = cells[i].textContent.trim();
+          if (/^\d+$/.test(cellText)) {
+            const n = parseInt(cellText, 10);
+            if (!isNaN(n) && n >= 0) {
+              rowBid = n;
+              break;
+            }
+          }
+        }
+      }
+
+      if (!name || name.match(/^\d+$/) || name.length < 2) continue;
+      if (!rowBid && defaultBid) rowBid = defaultBid;
+      if (rowBid == null || isNaN(rowBid)) continue;
+
+      const existing = winnersMap.get(name);
+      if (!existing || rowBid > (existing.bid || 0)) {
+        winnersMap.set(name, { winner: name, bid: rowBid });
+      }
+    }
+
+    return Array.from(winnersMap.values());
+  }
+
+  function resolveTabPanelForAuction(auctionContainer) {
+    if (!auctionContainer) return null;
+
+    if (auctionContainer.id) {
+      const byAria = document.querySelector('.p-tabview-panel[aria-labelledby="' + auctionContainer.id + '"]');
+      if (byAria) return byAria;
+
+      const tabId = auctionContainer.id.replace(/_header_action$/, '');
+      const candidates = document.querySelectorAll('.p-tabview-panel, [data-pc-section="content"] .p-tabview-panel');
+      for (const panel of candidates) {
+        if (panel.id && (panel.id === tabId || panel.id.indexOf(tabId) !== -1)) return panel;
+        const labelledBy = panel.getAttribute('aria-labelledby') || '';
+        if (labelledBy === auctionContainer.id || labelledBy.indexOf(tabId) !== -1) return panel;
+      }
+    }
+
+    const navLink = auctionContainer.closest('.p-tabview-nav-link, a[role="tab"], [role="tab"]') || auctionContainer;
+    const tabNav = navLink.closest('.p-tabview-nav, ul.p-tabview-nav, [data-pc-section="nav"]');
+    if (tabNav) {
+      const tabs = Array.from(tabNav.querySelectorAll('.p-tabview-nav-link, a[role="tab"], [role="tab"]'));
+      const linkEl = navLink.closest('.p-tabview-nav-link, a[role="tab"]') || navLink;
+      const idx = tabs.findIndex(function (t) {
+        return t === linkEl || t.contains(linkEl) || linkEl.contains(t);
+      });
+      const tabView = tabNav.closest('.p-tabview, [data-pc-section="root"]') || document;
+      const panels = tabView.querySelectorAll(
+        ':scope > [data-pc-section="content"] .p-tabview-panel, :scope > .p-tabview-panels .p-tabview-panel, .p-tabview-panel'
+      );
+      if (idx >= 0 && idx < panels.length) return panels[idx];
+    }
+
+    return null;
+  }
+
+  function findBidsTableForItem(itemName) {
+    if (!itemName) return null;
+    const baseName = itemName.replace(/\s*x\s*\d+$/i, '').trim().toLowerCase();
+    if (!baseName) return null;
+
+    const panels = document.querySelectorAll('.p-tabview-panel, [data-pc-section="content"] .p-tabview-panel');
+    for (const panel of panels) {
+      const panelText = ((panel.getAttribute('aria-label') || '') + ' ' + (panel.id || '')).toLowerCase();
+      const headerEl = panel.querySelector('h1, h2, h3, .p-tabview-panel-header');
+      const headerText = headerEl ? headerEl.textContent.toLowerCase() : '';
+      const snippet = panel.textContent.slice(0, 500).toLowerCase();
+      if (panelText.indexOf(baseName) === -1 && headerText.indexOf(baseName) === -1 && snippet.indexOf(baseName) === -1) {
+        continue;
+      }
+      const table = panel.querySelector('table.p-datatable-table, table');
+      if (table && table.querySelector('a[href*="/characters/"]')) return table;
+    }
+    return null;
+  }
+
+  function computeActualWinnersFromBidders(rollOffWinners, bidAmount, quantity, isRollOff) {
+    let actualWinners = [];
+    if (isRollOff) {
+      actualWinners = rollOffWinners.slice();
+    } else if (rollOffWinners.length > 0 && bidAmount) {
+      if (quantity && quantity > 1) {
+        const sortedBidders = rollOffWinners.slice().sort(function (a, b) {
+          return (b.bid || 0) - (a.bid || 0);
+        });
+        actualWinners = sortedBidders.slice(0, quantity);
+      } else {
+        const highestBid = Math.max.apply(null, rollOffWinners.map(function (w) {
+          return w.bid || 0;
+        }));
+        actualWinners = rollOffWinners.filter(function (w) {
+          return w.bid === highestBid;
+        });
+        if (actualWinners.length > 1 && (!quantity || quantity === 1)) {
+          actualWinners = [actualWinners[0]];
+        }
+      }
+    }
+    return actualWinners;
+  }
+
+  function applyWinnersToContext(context, rollOffWinners, rollOffBid, quantity, bidAmount) {
+    const isRollOff =
+      rollOffWinners.length > 1 && rollOffBid !== null && rollOffWinners.length > (quantity || 1);
+    const actualWinners = computeActualWinnersFromBidders(rollOffWinners, bidAmount, quantity, isRollOff);
+    context.rollOffWinners = rollOffWinners.length > 0 ? rollOffWinners : undefined;
+    context.rollOffBid = rollOffBid;
+    context.isRollOff = isRollOff;
+    context.actualWinners = actualWinners.length > 0 ? actualWinners : undefined;
+    context.multipleWinners = actualWinners.length > 1;
+    if (actualWinners.length > 0 && actualWinners[0].winner) {
+      context.winner = actualWinners[0].winner;
+      if (actualWinners[0].bid != null) context.bidAmount = actualWinners[0].bid;
+    }
+    return context;
+  }
+
+  function finalizeAuctionContext(context, timerElement) {
+    if (!context || !context.itemName || context.noBid) return context;
+
+    const quantity = context.quantity || 1;
+    if (quantity <= 1) return context;
+
+    const winnerCount = context.actualWinners ? context.actualWinners.length : 0;
+    if (winnerCount >= quantity) return context;
+
+    let table = null;
+    if (timerElement) {
+      const auctionContainer =
+        timerElement.closest('a[id*="_header_action"]') ||
+        timerElement.closest('.p-tabview-nav-link') ||
+        timerElement.parentElement;
+      const tabPanel = resolveTabPanelForAuction(auctionContainer);
+      if (tabPanel) {
+        table = tabPanel.querySelector('table.p-datatable-table, table');
+      }
+    }
+    if (!table) {
+      table = findBidsTableForItem(context.itemName);
+    }
+    if (!table) return context;
+
+    const extracted = extractWinnersFromBidsTable(table, context.bidAmount);
+    if (!extracted.length) return context;
+
+    let rollOffBid = null;
+    if (extracted.length > 1 && extracted.every(function (w) { return w.bid === extracted[0].bid; })) {
+      rollOffBid = extracted[0].bid;
+    }
+    return applyWinnersToContext(context, extracted, rollOffBid, quantity, context.bidAmount);
+  }
+
+  function enqueueCompletionAnnouncement(context) {
+    completionAnnounceQueue.push(context);
+    processCompletionAnnounceQueue();
+  }
+
+  /**
+   * When our auto-bid character wins, disable matching rules (user rarely wants to bid again).
+   */
+  function maybeDisableAutoBidRulesOnWin(context) {
+    if (!context || context.noBid || context.isRollOff) return;
+
+    var winnerNames = [];
+    if (context.actualWinners && context.actualWinners.length) {
+      context.actualWinners.forEach(function (w) {
+        var name = w && (w.winner || w);
+        if (name) winnerNames.push(String(name));
+      });
+    } else if (context.winner) {
+      winnerNames.push(String(context.winner));
+    }
+    if (!winnerNames.length || !context.itemName) return;
+
+    try {
+      api.runtime.sendMessage(
+        {
+          type: 'autoBidDisableRulesOnWin',
+          itemName: context.itemName,
+          winnerNames: winnerNames
+        },
+        function (resp) {
+          if (api.runtime.lastError) return;
+          if (resp && resp.disabled && resp.disabled.length) {
+            log('Auto-bid: disabled rule(s) after win:', resp.disabled.join('; '));
+          }
+        }
+      );
+    } catch (e) {
+      log('Auto-bid disable-on-win failed:', e);
+    }
+  }
+
+  function processCompletionAnnounceQueue() {
+    if (completionAnnounceProcessing || completionAnnounceQueue.length === 0) return;
+    completionAnnounceProcessing = true;
+    const context = completionAnnounceQueue.shift();
+    showNotification(context, function () {
+      completionAnnounceProcessing = false;
+      if (completionAnnounceQueue.length > 0) {
+        setTimeout(processCompletionAnnounceQueue, COMPLETION_ANNOUNCE_GAP_MS);
+      }
+    });
+  }
   
   /**
    * Extract context information from a timer element
@@ -2148,130 +2489,6 @@
         }
       }
       
-      // Helper function to extract winners from a table
-      function extractWinnersFromTable(table, defaultBid) {
-        const winnersMap = new Map(); // Use Map to track highest bid per person
-        const rows = table.querySelectorAll('tbody tr, tr');
-        
-        for (const row of rows) {
-          // Skip header rows
-          if (row.querySelector('th')) continue;
-          
-          const cells = row.querySelectorAll('td');
-          if (cells.length >= 2) {
-            // Based on DOM structure: Column 0 = row number, Column 1 = name (link), Column 3 = quantity
-            // But also check if structure is different (bid table might have different columns)
-            let nameCell = null;
-            let bidCell = null;
-            
-            // Strategy 1: Look for character name links (common pattern: <a href="#/characters/...">Name</a>)
-            for (let i = 0; i < cells.length; i++) {
-              const cell = cells[i];
-              const nameLink = cell.querySelector('a[href*="/characters/"]');
-              if (nameLink) {
-                const name = nameLink.textContent.trim();
-                if (name && name.length > 0) {
-                  nameCell = cell;
-                  // Look for bid in nearby cells (check cells after the name)
-                  // IMPORTANT: Check for input fields first (bid amounts are in editable inputs)
-                  for (let j = i + 1; j < Math.min(i + 4, cells.length); j++) {
-                    const cell = cells[j];
-                    // Check for input field with value (bid amounts are in <input type="number">)
-                    const bidInput = cell.querySelector('input[type="number"]');
-                    if (bidInput && bidInput.value) {
-                      const bidValue = parseInt(bidInput.value);
-                      if (!isNaN(bidValue) && bidValue > 0) {
-                        bidCell = cell;
-                        break;
-                      }
-                    }
-                    // Fallback: check text content
-                    const cellText = cell.textContent.trim();
-                    const bidMatch = cellText.match(/^\d+$/);
-                    if (bidMatch && parseInt(cellText) > 10) {
-                      bidCell = cell;
-                      break;
-                    }
-                  }
-                  break; // Found name link, stop searching
-                }
-              }
-            }
-            
-            // Strategy 2: If no name link found, try to find name in cells with text content
-            if (!nameCell) {
-              for (let i = 0; i < cells.length; i++) {
-                const cellText = cells[i].textContent.trim();
-                
-                // Check if this cell looks like a name (contains letters, not just numbers)
-                if (cellText && cellText.match(/^[a-zA-Z][a-zA-Z0-9\s-]+$/) && cellText.length > 1) {
-                  // Check if it's not a header or known non-name values
-                  if (!['name', 'winner', '#', 'rank', 'raid main', 'raid main'].includes(cellText.toLowerCase())) {
-                    if (!nameCell) {
-                      nameCell = cells[i];
-                    }
-                  }
-                }
-                
-                // Check if this cell looks like a bid amount (input field or numbers)
-                const bidInput = cells[i].querySelector('input[type="number"]');
-                if (bidInput && bidInput.value) {
-                  const bidValue = parseInt(bidInput.value);
-                  if (!isNaN(bidValue) && bidValue > 0) {
-                    bidCell = cells[i];
-                  }
-                } else {
-                  const bidMatch = cellText.match(/^\d+$/);
-                  if (bidMatch && parseInt(cellText) > 10) {
-                    bidCell = cells[i];
-                  }
-                }
-              }
-            }
-            
-            if (nameCell) {
-              // Try to find link first (winners are often links), otherwise use text
-              const nameLink = nameCell.querySelector('a');
-              let name = nameLink ? nameLink.textContent.trim() : nameCell.textContent.trim();
-              
-              // Clean up name (remove trailing "(event" or other text)
-              name = name.replace(/\s*\(.*?$/, '').trim();
-              
-              if (name && name.length > 0 && !name.match(/^\d+$/) && name.length > 1) {
-                // Extract bid amount: prefer input field value, fallback to textContent, then defaultBid
-                let rowBid = null;
-                if (bidCell) {
-                  const bidInput = bidCell.querySelector('input[type="number"]');
-                  if (bidInput && bidInput.value) {
-                    rowBid = parseInt(bidInput.value);
-                  } else {
-                    const cellText = bidCell.textContent.trim();
-                    const bidMatch = cellText.match(/^\d+$/);
-                    if (bidMatch) {
-                      rowBid = parseInt(cellText);
-                    }
-                  }
-                }
-                
-                // If no bid found, use defaultBid
-                if (!rowBid && defaultBid) {
-                  rowBid = defaultBid;
-                }
-                
-                // CRITICAL: Track highest bid per person (table shows bid history)
-                // If person already exists, only update if this bid is higher
-                const existing = winnersMap.get(name);
-                if (!existing || !rowBid || (rowBid && (!existing.bid || rowBid > existing.bid))) {
-                  winnersMap.set(name, { winner: name, bid: rowBid });
-                }
-              }
-            }
-          }
-        }
-        
-        return Array.from(winnersMap.values());
-      }
-      
       // CRITICAL: Always check for roll-offs, not just when quantity > 1
       // Roll-offs happen when multiple people bid the same amount (especially 1000 cap)
       // This can happen on single-item auctions too!
@@ -2314,25 +2531,15 @@
       // Strategy 2: Look for bids/results table to find all winners with same bid
       // This works for both single-item roll-offs and multi-item auctions
       // IMPORTANT: Always check the table to verify/improve bid amounts, even for single winners
-      if (bidAmount && bidAmount > 0) {
-        // Find the tab panel associated with this auction container
-        let tabPanel = null;
-        if (auctionContainer && auctionContainer.id) {
-          // Try to find tab panel that corresponds to this auction
-          const tabId = auctionContainer.id.replace('_header_action', '');
-          tabPanel = document.querySelector(`[data-pc-section="content"] .p-tabview-panel[id*="${tabId}"]`) ||
-                     document.querySelector(`.p-tabview-panel[aria-labelledby="${auctionContainer.id}"]`) ||
-                     document.querySelector('.p-tabview-panel.p-tabview-panel-active');
-        } else {
-          // Fallback: use active tab panel
-          tabPanel = document.querySelector('.p-tabview-panel.p-tabview-panel-active');
+      {
+        const tabPanel = resolveTabPanelForAuction(auctionContainer);
+        let bidsTable = tabPanel ? tabPanel.querySelector('table.p-datatable-table, table') : null;
+        if (!bidsTable && itemName) {
+          bidsTable = findBidsTableForItem(itemName);
         }
-        
-        if (tabPanel) {
-          // Look for datatable in the tab panel (based on your DOM: class="p-datatable-table")
-          const bidsTable = tabPanel.querySelector('table.p-datatable-table, table');
-          if (bidsTable) {
-            const extracted = extractWinnersFromTable(bidsTable, bidAmount);
+
+        if (bidsTable && (bidAmount > 0 || (quantity && quantity > 1))) {
+            const extracted = extractWinnersFromBidsTable(bidsTable, bidAmount);
             
             if (extracted.length > 1) {
               // CRITICAL: Only consider it a roll-off if ALL winners have the SAME bid amount
@@ -2405,9 +2612,8 @@
                 }
               }
             }
-          }
         }
-        
+
         // Strategy 3: If not found in tab panel, look for tables WITHIN THIS AUCTION'S TAB PANEL ONLY
         // CRITICAL: Only look at tables in the same tab panel to avoid mixing with other auctions
         if (rollOffWinners.length <= 1 && tabPanel) {
@@ -2421,7 +2627,7 @@
             
             if (hasCharacterLinks) {
               // Extract winners with same bid amount (only from THIS auction's table)
-              const extracted = extractWinnersFromTable(table, bidAmount);
+              const extracted = extractWinnersFromBidsTable(table, bidAmount);
               log(`Found ${extracted.length} winner(s) in auction's table:`, extracted);
               
               if (extracted.length > 1) {
@@ -2631,7 +2837,7 @@
       }
       
       log('=== END ROLL-OFF DEBUG ===');
-      return context;
+      return finalizeAuctionContext(context, timerElement);
       
     } catch (error) {
       log('Error extracting context:', error);
@@ -2818,19 +3024,17 @@
   /**
    * Speak auction completion notification using TTS
    */
-  function speakNotification(context) {
+  function speakNotification(context, onComplete) {
+    function completeTts() {
+      if (typeof onComplete === 'function') onComplete();
+    }
+
     if (!settings.ENABLE_TTS) {
+      completeTts();
       return;
     }
     
-    // Prevent duplicate TTS calls
-    if (speakNotification.speaking) {
-      log('TTS: Already speaking, skipping duplicate call');
-      return;
-    }
-    speakNotification.speaking = true;
-    
-    // CRITICAL: Ensure actualWinners is populated if multipleWinners is true but actualWinners is missing
+    let message = '';
     // This is a safety net in case the context wasn't fully populated
     if (context.multipleWinners && (!context.actualWinners || context.actualWinners.length === 0)) {
       log('TTS: multipleWinners is true but actualWinners is missing, reconstructing...');
@@ -2845,8 +3049,6 @@
         log('TTS: Using rollOffWinners as actualWinners:', context.actualWinners);
       }
     }
-    
-    let message = '';
     
     // Check if advanced TTS is enabled and use custom template
     if (settings.ENABLE_ADVANCED_TTS && settings.TTS_TEMPLATE) {
@@ -2899,6 +3101,7 @@
     const selectVoice = () => {
       if (hasSpoken) {
         log('TTS: Already spoke, skipping duplicate speak() call');
+        completeTts();
         return;
       }
       
@@ -2925,12 +3128,11 @@
       hasSpoken = true;
       log('TTS: Speaking notification:', message, 'volume:', utterance.volume);
       
-      // Reset speaking flag when utterance finishes
       utterance.onend = () => {
-        speakNotification.speaking = false;
+        completeTts();
       };
       utterance.onerror = () => {
-        speakNotification.speaking = false;
+        completeTts();
       };
     };
     
@@ -2951,6 +3153,8 @@
           if (speechSynthesis.onvoiceschanged) {
             speechSynthesis.onvoiceschanged = null;
           }
+        } else if (!hasSpoken) {
+          completeTts();
         }
       }, 100);
     }
@@ -2995,10 +3199,17 @@
 
   /**
    * Show enhanced notification with auction details
+   * @param {Record<string, unknown>} context
+   * @param {() => void} [onComplete] Called after sound + TTS finish (for queue pacing)
    */
-  function showNotification(context) {
+  function showNotification(context, onComplete) {
+    function done() {
+      if (typeof onComplete === 'function') onComplete();
+    }
+
     if (!context) {
       log('No context available for notification');
+      done();
       return;
     }
     
@@ -3039,10 +3250,18 @@
       message = 'Roll-off Required!';
       details.push(`Bid Amount: ${context.rollOffBid || context.bidAmount}`);
       details.push(`Roll-off Participants: ${context.rollOffWinners.map(w => w.winner || w).join(', ')}`);
-    } else if (context.quantity > 1 && context.rollOffWinners && context.rollOffWinners.length >= context.quantity) {
+    } else if (context.multipleWinners && context.actualWinners && context.actualWinners.length > 1) {
       // Multiple winners for multi-item auction
       message = 'Multiple Winners!';
-      details.push(`Winners: ${context.rollOffWinners.slice(0, context.quantity).map(w => w.winner).join(', ')}`);
+      details.push(`Winners: ${context.actualWinners.map(function (w) { return w.winner; }).join(', ')}`);
+      const bids = context.actualWinners.map(function (w) { return w.bid; }).filter(Boolean);
+      if (bids.length) {
+        details.push(`Bid Amount${bids.length > 1 ? 's' : ''}: ${bids.join(', ')}`);
+      }
+    } else if (context.quantity > 1 && context.rollOffWinners && context.rollOffWinners.length >= context.quantity) {
+      // Multiple winners for multi-item auction (legacy path)
+      message = 'Multiple Winners!';
+      details.push(`Winners: ${context.rollOffWinners.slice(0, context.quantity).map(function (w) { return w.winner; }).join(', ')}`);
       details.push(`Bid Amount: ${context.bidAmount}`);
     } else if (context.winner) {
       // Single winner
@@ -3134,6 +3353,7 @@
     // Respect quiet hours for audio and TTS (but keep visuals)
     if (isQuietHours()) {
       log('Quiet hours active, skipping sound and TTS');
+      done();
       return;
     }
     
@@ -3144,8 +3364,8 @@
     const ttsDelay = Math.max(soundDuration + 200, 500); // At least 500ms, or sound duration + 200ms buffer
     log('TTS will start after:', ttsDelay + 'ms (sound duration:', soundDuration + 'ms)');
     
-    setTimeout(() => {
-      speakNotification(context);
+    setTimeout(function () {
+      speakNotification(context, done);
     }, ttsDelay);
   }
   

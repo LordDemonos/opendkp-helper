@@ -45,6 +45,7 @@
 
   async function boot() {
     await loadScript('lib/eqlog-parse.js');
+    await loadScript('lib/popup-notify.js');
     await loadScript('lib/opendkp-api.js');
     await loadScript('lib/raidtick-parse.js');
     await loadScript('lib/loot-queue.js');

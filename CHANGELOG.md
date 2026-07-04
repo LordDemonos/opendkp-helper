@@ -6,12 +6,13 @@ All notable changes to this project are documented here. The format is based on 
 
 ### Added
 
-- **OpenDKP HTTP API (Raid Leader)** — Cognito sign-in, guild subdomain, list/create raids, current-raid selection in Settings and popup, token refresh, and pools cache.
-- **Loot bidding queue** — Queue parsed EQ loot items to the current raid via Create Auction API (`lib/loot-queue.js`, `lib/opendkp-api.js`).
-- **Popup API session** — Sign-in, current-raid picker (last 3 raids + persisted selection), RaidTick slot queue UI (`lib/popup-api-session.js`, `lib/raidtick-queue.js`).
-- **Loot monitor enhancements** — Auto-post toggle, post-all / per-item queue, today's loot panel, clear-today, loot line exception rules (`eqlog-exceptions.html`), Chrome File System Access file picker with busy-file retry.
-- **Settings** — Appearance theme (light/dark/system), backup & restore (settings + custom sounds), item watchlist alarm, domain exceptions for reminders, auction pay strategy & duration defaults.
-- **Build** — `lib/` shared modules, `npm run package:release`, Chrome smoke test (`npm run test:chrome`).
+- **Connect to your guild's OpenDKP site (raid leaders)** — Sign in with your guild name and OpenDKP login. Create raids, pick tonight's active raid, and refresh your session from Settings or the popup without opening the website.
+- **Send loot to bidding from the game** — Items parsed from your EQ log can be queued to the current raid on OpenDKP. Queue one at a time or post everything in one go.
+- **Raid controls in the popup (raid leaders)** — Sign in, choose which raid is live tonight, and stage RaidTick files in numbered slots for upload when you're ready.
+- **Better loot monitor** — Turn on auto-post for new loot lines, see today's drops in one list, clear today's list, skip spell lines and unwanted items, and on Chrome keep reading the log even while EverQuest has the file open.
+- **Item watchlist alarm** — Build a list of item names you want to track. When one is posted on opendkp.com, the extension alerts you with sound, a screen flash, and a notification so you do not miss it.
+- **Settings** — Light/dark/system theme, backup and restore (settings plus custom sounds), reminder domain exceptions, and default pay strategy and auction length for queued loot.
+- **Build** — Shared `lib/` modules, `npm run package:release`, Chrome smoke test (`npm run test:chrome`).
 
 ### Fixed
 

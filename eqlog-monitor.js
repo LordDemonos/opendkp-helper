@@ -2,10 +2,6 @@
   // Browser detection for cross-compatibility
   const api = typeof browser !== 'undefined' ? browser : chrome;
 
-  // Issue #3: Show correct paste shortcut (Cmd+V on Mac, Ctrl+V elsewhere)
-  const pasteShortcutEl = document.getElementById('pasteShortcut');
-  if (pasteShortcutEl && /Mac|iPod|iPhone|iPad/.test(navigator.platform)) pasteShortcutEl.textContent = 'Cmd+V';
-  
   const fileInput = () => document.getElementById('fileInput');
   const pickBtn = () => document.getElementById('pick');
   const logEl = () => document.getElementById('log');
@@ -20,14 +16,116 @@
   let selectedFile = null;
   /** @type {FileSystemFileHandle | null} Chrome: refreshed each poll via getFile() */
   let logFileHandle = null;
-  let lastSeenLogLine = null;
+  /** Byte offset in the log file — only content after this is scanned on each poll. */
+  let logReadOffset = 0;
+  /** Incomplete line carried over when a read ends mid-line. */
+  let partialLineBuffer = '';
+  /** After a failed prime, skip historical lines on first successful read. */
+  let needsEndOffsetSync = false;
   let tag = 'FG';
   let autoPostEnabled = false;
   let pollInFlight = false;
   let lootExceptions = [];
   let raidLeaderMode = true;
+  let consecutiveReadFailures = 0;
+  let sessionKeepAliveTimer = null;
+  const OPEN_DKP_COGNITO_CLIENT_ID = '2sq61k8dj39e309tnh5tm70dd4';
 
-  function addLog(msg){ if (logEl()){ const d=document.createElement('div'); d.textContent=`${new Date().toLocaleTimeString()} ${msg}`; logEl().appendChild(d); logEl().scrollTop=logEl().scrollHeight; } }
+  /** Tail size for handle-based setup reads — smaller reads release the lock sooner on Windows. */
+  var TAIL_READ_BYTES = 256 * 1024;
+  var READ_RETRY_COUNT = 16;
+  var READ_RETRY_DELAY_MS = 75;
+
+  function delay(ms) {
+    return new Promise(function (resolve) { setTimeout(resolve, ms); });
+  }
+
+  function refreshSelectedFileFromInput() {
+    if (logFileHandle) return;
+    var inp = fileInput();
+    if (inp && inp.files && inp.files.length > 0) {
+      selectedFile = inp.files[0];
+    }
+  }
+
+  async function refreshLogFile() {
+    refreshSelectedFileFromInput();
+    if (logFileHandle && typeof logFileHandle.getFile === 'function') {
+      try {
+        selectedFile = await logFileHandle.getFile();
+      } catch (err) {
+        console.warn('[EQ Log Monitor] getFile() failed, using last file snapshot:', err);
+      }
+    }
+    return selectedFile;
+  }
+
+  function resetLogReadState() {
+    logReadOffset = 0;
+    partialLineBuffer = '';
+    needsEndOffsetSync = false;
+  }
+
+  function trimTailBlobText(text, truncated) {
+    if (!truncated || !text || text.length === 0) return text;
+    const firstNl = text.indexOf('\n');
+    return firstNl !== -1 ? text.slice(firstNl + 1) : text;
+  }
+
+  async function syncLogReadOffsetToEnd() {
+    const file = await refreshLogFile();
+    if (!file) return;
+    if (logFileHandle) {
+      logReadOffset = file.size;
+    } else {
+      // Snapshot mode (Firefox): file.size is frozen at pick time, but reading the
+      // whole File object returns current disk content — track offset in characters.
+      const text = await readFileAsTextWithRetry(file);
+      logReadOffset = text.length;
+    }
+    partialLineBuffer = '';
+    needsEndOffsetSync = false;
+  }
+
+  function parseCompleteLinesFromText(text) {
+    const lastNl = text.lastIndexOf('\n');
+    if (lastNl === -1) {
+      return { lines: [], remainder: text };
+    }
+    const remainder = text.slice(lastNl + 1);
+    const completeText = text.slice(0, lastNl);
+    const lines = [];
+    completeText.split('\n').forEach(function (raw) {
+      const trimmed = raw.trim();
+      if (!trimmed) return;
+      lines.push(window.EqLogParse ? EqLogParse.normalizeLogLine(trimmed) : trimmed);
+    });
+    return { lines: lines, remainder: remainder };
+  }
+
+  function addLog(msg) {
+    if (logEl()) {
+      const d = document.createElement('div');
+      d.textContent = `${new Date().toLocaleTimeString()} ${msg}`;
+      logEl().appendChild(d);
+      logEl().scrollTop = logEl().scrollHeight;
+    }
+  }
+
+  function logFileBusyMessage() {
+    const now = Date.now();
+    if (!window.lastPermissionError || (now - window.lastPermissionError) > 180000) {
+      addLog('EQ is writing to the log — retrying until the file unlocks…');
+      window.lastPermissionError = now;
+    }
+  }
+
+  function noteReadRecovered() {
+    if (consecutiveReadFailures > 0) {
+      addLog('Log file readable again.');
+    }
+    consecutiveReadFailures = 0;
+  }
 
   async function loadProfileMode() {
     const data = await api.storage.sync.get(['soundProfile']);
@@ -54,6 +152,12 @@
   }
 
   function readFileAsText(file) {
+    // Prefer Blob.text(): in Firefox it returns current on-disk content after the
+    // file grows, while FileReader permanently fails once the size changes
+    // (mozbug 1752057). Chrome uses fresh files via getFile(), so either works.
+    if (typeof file.text === 'function') {
+      return file.text().then(function (t) { return String(t || ''); });
+    }
     return new Promise(function (resolve, reject) {
       const reader = new FileReader();
       reader.onload = function () { resolve(String(reader.result || '')); };
@@ -64,18 +168,157 @@
     });
   }
 
-  async function readLogContent() {
-    let file = selectedFile;
-    if (logFileHandle && typeof logFileHandle.getFile === 'function') {
+  async function readFileAsTextWithRetry(blob) {
+    let lastErr;
+    for (let attempt = 0; attempt < READ_RETRY_COUNT; attempt++) {
       try {
-        file = await logFileHandle.getFile();
-        selectedFile = file;
+        return await readFileAsText(blob);
       } catch (err) {
-        console.warn('[EQ Log Monitor] getFile() failed, using last file snapshot:', err);
+        lastErr = err;
+        if (!isLogFileBusyError(err) || attempt >= READ_RETRY_COUNT - 1) break;
+        const waitMs = Math.min(600, Math.round(READ_RETRY_DELAY_MS * Math.pow(1.45, attempt)));
+        await delay(waitMs);
       }
     }
+    throw lastErr;
+  }
+
+  /**
+   * Read the log for setup scans. Handle path reads the recent tail; snapshot
+   * path must read the whole File — slicing by the frozen size misses new bytes.
+   */
+  async function readLogContent() {
+    const file = await refreshLogFile();
     if (!file) throw new Error('No file selected');
-    return readFileAsText(file);
+
+    if (!logFileHandle) {
+      return readFileAsTextWithRetry(file);
+    }
+
+    const truncated = file.size > TAIL_READ_BYTES;
+    const blob = truncated ? file.slice(file.size - TAIL_READ_BYTES) : file;
+    const text = await readFileAsTextWithRetry(blob);
+    return trimTailBlobText(text, truncated);
+  }
+
+  /**
+   * Read log lines appended since the last poll.
+   * Handle path: byte-offset incremental read via getFile().
+   * Snapshot path (Firefox): full read each poll, diffed by character offset —
+   * the File's size/slice bounds are frozen at pick time, but a full read
+   * returns current disk content.
+   * @returns {Promise<string[]>}
+   */
+  async function readNewLogLines() {
+    const file = await refreshLogFile();
+    if (!file) throw new Error('No file selected');
+
+    if (needsEndOffsetSync) {
+      try {
+        await syncLogReadOffsetToEnd();
+        console.log('[EQ Log Monitor] Synced read offset to end (', logReadOffset, ')');
+      } catch (e) {
+        if (isLogFileBusyError(e)) return [];
+        throw e;
+      }
+      return [];
+    }
+
+    let appendedText;
+
+    if (logFileHandle) {
+      if (file.size < logReadOffset) {
+        addLog('Log file shrank — reading from start.');
+        logReadOffset = 0;
+        partialLineBuffer = '';
+      }
+      if (file.size <= logReadOffset) return [];
+
+      const chunkEnd = file.size;
+      const chunk = file.slice(logReadOffset, chunkEnd);
+      const readText = await readFileAsTextWithRetry(chunk);
+      logReadOffset = chunkEnd;
+      appendedText = partialLineBuffer + readText;
+    } else {
+      const fullText = await readFileAsTextWithRetry(file);
+      if (fullText.length < logReadOffset) {
+        addLog('Log file shrank — reading from start.');
+        logReadOffset = 0;
+        partialLineBuffer = '';
+      }
+      if (fullText.length <= logReadOffset) return [];
+
+      appendedText = partialLineBuffer + fullText.slice(logReadOffset);
+      logReadOffset = fullText.length;
+    }
+
+    const parsed = parseCompleteLinesFromText(appendedText);
+    partialLineBuffer = parsed.remainder;
+    return parsed.lines;
+  }
+
+  async function setupLogReadPosition(captureLatest) {
+    if (!captureLatest) {
+      try {
+        const text = await readLogContent();
+        const lines = text.split('\n');
+        let primed = false;
+        for (let i = lines.length - 1; i >= 0; i--) {
+          let line = lines[i].trim();
+          if (!line) continue;
+          if (window.EqLogParse) line = EqLogParse.normalizeLogLine(line);
+          if (detectLootLine(line, tag)) {
+            console.log('[EQ Log Monitor] Primed with line:', line.substring(0, 50));
+            primed = true;
+            break;
+          }
+        }
+        await syncLogReadOffsetToEnd();
+        if (primed) addLog('Primed with latest loot line; will only capture new ones.');
+        else addLog('No existing loot line found — will capture the next one.');
+      } catch (e) {
+        console.error('[EQ Log Monitor] Error priming:', e);
+        needsEndOffsetSync = true;
+        if (isLogFileBusyError(e)) {
+          addLog('EQ is writing to the log — monitoring will retry until reads succeed.');
+        } else {
+          addLog('Error priming: ' + (e.message || String(e)));
+        }
+      }
+      return;
+    }
+
+    try {
+      const text = await readLogContent();
+      const lines = text.split('\n');
+      let latestLootLine = null;
+      for (let i = lines.length - 1; i >= 0; i--) {
+        let line = lines[i].trim();
+        if (!line) continue;
+        if (window.EqLogParse) line = EqLogParse.normalizeLogLine(line);
+        if (detectLootLine(line, tag)) {
+          latestLootLine = line;
+          console.log('[EQ Log Monitor] Found latest loot line to capture:', line.substring(0, 50));
+          break;
+        }
+      }
+      if (latestLootLine) {
+        addLog('Capturing latest loot line...');
+        await pushEvent(latestLootLine);
+        addLog('Latest loot line captured.');
+      } else {
+        addLog('No loot line found with tag: ' + tag);
+      }
+      await syncLogReadOffsetToEnd();
+    } catch (e) {
+      console.error('[EQ Log Monitor] Error capturing latest:', e);
+      needsEndOffsetSync = true;
+      if (isLogFileBusyError(e)) {
+        addLog('EQ is writing to the log — monitoring will retry until reads succeed.');
+      } else {
+        addLog('Error capturing latest: ' + (e.message || String(e)));
+      }
+    }
   }
 
   async function onLogFileChosen(file, handle) {
@@ -95,71 +338,27 @@
     console.log('[EQ Log Monitor] Using tag:', tag);
 
     if (handle) {
-      addLog('File linked — will retry automatically if EverQuest is writing to the log.');
+      addLog('Live log link — new lines are picked up automatically.');
+    } else if (!monitoring) {
+      addLog('Snapshot mode (Firefox) — if new loot does not appear after you post, choose the log file again.');
+    } else {
+      addLog('Log snapshot refreshed.');
     }
 
-    if (!monitoring) {
+    consecutiveReadFailures = 0;
+    resetLogReadState();
+
+    const captureLatest = !scanLatestNowEl || (scanLatestNowEl() && scanLatestNowEl().checked);
+    const startingFresh = !monitoring;
+
+    if (startingFresh) {
       console.log('[EQ Log Monitor] Starting monitoring...');
-      const captureLatest = !scanLatestNowEl || (scanLatestNowEl() && scanLatestNowEl().checked);
       console.log('[EQ Log Monitor] Capture latest:', captureLatest);
-      if (!captureLatest) {
-        try {
-          const text = await readLogContent();
-          const lines = text.split('\n');
-          for (let i = lines.length - 1; i >= 0; i--) {
-            let line = lines[i].trim();
-            if (!line) continue;
-            if (window.EqLogParse) line = EqLogParse.normalizeLogLine(line);
-            if (detectLootLine(line, tag)) {
-              lastSeenLogLine = line;
-              console.log('[EQ Log Monitor] Primed with line:', line.substring(0, 50));
-              break;
-            }
-          }
-          if (lastSeenLogLine) addLog('Primed with latest loot line; will only capture new ones.');
-        } catch (e) {
-          console.error('[EQ Log Monitor] Error priming:', e);
-          if (isLogFileBusyError(e)) {
-            addLog('Log file busy while priming — will retry on the next poll.');
-          } else {
-            addLog('Error priming: ' + (e.message || String(e)));
-          }
-        }
-      } else {
-        try {
-          const text = await readLogContent();
-          const lines = text.split('\n');
-          let latestLootLine = null;
-          for (let i = lines.length - 1; i >= 0; i--) {
-            let line = lines[i].trim();
-            if (!line) continue;
-            if (window.EqLogParse) line = EqLogParse.normalizeLogLine(line);
-            if (detectLootLine(line, tag)) {
-              latestLootLine = line;
-              console.log('[EQ Log Monitor] Found latest loot line to capture:', line.substring(0, 50));
-              break;
-            }
-          }
-          if (latestLootLine) {
-            addLog('Capturing latest loot line...');
-            await pushEvent(latestLootLine);
-            lastSeenLogLine = latestLootLine;
-            addLog('Latest loot line captured.');
-          } else {
-            addLog('No loot line found with tag: ' + tag);
-          }
-        } catch (e) {
-          console.error('[EQ Log Monitor] Error capturing latest:', e);
-          if (isLogFileBusyError(e)) {
-            addLog('Log file busy — will capture new loot when the game releases the file.');
-          } else {
-            addLog('Error capturing latest: ' + (e.message || String(e)));
-          }
-        }
-      }
+      await setupLogReadPosition(captureLatest);
       start();
     } else {
-      addLog('File changed.');
+      console.log('[EQ Log Monitor] Re-selected log while monitoring');
+      await setupLogReadPosition(captureLatest);
     }
     console.log('[EQ Log Monitor] Running initial poll...');
     poll();
@@ -182,6 +381,8 @@
         if (e && e.name === 'AbortError') return;
         console.warn('[EQ Log Monitor] showOpenFilePicker failed, using file input:', e);
       }
+    } else {
+      console.log('[EQ Log Monitor] showOpenFilePicker unavailable — using file input (may need re-select when log grows)');
     }
     if (fileInput()) fileInput().click();
   }
@@ -207,6 +408,32 @@
       el.textContent = '';
       el.classList.remove('raid-status-invalid');
     }
+  }
+
+  async function keepApiSessionWarm() {
+    if (!raidLeaderMode || !window.OpenDkpApi || !OpenDkpApi.ensureFreshToken) return;
+    try {
+      const data = await api.storage.sync.get(['opendkpClientSlug']);
+      const slug = String(data.opendkpClientSlug || '').trim().toLowerCase();
+      if (!slug) return;
+      await OpenDkpApi.ensureFreshToken({ clientId: OPEN_DKP_COGNITO_CLIENT_ID });
+    } catch (_) {
+      /* ignore — next queue attempt will surface a useful error */
+    }
+  }
+
+  function startSessionKeepAlive() {
+    if (sessionKeepAliveTimer) return;
+    void keepApiSessionWarm();
+    sessionKeepAliveTimer = setInterval(function () {
+      void keepApiSessionWarm();
+    }, 10 * 60 * 1000);
+  }
+
+  function stopSessionKeepAlive() {
+    if (!sessionKeepAliveTimer) return;
+    clearInterval(sessionKeepAliveTimer);
+    sessionKeepAliveTimer = null;
   }
 
   async function resetAutoPostOnStartup() {
@@ -470,89 +697,47 @@
         return;
       }
       console.log('[EQ Log Monitor] Polling file:', selectedFile.name, '- Tag:', tag);
-      const text = await readLogContent();
-      const lines = text.split('\n');
-      console.log('[EQ Log Monitor] File has', lines.length, 'lines, searching from end...');
-      let checkedLines = 0;
-      let potentialMatches = 0;
-      
-      // Collect all new loot lines (those after lastSeenLogLine)
-      const newLootLines = [];
-      let foundLastSeenLine = false;
-      
-      // Search backwards (newest to oldest)
-      for (let i=lines.length-1;i>=0;i--){
-        let line = lines[i].trim();
-        if (!line) continue;
-        line = EqLogParse.normalizeLogLine(line);
-        checkedLines++;
-        
-        if (window.EqLogParse && EqLogParse.looksLikeLootChannel(line)) {
-          potentialMatches++;
-          console.log('[EQ Log Monitor] Potential loot line found:', line.substring(0, 100));
-        }
-        
-        const isLootLine = detectLootLine(line, tag);
-        if (!isLootLine) continue;
-        
-        // If we've found the last seen line, we've collected all new lines
-        if (lastSeenLogLine && lastSeenLogLine === line) { 
-          foundLastSeenLine = true;
-          console.log('[EQ Log Monitor] Found last seen line, stopping collection');
-          break;
-        }
-        
-        // This is a new loot line (after lastSeenLogLine)
-        console.log('[EQ Log Monitor] ✅ Found new loot line with tag "' + tag + '":', line.substring(0, 100));
-        newLootLines.push(line);
-      }
-      
-      // Process new loot lines in chronological order (oldest first)
-      newLootLines.reverse();
-      
-      if (newLootLines.length === 0) {
-        if (foundLastSeenLine) {
-          addLog('No new loot lines.');
-          console.log('[EQ Log Monitor] No new loot lines since last check');
-        } else {
-          addLog('No loot line matched (looking for raid/party/say tells with tag "' + tag + '").');
-          console.log('[EQ Log Monitor] No loot line found in last', checkedLines, 'lines (found', potentialMatches, 'potential raid/party/say lines)');
-          if (potentialMatches > 0 && checkedLines <= 20) {
-            console.log('[EQ Log Monitor] ⚠️ Found potential loot lines but tag "' + tag + '" did not match');
-          }
-        }
+      const newLines = await readNewLogLines();
+      noteReadRecovered();
+
+      if (newLines.length === 0) {
+        console.log('[EQ Log Monitor] No new log bytes (offset', logReadOffset + ')');
         return;
       }
-      
+
+      console.log('[EQ Log Monitor] Read', newLines.length, 'new line(s) since last poll');
+
+      const newLootLines = newLines.filter(function (line) {
+        return detectLootLine(line, tag);
+      });
+
+      if (newLootLines.length === 0) {
+        console.log('[EQ Log Monitor] New log activity but no loot lines with tag "' + tag + '"');
+        return;
+      }
+
       const maxProcessPerPoll = 10;
-      const linesToProcess = newLootLines.length > maxProcessPerPoll 
+      const linesToProcess = newLootLines.length > maxProcessPerPoll
         ? newLootLines.slice(-maxProcessPerPoll)
         : newLootLines;
-      
+
       if (newLootLines.length > maxProcessPerPoll) {
         console.warn('[EQ Log Monitor] Too many new loot lines (' + newLootLines.length + '), processing only the ' + maxProcessPerPoll + ' most recent');
         addLog('Found ' + newLootLines.length + ' loot lines, processing ' + maxProcessPerPoll + ' most recent...');
       }
-      
+
       console.log('[EQ Log Monitor] Processing', linesToProcess.length, 'new loot line(s)');
       for (const line of linesToProcess) {
         addLog('New loot line found, pushing...');
         await pushEvent(line);
       }
-      
-      if (linesToProcess.length > 0) {
-        lastSeenLogLine = linesToProcess[linesToProcess.length - 1];
-        console.log('[EQ Log Monitor] Updated lastSeenLogLine to:', lastSeenLogLine.substring(0, 100));
-      }
     } catch(e){ 
       console.error('[EQ Log Monitor] Poll error:', e);
       if (isLogFileBusyError(e)) {
-        const now = Date.now();
-        if (!window.lastPermissionError || (now - window.lastPermissionError) > 120000) {
-          addLog('Log file busy (EverQuest is writing). Retrying automatically…');
-          window.lastPermissionError = now;
-        }
+        consecutiveReadFailures++;
+        logFileBusyMessage();
       } else {
+        consecutiveReadFailures = 0;
         addLog('Error: ' + (e.message || String(e)));
       }
     } finally {
@@ -602,6 +787,7 @@
       });
     }
     window.addEventListener('beforeunload', async ()=>{
+      stopSessionKeepAlive();
       stop();
       await api.storage.sync.set({ eqLogMonitoring: false, eqLogMonitorWindowId: null });
     });
@@ -628,6 +814,7 @@
     resetAutoPostOnStartup();
     loadLootExceptions();
     updateRaidStatusBanner(true);
+    startSessionKeepAlive();
     renderLootEventsPanel();
     const autoPostBtn = document.getElementById('toggleAutoPost');
     if (autoPostBtn) {

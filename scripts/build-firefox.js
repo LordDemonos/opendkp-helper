@@ -115,6 +115,8 @@ const REQUIRED_FILES = [
   'lib/raidtick-parse.js',
   'lib/loot-queue.js',
   'lib/raidtick-queue.js',
+  'lib/auto-bid.js',
+  'lib/popup-notify.js',
   'lib/popup-api-session.js',
   'lib/eqlog-parse.js',
   'icons/icon-16.png',

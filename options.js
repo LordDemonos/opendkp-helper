@@ -134,6 +134,11 @@ const DEFAULT_SETTINGS = {
   announceNewAuctionsDays: [0, 1, 2, 3, 4, 5, 6], // 0=Sun .. 6=Sat
   watchlistAlarmEnabled: false,
   watchlistItems: '',
+  autoBidEnabled: false,
+  autoBidIncrement: 10,
+  autoBidPollIntervalSec: 15,
+  autoBidPriority: 1,
+  autoBidRules: [],
   disableVisuals: false,
   flashScreen: true,
   browserNotifications: true,
@@ -180,6 +185,7 @@ const BACKUP_SENSITIVE_LOCAL_KEYS = [
 ];
 const OPEN_DKP_ROSTER_CACHE_STORAGE_KEY = 'opendkpRosterCacheBySlug';
 const OPEN_DKP_POOLS_CACHE_STORAGE_KEY = 'opendkpPoolsCache';
+const AUTO_BID_CHARACTERS_CACHE_KEY = 'autoBidCharactersCache';
 /** Local mirror when sync is empty, quota-limited, or lost on reload (Firefox). */
 const LOCAL_SETTINGS_MIRROR_KEY = 'opendkpSettingsLocalMirror';
 const OPEN_DKP_MAX_RAID_TICK_DEFS = 10;
@@ -307,18 +313,34 @@ function loadOpenDkpHelperLibs() {
       },
       function () {
         inject(
-          'lib/raidtick-parse.js',
+          'lib/rank-bid-limits.js',
           function () {
-            return typeof window.RaidTickParse !== 'undefined';
+            return typeof window.OpenDkpRankBidLimits !== 'undefined';
           },
           function () {
             inject(
-              'lib/raidtick-queue.js',
+              'lib/auto-bid.js',
               function () {
-                return typeof window.RaidTickQueue !== 'undefined';
+                return typeof window.AutoBid !== 'undefined';
               },
               function () {
-                resolve();
+                inject(
+                  'lib/raidtick-parse.js',
+                  function () {
+                    return typeof window.RaidTickParse !== 'undefined';
+                  },
+                  function () {
+                    inject(
+                      'lib/raidtick-queue.js',
+                      function () {
+                        return typeof window.RaidTickQueue !== 'undefined';
+                      },
+                      function () {
+                        resolve();
+                      }
+                    );
+                  }
+                );
               }
             );
           }
@@ -864,7 +886,11 @@ function applyCriticalSettingsMirror(target, mirror) {
     'opendkpAttendance',
     'opendkpPreferredPoolId',
     'opendkpAuctionPayStrategy',
-    'opendkpAuctionDuration'
+    'opendkpAuctionDuration',
+    'autoBidEnabled',
+    'autoBidIncrement',
+    'autoBidPollIntervalSec',
+    'autoBidRules'
   ];
   keys.forEach(function(key) {
     if (isEmptySettingValue(target[key]) && !isEmptySettingValue(mirror[key])) {
@@ -911,6 +937,18 @@ function collectCriticalSettingsFromUI() {
       const n = parseInt(String(raw != null ? raw : 2), 10);
       return Number.isNaN(n) || n < 1 ? 2 : n;
     })(),
+    autoBidEnabled: getChecked('autoBidEnabled', currentSettings.autoBidEnabled),
+    autoBidIncrement: (() => {
+      const el = document.getElementById('autoBidIncrement');
+      const n = parseInt(String(el ? el.value : currentSettings.autoBidIncrement), 10);
+      return Number.isNaN(n) || n < 1 ? 10 : n;
+    })(),
+    autoBidPollIntervalSec: (() => {
+      const el = document.getElementById('autoBidPollIntervalSec');
+      const n = parseInt(String(el ? el.value : currentSettings.autoBidPollIntervalSec), 10);
+      return Number.isNaN(n) || n < 5 ? 15 : n;
+    })(),
+    autoBidRules: autoBidReadRulesFromUI(),
     savedAt: Date.now()
   };
 }
@@ -973,7 +1011,11 @@ function buildBackupManifest(syncData, localData) {
     hasApiTokens: !!(localData && localData.opendkpIdToken),
     opendkpRaidTickDefCount: Array.isArray(syncData.opendkpRaidTickDefs)
       ? syncData.opendkpRaidTickDefs.length
-      : (Array.isArray(mirror.opendkpRaidTickDefs) ? mirror.opendkpRaidTickDefs.length : 0)
+      : (Array.isArray(mirror.opendkpRaidTickDefs) ? mirror.opendkpRaidTickDefs.length : 0),
+    autoBidEnabled: !!(syncData.autoBidEnabled || mirror.autoBidEnabled),
+    autoBidRuleCount: Array.isArray(syncData.autoBidRules)
+      ? syncData.autoBidRules.length
+      : (Array.isArray(mirror.autoBidRules) ? mirror.autoBidRules.length : 0)
   };
 }
 
@@ -993,6 +1035,10 @@ function formatBackupRestoreSummary(backup) {
     ? sync.opendkpRaidTickDefs.length
     : (Array.isArray(mirror.opendkpRaidTickDefs) ? mirror.opendkpRaidTickDefs.length : 0);
   if (tickCount) parts.push(tickCount + ' raid tick def(s)');
+  const autoBidRules = Array.isArray(sync.autoBidRules)
+    ? sync.autoBidRules.length
+    : (Array.isArray(mirror.autoBidRules) ? mirror.autoBidRules.length : 0);
+  if (autoBidRules) parts.push(autoBidRules + ' auto-bid rule(s)');
   return parts.join(', ');
 }
 
@@ -1047,7 +1093,10 @@ let __odRaidtickStageByTickId = {};
 let __odRaidtickSelectWired = false;
 let __odRosterCacheRoot = {};
 let __odPoolsCache = { pools: [] };
+let __autoBidCharactersCache = [];
+let __autoBidRankLimits = {};
 let __odSavedApiPassword = '';
+let __autoBidRulesSyncFromUI = false;
 
 function openDkpFormatApiError(e) {
   const parts = [];
@@ -1097,8 +1146,7 @@ function openDkpUpdateRaidtickUploadBlockVisibility() {
   if (toggleRow) toggleRow.classList.remove('feature-sunset');
   if (toggle) toggle.disabled = false;
   if (desc) {
-    desc.textContent =
-      'When off, tick log upload controls are hidden in the extension popup while upload is being fixed.';
+    desc.textContent = 'When off, tick log upload controls are hidden in the extension popup.';
   }
   const enabled = !!currentSettings.opendkpRaidtickUploadEnabled;
   if (block) block.style.display = enabled ? '' : 'none';
@@ -1109,6 +1157,670 @@ function updateOpenDkpApiGroupVisibility(profile) {
   const apiGroup = document.getElementById('openDkpApiGroup');
   if (apiGroup) {
     apiGroup.style.display = activeProfile === 'raidleader' ? 'block' : 'none';
+  }
+  updateAutoBidSectionVisibility();
+  updateAutoBidApiBlockVisibility(activeProfile);
+}
+
+function updateAutoBidSectionVisibility() {
+  const group = document.getElementById('autoBidGroup');
+  if (group) group.style.display = 'block';
+}
+
+function updateAutoBidDetailsVisibility() {
+  const enabled = document.getElementById('autoBidEnabled');
+  const details = document.getElementById('autoBidDetails');
+  if (details) {
+    details.style.display = enabled && enabled.checked ? 'block' : 'none';
+  }
+}
+
+function updateAutoBidApiBlockVisibility(profile) {
+  const activeProfile = profile != null ? profile : currentSettings.soundProfile;
+  const raiderBlock = document.getElementById('autoBidRaiderApiBlock');
+  const leaderNote = document.getElementById('autoBidLeaderApiNote');
+  if (raiderBlock) raiderBlock.style.display = activeProfile === 'raider' ? 'block' : 'none';
+  if (leaderNote) leaderNote.style.display = activeProfile === 'raidleader' ? 'block' : 'none';
+}
+
+function syncAutoBidCredentialFieldsFromMain() {
+  const slug = document.getElementById('opendkpClientSlug');
+  const user = document.getElementById('opendkpCognitoUser');
+  const pass = document.getElementById('opendkpCognitoPassword');
+  const abSlug = document.getElementById('autoBidClientSlug');
+  const abUser = document.getElementById('autoBidCognitoUser');
+  const abPass = document.getElementById('autoBidCognitoPassword');
+  if (abSlug && slug) abSlug.value = slug.value;
+  if (abUser && user) abUser.value = user.value;
+  if (abPass && pass && pass.value) abPass.value = pass.value;
+}
+
+function syncMainCredentialFieldsFromAutoBid() {
+  const slug = document.getElementById('opendkpClientSlug');
+  const user = document.getElementById('opendkpCognitoUser');
+  const pass = document.getElementById('opendkpCognitoPassword');
+  const abSlug = document.getElementById('autoBidClientSlug');
+  const abUser = document.getElementById('autoBidCognitoUser');
+  const abPass = document.getElementById('autoBidCognitoPassword');
+  if (slug && abSlug) slug.value = abSlug.value;
+  if (user && abUser) user.value = abUser.value;
+  if (pass && abPass && abPass.value) pass.value = abPass.value;
+}
+
+function normalizeAutoBidRules(raw) {
+  if (window.AutoBid && AutoBid.normalizeRules) {
+    return AutoBid.normalizeRules(raw);
+  }
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(function (r) {
+    return r && r.itemPattern && r.maxDkp > 0 && r.characterId > 0;
+  });
+}
+
+function autoBidNewRuleId() {
+  return 'abr-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7);
+}
+
+function autoBidReadRulesFromUI() {
+  const list = document.getElementById('autoBidRulesList');
+  if (!list) {
+    return Array.isArray(currentSettings.autoBidRules) ? currentSettings.autoBidRules.slice() : [];
+  }
+  const cards = list.querySelectorAll('.auto-bid-rule[data-rule-id]');
+  if (!cards.length) {
+    return Array.isArray(currentSettings.autoBidRules) ? currentSettings.autoBidRules.slice() : [];
+  }
+  const rules = [];
+  cards.forEach(function (card) {
+    const id = card.getAttribute('data-rule-id') || autoBidNewRuleId();
+    const enabledEl = card.querySelector('.auto-bid-rule-enabled');
+    const itemEl = card.querySelector('.auto-bid-rule-item');
+    const maxEl = card.querySelector('.auto-bid-rule-max');
+    const charEl = card.querySelector('.auto-bid-rule-character');
+    const rankEl = card.querySelector('.auto-bid-rule-rank');
+    const itemPattern = itemEl ? String(itemEl.value || '').trim() : '';
+    const maxDkp = maxEl ? parseInt(String(maxEl.value || ''), 10) : 0;
+    const characterIdRaw = charEl ? String(charEl.value || '').trim() : '';
+    const characterId = characterIdRaw ? parseInt(characterIdRaw, 10) : 0;
+    // Keep in-progress edits (item without character, etc.) — normalizeRules filters at bid time
+    if (!itemPattern && (Number.isNaN(characterId) || characterId < 1) && cards.length > 1) {
+      return;
+    }
+    var selectedOpt = charEl && charEl.selectedOptions && charEl.selectedOptions[0];
+    var rank = rankEl ? String(rankEl.textContent || '').trim().replace(/^—$/, '') : '';
+    if (!rank && characterId > 0) {
+      rank = autoBidRankForCharacterId(characterId) || '';
+    }
+    var maxDkpOut = Number.isNaN(maxDkp) || maxDkp < 1 ? 100 : maxDkp;
+    if (window.OpenDkpRankBidLimits && rank && characterId > 0) {
+      maxDkpOut = OpenDkpRankBidLimits.clampMaxDkpForRank(maxDkpOut, rank, __autoBidRankLimits).value;
+    }
+    rules.push({
+      id: id,
+      enabled: enabledEl ? !!enabledEl.checked : true,
+      itemPattern: itemPattern,
+      maxDkp: maxDkpOut,
+      characterId: characterId > 0 ? characterId : '',
+      characterName: selectedOpt
+        ? String(selectedOpt.getAttribute('data-name') || selectedOpt.textContent || '')
+            .trim()
+            .replace(/\s*\([^)]*\)\s*$/, '')
+        : '',
+      rank: rank,
+      priority: currentSettings.autoBidPriority != null ? currentSettings.autoBidPriority : 1
+    });
+  });
+  return rules;
+}
+
+function autoBidCharacterSelectOptionsHtml(selectedId) {
+  var html = '<option value="">— character —</option>';
+  (__autoBidCharactersCache || []).forEach(function (c) {
+    if (!c || !c.id) return;
+    var label = c.name + (c.rank ? ' (' + c.rank + ')' : '');
+    var sel = String(selectedId) === String(c.id) ? ' selected' : '';
+    html +=
+      '<option value="' +
+      String(c.id) +
+      '" data-name="' +
+      String(c.name || '').replace(/"/g, '&quot;') +
+      '" data-rank="' +
+      String(c.rank || '').replace(/"/g, '&quot;') +
+      '"' +
+      sel +
+      '>' +
+      label +
+      '</option>';
+  });
+  return html;
+}
+
+function autoBidRankForCharacterId(characterId) {
+  var found = (__autoBidCharactersCache || []).find(function (c) {
+    return String(c.id) === String(characterId);
+  });
+  return found && found.rank ? found.rank : '';
+}
+
+async function autoBidLoadRankLimitsCache() {
+  if (!window.OpenDkpRankBidLimits) {
+    __autoBidRankLimits = {};
+    return __autoBidRankLimits;
+  }
+  var slug = '';
+  if (currentSettings.soundProfile === 'raider') {
+    var abSlugEl = document.getElementById('autoBidClientSlug');
+    slug = abSlugEl ? normalizeOpenDkpClientSlug(abSlugEl.value) : '';
+  } else {
+    var slugEl = document.getElementById('opendkpClientSlug');
+    slug = slugEl ? normalizeOpenDkpClientSlug(slugEl.value) : '';
+  }
+  if (!slug) {
+    slug = normalizeOpenDkpClientSlug(currentSettings.opendkpClientSlug || '');
+  }
+  if (!slug) {
+    __autoBidRankLimits = {};
+    return __autoBidRankLimits;
+  }
+  __autoBidRankLimits = await OpenDkpRankBidLimits.loadForSlug(slug);
+  return __autoBidRankLimits;
+}
+
+function autoBidRankMaxHintText(rank) {
+  if (!window.OpenDkpRankBidLimits || !rank || rank === '—') {
+    return 'Open a guild tab on opendkp.com to sync rank bid limits.';
+  }
+  var max = OpenDkpRankBidLimits.getRankMax(__autoBidRankLimits, rank);
+  if (max == null) {
+    return 'Open a guild tab on opendkp.com to sync rank bid limits.';
+  }
+  return 'OpenDKP max for ' + rank + ': ' + max;
+}
+
+function autoBidApplyRankMaxToCard(card) {
+  if (!card) return;
+  var rankEl = card.querySelector('.auto-bid-rule-rank');
+  var maxEl = card.querySelector('.auto-bid-rule-max');
+  var hintEl = card.querySelector('.auto-bid-rule-max-hint');
+  var rank = rankEl ? String(rankEl.textContent || '').trim().replace(/^—$/, '') : '';
+  if (hintEl) {
+    hintEl.textContent = autoBidRankMaxHintText(rank);
+  }
+  if (!maxEl || !window.OpenDkpRankBidLimits || !rank) {
+    if (maxEl) maxEl.removeAttribute('max');
+    return;
+  }
+  var result = OpenDkpRankBidLimits.clampMaxDkpForRank(parseInt(String(maxEl.value || ''), 10), rank, __autoBidRankLimits);
+  if (result.rankMax != null) {
+    maxEl.max = String(result.rankMax);
+  } else {
+    maxEl.removeAttribute('max');
+  }
+  if (result.clamped) {
+    maxEl.value = String(result.value);
+  }
+}
+
+function autoBidApplyRankMaxToAllCards() {
+  document.querySelectorAll('#autoBidRulesList .auto-bid-rule').forEach(autoBidApplyRankMaxToCard);
+}
+
+function autoBidUserIsEditingRules() {
+  var active = document.activeElement;
+  if (!active) return false;
+  var list = document.getElementById('autoBidRulesList');
+  return !!(list && list.contains(active));
+}
+
+function renderAutoBidRulesTable() {
+  const list = document.getElementById('autoBidRulesList');
+  if (!list) return;
+  const rules = Array.isArray(currentSettings.autoBidRules) ? currentSettings.autoBidRules : [];
+  list.innerHTML = '';
+  rules.forEach(function (rule) {
+    autoBidAppendRuleRow(rule);
+  });
+  if (!rules.length) {
+    autoBidAppendRuleRow({
+      id: autoBidNewRuleId(),
+      enabled: true,
+      itemPattern: '',
+      maxDkp: 100,
+      characterId: '',
+      characterName: '',
+      rank: ''
+    });
+  }
+}
+
+function autoBidAppendRuleRow(rule) {
+  const list = document.getElementById('autoBidRulesList');
+  if (!list) return;
+  rule = rule || {};
+  const card = document.createElement('div');
+  card.className = 'auto-bid-rule';
+  card.setAttribute('data-rule-id', rule.id || autoBidNewRuleId());
+  card.innerHTML =
+    '<div class="auto-bid-rule-header">' +
+    '<label class="auto-bid-rule-toggle">' +
+    '<input type="checkbox" class="auto-bid-rule-enabled"' +
+    (rule.enabled !== false ? ' checked' : '') +
+    '> Rule enabled</label>' +
+    '<button type="button" class="auto-bid-rule-remove test-button">Remove</button>' +
+    '</div>' +
+    '<div class="auto-bid-rule-field">' +
+    '<label>Item (contains)</label>' +
+    '<input type="text" class="auto-bid-rule-item" placeholder="Bracelet of the Shadow Hive" value="' +
+    String(rule.itemPattern || '').replace(/"/g, '&quot;') +
+    '">' +
+    '</div>' +
+    '<div class="auto-bid-rule-row">' +
+    '<div class="auto-bid-rule-field auto-bid-rule-field--max">' +
+    '<label>Max DKP</label>' +
+    '<input type="number" class="auto-bid-rule-max" min="1" step="1" value="' +
+    String(rule.maxDkp != null ? rule.maxDkp : 100) +
+    '">' +
+    '<small class="auto-bid-rule-max-hint"></small>' +
+    '</div>' +
+    '<div class="auto-bid-rule-field auto-bid-rule-field--char">' +
+    '<label>Bid as</label>' +
+    '<select class="auto-bid-rule-character">' +
+    autoBidCharacterSelectOptionsHtml(rule.characterId) +
+    '</select></div>' +
+    '<div class="auto-bid-rule-field auto-bid-rule-field--rank">' +
+    '<label>Rank</label>' +
+    '<span class="auto-bid-rule-rank">' +
+    (rule.rank || autoBidRankForCharacterId(rule.characterId) || '—') +
+    '</span></div></div>';
+
+  const charEl = card.querySelector('.auto-bid-rule-character');
+  const rankEl = card.querySelector('.auto-bid-rule-rank');
+  const maxEl = card.querySelector('.auto-bid-rule-max');
+  if (charEl) {
+    charEl.addEventListener('change', function () {
+      if (rankEl) rankEl.textContent = autoBidRankForCharacterId(charEl.value) || '—';
+      autoBidApplyRankMaxToCard(card);
+      schedulePersistAutoBidSettings();
+    });
+  }
+  if (maxEl) {
+    maxEl.addEventListener('change', function () {
+      autoBidApplyRankMaxToCard(card);
+    });
+    maxEl.addEventListener('blur', function () {
+      autoBidApplyRankMaxToCard(card);
+      schedulePersistAutoBidSettings();
+    });
+  }
+  card.querySelectorAll('.auto-bid-rule-item, .auto-bid-rule-max, .auto-bid-rule-enabled').forEach(function (el) {
+    el.addEventListener('input', schedulePersistAutoBidSettings);
+    el.addEventListener('change', schedulePersistAutoBidSettings);
+  });
+  const removeBtn = card.querySelector('.auto-bid-rule-remove');
+  if (removeBtn) {
+    removeBtn.addEventListener('click', function () {
+      card.remove();
+      currentSettings.autoBidRules = autoBidReadRulesFromUI();
+      schedulePersistAutoBidSettings();
+    });
+  }
+  list.appendChild(card);
+  autoBidApplyRankMaxToCard(card);
+}
+
+var __autoBidPersistTimer = null;
+function schedulePersistAutoBidSettings() {
+  if (__autoBidPersistTimer) clearTimeout(__autoBidPersistTimer);
+  __autoBidPersistTimer = setTimeout(function () {
+    __autoBidPersistTimer = null;
+    currentSettings.autoBidRules = autoBidReadRulesFromUI();
+    persistAutoBidSettings({ silent: true });
+  }, 800);
+}
+
+function collectAutoBidSettingsFromUI() {
+  const getChecked = function (id, def) {
+    const el = document.getElementById(id);
+    return el ? !!el.checked : def;
+  };
+  const getVal = function (id, def) {
+    const el = document.getElementById(id);
+    return el ? el.value : def;
+  };
+  if (currentSettings.soundProfile === 'raider') {
+    syncMainCredentialFieldsFromAutoBid();
+  }
+  const rawSlug =
+    currentSettings.soundProfile === 'raider'
+      ? String(getVal('autoBidClientSlug', currentSettings.opendkpClientSlug || '') || '').trim()
+      : String(getVal('opendkpClientSlug', currentSettings.opendkpClientSlug || '') || '').trim();
+  const normSlug = normalizeOpenDkpClientSlug(rawSlug);
+  const increment = parseInt(String(getVal('autoBidIncrement', currentSettings.autoBidIncrement)), 10);
+  const pollSec = parseInt(String(getVal('autoBidPollIntervalSec', currentSettings.autoBidPollIntervalSec)), 10);
+  return {
+    autoBidEnabled: getChecked('autoBidEnabled', currentSettings.autoBidEnabled),
+    autoBidIncrement: Number.isNaN(increment) || increment < 1 ? 10 : increment,
+    autoBidPollIntervalSec: Number.isNaN(pollSec) || pollSec < 5 ? 15 : pollSec,
+    autoBidPriority: currentSettings.autoBidPriority != null ? currentSettings.autoBidPriority : 1,
+    autoBidRules: autoBidReadRulesFromUI(),
+    opendkpClientSlug: rawSlug === '' ? '' : normSlug || currentSettings.opendkpClientSlug || ''
+  };
+}
+
+function persistAutoBidSettings(options) {
+  options = options || {};
+  const payload = collectAutoBidSettingsFromUI();
+  Object.assign(currentSettings, payload);
+  const syncPayload = Object.assign({}, payload);
+  __autoBidRulesSyncFromUI = true;
+  return new Promise(function (resolve, reject) {
+    api.storage.sync.set(syncPayload, function () {
+      setTimeout(function () {
+        __autoBidRulesSyncFromUI = false;
+      }, 200);
+      if (api.runtime && api.runtime.lastError) {
+        reject(api.runtime.lastError);
+        return;
+      }
+      if (api.storage.local && api.storage.local.set) {
+        api.storage.local.set(
+          {
+            [LOCAL_SETTINGS_MIRROR_KEY]: Object.assign(
+              {},
+              collectCriticalSettingsFromUI(),
+              payload,
+              { savedAt: Date.now() }
+            )
+          },
+          function () {
+            if (!options.silent) showStatus('Auto-bid settings saved', 'success');
+            resolve();
+          }
+        );
+      } else {
+        if (!options.silent) showStatus('Auto-bid settings saved', 'success');
+        resolve();
+      }
+    });
+  });
+}
+
+async function autoBidLoadCharactersCache() {
+  return new Promise(function (resolve) {
+    if (!api.storage.local) return resolve([]);
+    api.storage.local.get([AUTO_BID_CHARACTERS_CACHE_KEY], function (r) {
+      const root = r && r[AUTO_BID_CHARACTERS_CACHE_KEY];
+      __autoBidCharactersCache =
+        root && Array.isArray(root.characters) ? root.characters : [];
+      resolve(__autoBidCharactersCache);
+    });
+  });
+}
+
+async function autoBidUpdateTokenStatusEl() {
+  const el = document.getElementById('autoBidTokenStatus');
+  if (!el || !window.OpenDkpApi) return;
+  try {
+    const m = await OpenDkpApi.getTokenMeta();
+    if (m.isActive) {
+      el.textContent = 'API session active (expires ' + new Date(m.expiresAt).toLocaleString() + ')';
+    } else if (m.hasToken) {
+      el.textContent = 'Token expired — sign in again.';
+    } else {
+      el.textContent = 'Not signed in.';
+    }
+  } catch (_) {
+    el.textContent = '';
+  }
+}
+
+function autoBidCharacterRefreshError(resp, fallback) {
+  const lastErr = api.runtime && api.runtime.lastError;
+  if (lastErr) {
+    return new Error(lastErr.message || String(lastErr) || fallback);
+  }
+  if (!resp) {
+    return new Error(
+      fallback + ' (no response from extension — reload the add-on and try again)'
+    );
+  }
+  const detail = resp.error || resp.reason || resp.message;
+  if (detail) return new Error(detail);
+  if (resp.ok === false) return new Error(fallback);
+  return null;
+}
+
+async function autoBidRefreshCharactersFromApi() {
+  const statusEl = document.getElementById('autoBidCharStatus');
+  if (statusEl) statusEl.textContent = 'Loading…';
+  try {
+    await persistAutoBidSettings({ silent: true });
+    const slug = collectAutoBidSettingsFromUI().opendkpClientSlug;
+    if (!slug) {
+      throw new Error(
+        currentSettings.soundProfile === 'raider'
+          ? 'Enter your guild subdomain in Auto-Bid settings first.'
+          : 'Enter your guild subdomain in OpenDKP API (raids) settings first.'
+      );
+    }
+    if (!window.OpenDkpApi) {
+      throw new Error('OpenDKP API module not loaded — reload the options page.');
+    }
+    const tokenMeta = await OpenDkpApi.getTokenMeta();
+    if (!tokenMeta.hasToken) {
+      throw new Error('Sign in to the OpenDKP API first.');
+    }
+    if (!tokenMeta.isActive) {
+      throw new Error('API session expired — sign in again.');
+    }
+
+    let characters = [];
+    if (window.AutoBid && AutoBid.refreshAccountCharacters) {
+      characters = await AutoBid.refreshAccountCharacters({
+        cognitoClientId: OPEN_DKP_COGNITO_CLIENT_ID,
+        clientSlug: slug,
+        username: currentSettings.opendkpCognitoUsername || undefined
+      });
+    } else {
+      characters = await new Promise(function (resolve, reject) {
+        api.runtime.sendMessage({ type: 'autoBidRefreshCharacters', clientSlug: slug }, function (resp) {
+          const err = autoBidCharacterRefreshError(resp, 'Failed to load characters');
+          if (err) return reject(err);
+          resolve(resp.characters || []);
+        });
+      });
+    }
+    __autoBidCharactersCache = characters;
+    await autoBidLoadRankLimitsCache();
+    renderAutoBidRulesTable();
+    if (statusEl) {
+      statusEl.textContent = characters.length
+        ? characters.length + ' character(s) loaded from OpenDKP.'
+        : 'No characters linked to your OpenDKP account — check Profile on opendkp.com matches your sign-in username.';
+    }
+    return characters;
+  } catch (e) {
+    if (statusEl) statusEl.textContent = 'Failed: ' + (e.message || e);
+    throw e;
+  }
+}
+
+function wireAutoBidUi() {
+  const root = document.getElementById('autoBidEnableRow');
+  if (root && root.dataset.autoBidWired === '1') return;
+  if (root) root.dataset.autoBidWired = '1';
+
+  try {
+    api.storage.onChanged.addListener(function (changes, area) {
+      if (area === 'local' && changes.opendkpRankBidLimitsBySlug) {
+        autoBidLoadRankLimitsCache().then(function () {
+          autoBidApplyRankMaxToAllCards();
+        });
+      }
+      if (area === 'sync' && changes.autoBidRules && Array.isArray(changes.autoBidRules.newValue)) {
+        currentSettings.autoBidRules = changes.autoBidRules.newValue;
+        if (!__autoBidRulesSyncFromUI && !autoBidUserIsEditingRules()) {
+          renderAutoBidRulesTable();
+        }
+      }
+    });
+  } catch (_) {}
+
+  const enabledChk = document.getElementById('autoBidEnabled');
+  if (enabledChk) {
+    enabledChk.addEventListener('change', function () {
+      currentSettings.autoBidEnabled = this.checked;
+      updateAutoBidDetailsVisibility();
+      persistAutoBidSettings({ silent: true });
+    });
+  }
+
+  ['autoBidIncrement', 'autoBidPollIntervalSec', 'autoBidClientSlug'].forEach(function (id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', schedulePersistAutoBidSettings);
+    el.addEventListener('change', function () {
+      if (id === 'autoBidClientSlug') {
+        autoBidLoadRankLimitsCache().then(function () {
+          autoBidApplyRankMaxToAllCards();
+        });
+      }
+      schedulePersistAutoBidSettings();
+    });
+  });
+
+  const mainSlugEl = document.getElementById('opendkpClientSlug');
+  if (mainSlugEl) {
+    mainSlugEl.addEventListener('change', function () {
+      autoBidLoadRankLimitsCache().then(function () {
+        autoBidApplyRankMaxToAllCards();
+      });
+    });
+  }
+
+  ['autoBidCognitoUser', 'autoBidCognitoPassword'].forEach(function (id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('change', schedulePersistAutoBidSettings);
+    el.addEventListener('blur', schedulePersistAutoBidSettings);
+  });
+
+  const addRuleBtn = document.getElementById('autoBidAddRule');
+  if (addRuleBtn) {
+    addRuleBtn.addEventListener('click', function () {
+      autoBidAppendRuleRow({
+        id: autoBidNewRuleId(),
+        enabled: true,
+        itemPattern: '',
+        maxDkp: 100,
+        characterId: '',
+        rank: ''
+      });
+      schedulePersistAutoBidSettings();
+    });
+  }
+
+  const refreshBtn = document.getElementById('autoBidRefreshCharacters');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', async function () {
+      refreshBtn.disabled = true;
+      try {
+        await autoBidRefreshCharactersFromApi();
+        showStatus('Characters refreshed from OpenDKP.', 'success');
+      } catch (e) {
+        showStatus('Character refresh failed: ' + (e.message || e), 'error');
+      } finally {
+        refreshBtn.disabled = false;
+      }
+    });
+  }
+
+  const testPollBtn = document.getElementById('autoBidTestPoll');
+  if (testPollBtn) {
+    testPollBtn.addEventListener('click', async function () {
+      const outEl = document.getElementById('autoBidLastRun');
+      if (outEl) outEl.textContent = 'Running…';
+      try {
+        await persistAutoBidSettings({ silent: true });
+        const result = await new Promise(function (resolve, reject) {
+          api.runtime.sendMessage({ type: 'autoBidRun' }, function (resp) {
+            if (api.runtime.lastError) return reject(api.runtime.lastError);
+            resolve(resp || {});
+          });
+        });
+        const lines = [];
+        if (result.skipped) lines.push('Skipped: ' + (result.reason || 'none'));
+        (result.results || []).forEach(function (r) {
+          if (r.action === 'bid') {
+            lines.push('Bid ' + r.amount + ' on "' + r.itemName + '" as ' + (r.characterName || 'character'));
+          } else if (r.action === 'error') {
+            lines.push('Error on "' + r.itemName + '": ' + r.message);
+          }
+        });
+        if (!lines.length) lines.push(result.ok ? 'Poll complete — no bids placed.' : 'Poll failed: ' + (result.reason || 'unknown'));
+        if (outEl) outEl.textContent = lines.join('\n');
+        showStatus('Auto-bid test poll finished.', 'success');
+      } catch (e) {
+        if (outEl) outEl.textContent = 'Error: ' + (e.message || e);
+        showStatus('Test poll failed: ' + (e.message || e), 'error');
+      }
+    });
+  }
+
+  const signIn = document.getElementById('autoBidSignIn');
+  if (signIn) {
+    signIn.addEventListener('click', async function () {
+      const statusLine = document.getElementById('autoBidTokenStatus');
+      try {
+        if (!window.OpenDkpApi) {
+          showStatus('API module not loaded.', 'error');
+          return;
+        }
+        syncMainCredentialFieldsFromAutoBid();
+        const user = (document.getElementById('autoBidCognitoUser') || {}).value || '';
+        const pass = (document.getElementById('autoBidCognitoPassword') || {}).value || '';
+        if (!user || !pass) {
+          showStatus('Enter OpenDKP username and password.', 'error');
+          return;
+        }
+        signIn.disabled = true;
+        if (statusLine) statusLine.textContent = 'Signing in…';
+        await OpenDkpApi.cognitoInitiatePasswordAuth({
+          clientId: OPEN_DKP_COGNITO_CLIENT_ID,
+          username: user,
+          password: pass
+        });
+        await openDkpPersistApiCredentials(user, pass);
+        await persistAutoBidSettings({ silent: true });
+        await autoBidUpdateTokenStatusEl();
+        await openDkpUpdateTokenStatusEl();
+        showStatus('Signed in to OpenDKP API.', 'success');
+        try {
+          await autoBidRefreshCharactersFromApi();
+        } catch (refreshErr) {
+          showStatus(
+            'Signed in, but character load failed: ' + (refreshErr.message || refreshErr),
+            'error'
+          );
+        }
+      } catch (e) {
+        if (statusLine) statusLine.textContent = 'Sign-in failed';
+        showStatus('Sign-in failed: ' + (e.message || e), 'error');
+      } finally {
+        signIn.disabled = false;
+      }
+    });
+  }
+
+  const signOut = document.getElementById('autoBidSignOut');
+  if (signOut) {
+    signOut.addEventListener('click', async function () {
+      if (!window.OpenDkpApi) return;
+      await OpenDkpApi.clearTokens();
+      await autoBidUpdateTokenStatusEl();
+      await openDkpUpdateTokenStatusEl();
+      showStatus('Signed out.', 'success');
+    });
   }
 }
 
@@ -1209,7 +1921,7 @@ function openDkpGatherRaidtickBatchInputs(opts) {
     return { ok: false, message: 'Refresh raid list and set a current raid first.' };
   }
   if (!Object.keys(__odRosterNameToId).length) {
-    return { ok: false, message: 'Load roster for name \u2192 ID map before applying.' };
+    return { ok: false, message: 'Load roster for name \u2192 ID map before applying (Settings \u2192 Load roster).' };
   }
 
   const namesBySlotIndex = [];
@@ -1272,12 +1984,14 @@ function openDkpGatherRaidtickBatchInputs(opts) {
 
 async function openDkpBuildRaidtickPostBodyBatch(inputs) {
   const full = await OpenDkpApi.getRaid(inputs.cfg, inputs.rid);
-  const updatedBy = await OpenDkpApi.getCognitoUsername({ clientId: OPEN_DKP_COGNITO_CLIENT_ID });
+  const guildClientId = OpenDkpApi.resolveGuildClientId
+    ? OpenDkpApi.resolveGuildClientId(full, __odClientId)
+    : full.ClientId || __odClientId || '';
   const postBody = RaidTickParse.buildRaidUpdateBodyForQueuedTickRosters(
     full,
     inputs.namesBySlotIndex,
     __odRosterNameToId,
-    updatedBy
+    guildClientId
   );
   return { full: full, postBody: postBody };
 }
@@ -2171,19 +2885,19 @@ function openDkpWireRaidWorkflowUi() {
               ' ' +
               (t.Description || 'tick') +
               ': ' +
-              ((t.Attendees && t.Attendees.length) || 0) +
-              ' attendee(s)'
+              ((t.Characters && t.Characters.length) || 0) +
+              ' character(s)'
             );
           })
           .join('\n');
         const summary =
-          'IdRaid=' +
-          built.postBody.IdRaid +
-          ', UpdatedBy=' +
-          (built.postBody.UpdatedBy || '?') +
+          'RaidId=' +
+          built.postBody.RaidId +
+          ', Version=' +
+          (built.postBody.Version != null ? built.postBody.Version : '?') +
           ', Ticks=' +
           (built.postBody.Ticks || []).length +
-          (inputs.allStaged ? '' : ' (partial — unstaged ticks use existing rosters)') +
+          (inputs.allStaged ? '' : ' (partial — unstaged ticks keep existing rosters or stay empty)') +
           '\n' +
           tickSummary;
         const text = summary + '\n\n' + JSON.stringify(built.postBody, null, 2);
@@ -2202,15 +2916,15 @@ function openDkpWireRaidWorkflowUi() {
   if (applyTick) {
     applyTick.addEventListener('click', async () => {
       if (!window.OpenDkpApi || !window.RaidTickParse) return;
-      const inputs = openDkpGatherRaidtickBatchInputs({ allowPartialExisting: false });
+      const inputs = openDkpGatherRaidtickBatchInputs({ allowPartialExisting: true });
       if (!inputs.ok) return showStatus(inputs.message, 'error');
       if (
         !window.confirm(
-          'POST all staged tick rosters to the current raid on OpenDKP?\n\n' +
+          'POST staged tick rosters to the current raid on OpenDKP?\n\n' +
             inputs.stagedCount +
             ' tick file(s) staged for ' +
             inputs.totalTicks +
-            ' raid tick(s).'
+            ' raid tick(s). Unstaged ticks stay empty or keep their current roster.'
         )
       ) {
         return;
@@ -2222,16 +2936,8 @@ function openDkpWireRaidWorkflowUi() {
         const built = await openDkpBuildRaidtickPostBodyBatch(inputs);
         const full = built.full;
         const postBody = built.postBody;
-        if (Number(full.Attendance) === 0) {
-          const proceed = window.confirm(
-            'This raid has Attendance = No. OpenDKP\u2019s working examples use Attendance = Yes — ' +
-              'that is a common cause of HTTP 500.\n\n' +
-              'Try a test raid with Attendance = Yes, or use Preview POST body first.\n\nApply anyway?'
-          );
-          if (!proceed) return;
-        }
-        if (!postBody.IdRaid) {
-          return showStatus('Raid is missing IdRaid; refresh the current raid and try again.', 'error');
+        if (!postBody.RaidId) {
+          return showStatus('Raid is missing RaidId; refresh the current raid and try again.', 'error');
         }
         const guildClientId = OpenDkpApi.resolveGuildClientId
           ? OpenDkpApi.resolveGuildClientId(full, __odClientId)
@@ -2267,7 +2973,7 @@ function openDkpWireRaidWorkflowUi() {
           prev.textContent =
             'Upload failed:\n\n' +
             msg +
-            '\n\nUse Preview POST body to inspect the JSON. Every tick must have Attendees; unmapped roster names and Attendance = No also cause HTTP 500.';
+            '\n\nUse Preview POST body to inspect the JSON. Unmapped roster names are the most common apply failure.';
         }
         showStatus('Apply failed: ' + msg, 'error');
       }
@@ -2367,6 +3073,35 @@ function applySettingsToUI() {
   const watchlistItemsEl = document.getElementById('watchlistItems');
   if (watchlistItemsEl) watchlistItemsEl.value = currentSettings.watchlistItems || '';
   updateWatchlistSettings();
+  const autoBidEnabledEl = document.getElementById('autoBidEnabled');
+  if (autoBidEnabledEl) autoBidEnabledEl.checked = !!currentSettings.autoBidEnabled;
+  const autoBidIncrementEl = document.getElementById('autoBidIncrement');
+  if (autoBidIncrementEl) {
+    autoBidIncrementEl.value = String(currentSettings.autoBidIncrement != null ? currentSettings.autoBidIncrement : 10);
+  }
+  const autoBidPollEl = document.getElementById('autoBidPollIntervalSec');
+  if (autoBidPollEl) {
+    autoBidPollEl.value = String(currentSettings.autoBidPollIntervalSec != null ? currentSettings.autoBidPollIntervalSec : 15);
+  }
+  const abSlugEl = document.getElementById('autoBidClientSlug');
+  if (abSlugEl) abSlugEl.value = currentSettings.opendkpClientSlug || '';
+  const abUserEl = document.getElementById('autoBidCognitoUser');
+  if (abUserEl) abUserEl.value = currentSettings.opendkpCognitoUsername || '';
+  const abPassEl = document.getElementById('autoBidCognitoPassword');
+  if (abPassEl && __odSavedApiPassword) abPassEl.value = __odSavedApiPassword;
+  updateAutoBidDetailsVisibility();
+  updateAutoBidApiBlockVisibility(currentSettings.soundProfile);
+  autoBidLoadRankLimitsCache()
+    .then(function () {
+      return autoBidLoadCharactersCache();
+    })
+    .then(function () {
+      renderAutoBidRulesTable();
+    })
+    .catch(function () {
+      renderAutoBidRulesTable();
+    });
+  try { autoBidUpdateTokenStatusEl(); } catch (_) {}
   const flashEl = document.getElementById('flashScreen'); if (flashEl) flashEl.checked = currentSettings.flashScreen;
   document.getElementById('browserNotifications').checked = currentSettings.browserNotifications;
   document.getElementById('checkInterval').value = currentSettings.checkInterval;
@@ -2505,6 +3240,7 @@ function openEqLogExceptionsWindow() {
  */
 function setupEventListeners() {
   wireCriticalSettingsAutoSave();
+  wireAutoBidUi();
   // OpenDKP API: wire first so a failure later in this function cannot skip these handlers
   openDkpWireRaidWorkflowUi();
 
@@ -4719,6 +5455,17 @@ function saveSettings() {
     })(),
     watchlistAlarmEnabled: getChecked('watchlistAlarmEnabled', currentSettings.watchlistAlarmEnabled),
     watchlistItems: getVal('watchlistItems', currentSettings.watchlistItems || ''),
+    autoBidEnabled: getChecked('autoBidEnabled', currentSettings.autoBidEnabled),
+    autoBidIncrement: (() => {
+      const n = parseInt(String(getVal('autoBidIncrement', currentSettings.autoBidIncrement)), 10);
+      return Number.isNaN(n) || n < 1 ? 10 : n;
+    })(),
+    autoBidPollIntervalSec: (() => {
+      const n = parseInt(String(getVal('autoBidPollIntervalSec', currentSettings.autoBidPollIntervalSec)), 10);
+      return Number.isNaN(n) || n < 5 ? 15 : n;
+    })(),
+    autoBidPriority: currentSettings.autoBidPriority != null ? currentSettings.autoBidPriority : 1,
+    autoBidRules: autoBidReadRulesFromUI(),
     disableVisuals: getChecked('disableVisuals', currentSettings.disableVisuals),
     raidLeaderNotification: getChecked('raidLeaderNotification', currentSettings.raidLeaderNotification),
     flashScreen: getChecked('flashScreen', currentSettings.flashScreen),
@@ -4855,7 +5602,7 @@ function showStatus(message, type) {
 }
 
 /** Backup format version for future migrations */
-const BACKUP_VERSION = 3;
+const BACKUP_VERSION = 4;
 
 function arrayBufferToBase64(arrayBuffer) {
   const bytes = new Uint8Array(arrayBuffer);

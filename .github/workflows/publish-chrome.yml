@@ -23,57 +23,30 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Configure manifest for Chrome
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Package release (Chrome + Firefox zips in dist/)
+        run: npm run package:release
+
+      - name: Resolve Chrome ZIP path
         run: |
-          node -e "
-          const fs = require('fs');
-          const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
-          if (manifest.background && manifest.background.scripts) {
-            delete manifest.background.scripts;
-          }
-          if (!manifest.background) manifest.background = {};
-          manifest.background.service_worker = 'background.js';
-          fs.writeFileSync('manifest.json', JSON.stringify(manifest, null, 2) + '\n');
-          console.log('Chrome manifest: background.service_worker =', manifest.background.service_worker);
-          "
-
-      - name: Package extension
-        run: |
-          mkdir -p chrome-package
-          mkdir -p package-build
-
-          rsync -av \
-            --exclude='.git' \
-            --exclude='.github' \
-            --exclude='node_modules' \
-            --exclude='*.md' \
-            --exclude='README.md' \
-            --exclude='package.json' \
-            --exclude='package-lock.json' \
-            --exclude='test_audio.html' \
-            --exclude='test_audio.js' \
-            --exclude='.gitignore' \
-            --exclude='.DS_Store' \
-            --exclude='*.log' \
-            --exclude='*.tmp' \
-            --exclude='*.bak' \
-            --exclude='popup-firefox.js' \
-            ./ package-build/
-
-          VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync('package-build/manifest.json', 'utf8')).version)")
-          ZIP_NAME="opendkp-helper-v${VERSION}-chrome.zip"
-          cd package-build
-          zip -r "../chrome-package/${ZIP_NAME}" .
-          cd ..
+          VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync('manifest.json', 'utf8')).version)")
+          ZIP_NAME="opendkp-helper-chrome-${VERSION}.zip"
           echo "ZIP_NAME=${ZIP_NAME}" >> "$GITHUB_ENV"
-          echo "Built ${ZIP_NAME}"
-          ls -lh chrome-package/
+          ls -lh "dist/${ZIP_NAME}"
 
       - name: Upload Chrome extension package
         uses: actions/upload-artifact@v4
         with:
           name: chrome-webstore-package
-          path: chrome-package/*.zip
+          path: dist/opendkp-helper-chrome-*.zip
           retention-days: 30
           if-no-files-found: error
 
@@ -101,7 +74,7 @@ jobs:
           REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
         run: |
           npx --yes chrome-webstore-upload-cli@3.5.0 \
-            --source "chrome-package/${ZIP_NAME}" \
+            --source "dist/${ZIP_NAME}" \
             --extension-id "${{ secrets.CHROME_EXTENSION_ID }}"
 
       - name: Skip Chrome Web Store upload (credentials incomplete)

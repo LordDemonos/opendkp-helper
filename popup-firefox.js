@@ -304,7 +304,8 @@ function initializePopup() {
       'eqLogTag',
       'eqLogLastPosition',
       'eqLogEvents',
-      'eqLogMonitoring'
+      'eqLogMonitoring',
+      'autoBidEnabled'
     ]).then(function(settings) {
       // Apply dark mode if enabled
       if (settings.darkMode) {
@@ -370,6 +371,9 @@ function initializePopup() {
       }
       if (settings.eqLogTag) {
         extras.push(`Loot Tag: ${escapeHtml(settings.eqLogTag)}`);
+      }
+      if (settings.autoBidEnabled) {
+        extras.push('Auto-Bid: on');
       }
       if (allowStatusUpdate) {
         if (isOpenDKP) {
@@ -641,7 +645,7 @@ function initializePopup() {
       setTimeout(() => {
         try {
           browser.storage.sync.get([
-            'soundProfile','soundType','enableTTS','voice','announceAuctions','announceStart','announceEnd','quietHours','quietStart','quietEnd','eqLogTag'
+            'soundProfile','soundType','enableTTS','voice','announceAuctions','announceStart','announceEnd','quietHours','quietStart','quietEnd','eqLogTag','autoBidEnabled'
           ]).then((s) => {
             // Use the freshly saved volume value for immediate reflection
             s.volume = v;
@@ -708,12 +712,13 @@ function initializePopup() {
         changes.enableTTS || changes.voice || changes.voiceSpeed ||
         changes.announceAuctions || changes.announceStart || changes.announceEnd ||
         changes.quietHours || changes.quietStart || changes.quietEnd ||
-        changes.browserNotifications || changes.flashScreen || changes.eqLogTag
+        changes.browserNotifications || changes.flashScreen || changes.eqLogTag ||
+        changes.autoBidEnabled
       );
       if (needsRefresh) {
         try {
           browser.storage.sync.get([
-            'soundProfile','soundType','volume','enableTTS','smartBidding','quietHours','browserNotifications','flashScreen','darkMode','voice','voiceSpeed','announceAuctions','announceStart','announceEnd','quietStart','quietEnd','eqLogTag'
+            'soundProfile','soundType','volume','enableTTS','smartBidding','quietHours','browserNotifications','flashScreen','darkMode','voice','voiceSpeed','announceAuctions','announceStart','announceEnd','quietStart','quietEnd','eqLogTag','autoBidEnabled'
           ]).then((settings) => {
             processSettings(settings);
           });
@@ -1027,7 +1032,9 @@ function initializePopup() {
             }
             
           }).catch(err => {
-            alert('Failed to copy to clipboard. Please try again.');
+            if (window.PopupNotify) {
+              PopupNotify.show('Failed to copy to clipboard. Please try again.', 'error');
+            }
           });
         } else {
           // No content stored – prompt user to pick the file on demand (Firefox-friendly)
@@ -1046,7 +1053,12 @@ function initializePopup() {
             
             // Verify filename matches the requested one
             if (selected.name !== filename) {
-              alert(`Selected file (${selected.name}) does not match ${filename}. Please select the correct file.`);
+              if (window.PopupNotify) {
+                PopupNotify.show(
+                  'Selected file (' + selected.name + ') does not match ' + filename + '. Please select the correct file.',
+                  'warning'
+                );
+              }
               document.body.removeChild(picker);
               return;
             }
@@ -1109,13 +1121,17 @@ function initializePopup() {
                   }
                 });
               }).catch(() => {
-                alert('Failed to copy to clipboard. Please try again.');
+                if (window.PopupNotify) {
+              PopupNotify.show('Failed to copy to clipboard. Please try again.', 'error');
+            }
               }).finally(() => {
                 document.body.removeChild(picker);
               });
             };
             reader.onerror = () => {
-              alert('Failed to read file.');
+              if (window.PopupNotify) {
+                PopupNotify.show('Failed to read file.', 'error');
+              }
               document.body.removeChild(picker);
             };
             reader.readAsText(selected);
@@ -1129,7 +1145,9 @@ function initializePopup() {
       });
     } catch (error) {
       console.error('Error copying file to clipboard:', error);
-      alert('Error copying file. Please try again.');
+      if (window.PopupNotify) {
+        PopupNotify.show('Error copying file. Please try again.', 'error');
+      }
     }
   }
   
@@ -1268,9 +1286,10 @@ function initializePopup() {
     if (clearTodayBtn && !clearTodayBtn.dataset.bound) {
       clearTodayBtn.dataset.bound = '1';
       clearTodayBtn.addEventListener('click', async function () {
-          const ok = confirm('Clear all loot captured today from this list?');
-        if (!ok) return;
         await clearTodayLootEvents();
+        if (window.PopupNotify) {
+          PopupNotify.show("Cleared today's loot from this list.", 'success', 2000);
+        }
       });
     }
 
@@ -1509,14 +1528,17 @@ function initializePopup() {
         fetchBtn.textContent = '⏳ Scanning...';
       }
       
-      // Read the file
+      // Read the file. Blob.text() returns current on-disk content in Firefox even
+      // after the file grows; FileReader permanently fails once the size changes.
       const file = eqLogSettings.fileHandle;
-      const content = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(new Error('Failed to read file: ' + (reader.error ? reader.error.message : 'Unknown error')));
-        reader.readAsText(file);
-      });
+      const content = typeof file.text === 'function'
+        ? String(await file.text() || '')
+        : await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(new Error('Failed to read file: ' + (reader.error ? reader.error.message : 'Unknown error')));
+            reader.readAsText(file);
+          });
       
       console.log('File read, searching backward for loot line with tag:', eqLogSettings.tag);
       
@@ -1988,12 +2010,16 @@ function initializePopup() {
     if (window.LootQueue && LootQueue.readSoundProfile) {
       const profile = await LootQueue.readSoundProfile();
       if (profile !== 'raidleader') {
-        alert('Loot queue is available in Raid Leader mode only.');
+        if (window.PopupNotify) {
+          PopupNotify.show('Loot queue is available in Raid Leader mode only.', 'warning');
+        }
         return;
       }
     }
     if (!window.LootQueue || !LootQueue.queueItemsToCurrentRaid) {
-      alert('Loot queue module not loaded. Reload the extension.');
+      if (window.PopupNotify) {
+        PopupNotify.show('Loot queue module not loaded. Reload the extension.', 'error');
+      }
       return;
     }
     const names = (itemNames || []).filter(function (n) { return String(n || '').trim(); });
@@ -2029,7 +2055,9 @@ function initializePopup() {
         btn.disabled = false;
         btn.textContent = originalText;
       }
-      alert(err && err.message ? err.message : String(err));
+      if (window.PopupNotify) {
+        PopupNotify.show(err && err.message ? err.message : String(err), 'error');
+      }
     }
   }
 
@@ -2038,7 +2066,9 @@ function initializePopup() {
       return String(e.id) === String(eventId);
     });
     if (!event || !event.items || !event.items.length) {
-      alert('No items found for that loot line.');
+      if (window.PopupNotify) {
+        PopupNotify.show('No items found for that loot line.', 'warning');
+      }
       return;
     }
     await queueItemsToRaid(event.items, btn);
@@ -2074,7 +2104,9 @@ function initializePopup() {
       });
     }).catch(err => {
       console.error('Failed to copy to clipboard:', err);
-      alert('Failed to copy to clipboard. Please try again.');
+      if (window.PopupNotify) {
+        PopupNotify.show('Failed to copy to clipboard. Please try again.', 'error');
+      }
     });
   }
   

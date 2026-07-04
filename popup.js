@@ -134,6 +134,9 @@ function initializePopup() {
     if (settings.eqLogTag) {
       detailParts.push(`Loot Tag: ${escapeHtml(settings.eqLogTag)}`);
     }
+    if (settings.autoBidEnabled) {
+      detailParts.push('Auto-Bid: on');
+    }
 
     const detailsHtml = `<small>${detailParts.join(' | ')}</small>`;
     
@@ -260,7 +263,8 @@ function initializePopup() {
     'eqLogEnabled',
     'eqLogFile',
     'eqLogTag',
-    'eqLogEvents'
+    'eqLogEvents',
+    'autoBidEnabled'
   ], function(settings) {
     // Handle storage API errors gracefully
     if (api.runtime.lastError) {
@@ -614,7 +618,7 @@ function initializePopup() {
           // After showing success message, update status with new volume (don't reload)
           setTimeout(() => {
             // Refresh status with updated volume, but use the saved value we just set
-            api.storage.sync.get(['soundProfile', 'soundType', 'enableTTS', 'voice', 'announceAuctions', 'announceStart', 'announceEnd', 'quietHours', 'quietStart', 'quietEnd', 'eqLogTag'], function(settings) {
+            api.storage.sync.get(['soundProfile', 'soundType', 'enableTTS', 'voice', 'announceAuctions', 'announceStart', 'announceEnd', 'quietHours', 'quietStart', 'quietEnd', 'eqLogTag', 'autoBidEnabled'], function(settings) {
               // Use the volume we just saved
               settings.volume = v;
               
@@ -698,7 +702,7 @@ function initializePopup() {
         setTimeout(() => {
           const statusTextEl = document.getElementById('statusText');
           if (statusTextEl && !statusTextEl.innerHTML.includes('Volume setting saved')) {
-            api.storage.sync.get(['soundProfile', 'soundType', 'enableTTS', 'voice', 'announceAuctions', 'announceStart', 'announceEnd', 'quietHours', 'quietStart', 'quietEnd', 'eqLogTag'], function(settings) {
+            api.storage.sync.get(['soundProfile', 'soundType', 'enableTTS', 'voice', 'announceAuctions', 'announceStart', 'announceEnd', 'quietHours', 'quietStart', 'quietEnd', 'eqLogTag', 'autoBidEnabled'], function(settings) {
               settings.volume = newVolume;
               
               // Check if we're on OpenDKP page
@@ -728,7 +732,7 @@ function initializePopup() {
       }
       
       // Handle other general settings changes
-      if (changes.soundType || changes.enableTTS || changes.smartBidding) {
+      if (changes.soundType || changes.enableTTS || changes.smartBidding || changes.autoBidEnabled) {
         setTimeout(() => {
           location.reload();
         }, 100);
@@ -825,9 +829,10 @@ function initializePopup() {
       if (clearTodayBtn && !clearTodayBtn.dataset.bound) {
         clearTodayBtn.dataset.bound = '1';
         clearTodayBtn.addEventListener('click', async function () {
-          const ok = confirm('Clear all loot captured today from this list?');
-          if (!ok) return;
           await clearTodayLootEvents();
+          if (window.PopupNotify) {
+            PopupNotify.show("Cleared today's loot from this list.", 'success', 2000);
+          }
         });
       }
 
@@ -1052,12 +1057,16 @@ function initializePopup() {
     if (window.LootQueue && LootQueue.readSoundProfile) {
       const profile = await LootQueue.readSoundProfile();
       if (profile !== 'raidleader') {
-        alert('Loot queue is available in Raid Leader mode only.');
+        if (window.PopupNotify) {
+          PopupNotify.show('Loot queue is available in Raid Leader mode only.', 'warning');
+        }
         return;
       }
     }
     if (!window.LootQueue || !LootQueue.queueItemsToCurrentRaid) {
-      alert('Loot queue module not loaded. Reload the extension.');
+      if (window.PopupNotify) {
+        PopupNotify.show('Loot queue module not loaded. Reload the extension.', 'error');
+      }
       return;
     }
     const names = (itemNames || []).filter(function (n) { return String(n || '').trim(); });
@@ -1105,7 +1114,9 @@ function initializePopup() {
         btn.disabled = false;
         btn.textContent = originalText;
       }
-      alert(err && err.message ? err.message : String(err));
+      if (window.PopupNotify) {
+        PopupNotify.show(err && err.message ? err.message : String(err), 'error');
+      }
     }
   }
 
@@ -1114,7 +1125,9 @@ function initializePopup() {
       return String(e.id) === String(eventId);
     });
     if (!event || !event.items || !event.items.length) {
-      alert('No items found for that loot line.');
+      if (window.PopupNotify) {
+        PopupNotify.show('No items found for that loot line.', 'warning');
+      }
       return;
     }
     await queueItemsToRaid(event.items, btn);
@@ -1147,7 +1160,9 @@ function initializePopup() {
       }
     }).catch(err => {
       console.error('Failed to copy to clipboard:', err);
-      alert('Failed to copy to clipboard. Please try again.');
+      if (window.PopupNotify) {
+        PopupNotify.show('Failed to copy to clipboard. Please try again.', 'error');
+      }
     });
   }
   

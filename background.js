@@ -1,6 +1,15 @@
 // Background script for Firefox compatibility
 // This ensures the browser API is available
 
+try {
+  importScripts('lib/opendkp-api.js', 'lib/auto-bid.js');
+} catch (_) {
+  /* Firefox loads lib scripts via manifest background.scripts */
+}
+
+/** Cognito app ClientId — must match options.js OPEN_DKP_COGNITO_CLIENT_ID */
+var OPEN_DKP_COGNITO_CLIENT_ID = '2sq61k8dj39e309tnh5tm70dd4';
+
 console.log('🔵 Background script loaded - Firefox compatibility');
 console.log('🔵 Background script executing at:', new Date().toISOString());
 
@@ -938,4 +947,80 @@ console.log('🔵 Background script executing at:', new Date().toISOString());
       return false;
     });
   } catch(e) { console.warn('Reminder scheduler init failed', e); }
+})();
+
+// Auto-bid API runner (background context)
+(function () {
+  var api = typeof browser !== 'undefined' ? browser : chrome;
+
+  function runAutoBidFromBackground(sendResponse) {
+    if (typeof AutoBid === 'undefined' || !AutoBid.runAutoBidTick) {
+      if (sendResponse) sendResponse({ ok: false, reason: 'AutoBid module not loaded' });
+      return;
+    }
+    AutoBid.runAutoBidTick({ cognitoClientId: OPEN_DKP_COGNITO_CLIENT_ID })
+      .then(function (result) {
+        if (result && result.results && result.results.length) {
+          try {
+            console.log('[AutoBid]', result.results);
+          } catch (_) {}
+        }
+        if (sendResponse) sendResponse(result || { ok: true });
+      })
+      .catch(function (err) {
+        if (sendResponse) {
+          sendResponse({ ok: false, reason: err && err.message ? err.message : String(err) });
+        }
+      });
+  }
+
+  if (api.runtime && api.runtime.onMessage) {
+    api.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
+      if (msg && msg.type === 'autoBidRun') {
+        runAutoBidFromBackground(sendResponse);
+        return true;
+      }
+      if (msg && msg.type === 'autoBidRefreshCharacters') {
+        if (typeof AutoBid === 'undefined' || !AutoBid.refreshAccountCharacters) {
+          if (sendResponse) sendResponse({ ok: false, error: 'AutoBid module not loaded' });
+          return true;
+        }
+        var refreshOpts = { cognitoClientId: OPEN_DKP_COGNITO_CLIENT_ID };
+        if (msg.clientSlug) refreshOpts.clientSlug = msg.clientSlug;
+        if (msg.username) refreshOpts.username = msg.username;
+        AutoBid.refreshAccountCharacters(refreshOpts)
+          .then(function (characters) {
+            if (sendResponse) sendResponse({ ok: true, characters: characters });
+          })
+          .catch(function (err) {
+            if (sendResponse) {
+              sendResponse({ ok: false, error: err && err.message ? err.message : String(err) });
+            }
+          });
+        return true;
+      }
+      if (msg && msg.type === 'autoBidDisableRulesOnWin') {
+        if (typeof AutoBid === 'undefined' || !AutoBid.disableRulesForAuctionWin) {
+          if (sendResponse) sendResponse({ ok: false, error: 'AutoBid module not loaded' });
+          return true;
+        }
+        AutoBid.disableRulesForAuctionWin({
+          itemName: msg.itemName,
+          winnerNames: msg.winnerNames
+        })
+          .then(function (result) {
+            if (sendResponse) {
+              sendResponse({ ok: true, disabled: result.disabled || [] });
+            }
+          })
+          .catch(function (err) {
+            if (sendResponse) {
+              sendResponse({ ok: false, error: err && err.message ? err.message : String(err) });
+            }
+          });
+        return true;
+      }
+      return false;
+    });
+  }
 })();
