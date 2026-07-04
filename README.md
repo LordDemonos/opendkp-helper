@@ -1,483 +1,195 @@
-# OpenDKP Helper - Browser Extension
+# OpenDKP Helper
 
-A comprehensive browser extension for opendkp.com that provides intelligent auction monitoring, notifications, and RaidTick integration features.
+A browser extension for [opendkp.com](https://opendkp.com) that watches live auctions, plays alerts when timers finish, and helps raid leaders manage loot and raids without leaving the game.
 
-## 🎯 Core Features
+Works in **Chrome**, **Edge**, and **Firefox**.
 
-### Auction Timer Monitoring
-- ✅ **Automatic Timer Detection** - Monitors all auction timer progress bars on opendkp.com
-- ✅ **Dynamic Detection** - Uses MutationObserver to detect timers added dynamically
-- ✅ **Smart Alerts** - Plays notification when timer reaches 0%
-- ✅ **Duplicate Prevention** - Prevents duplicate alerts for the same timer
-- ✅ **Progress Tracking** - Only alerts for auctions you've actually observed in progress
-
-![Auction Timer Monitoring](assets/images/AuctionTimers.png)
-
-### Sound System
-- ✅ **Multiple Sound Profiles**
-  - **Raid Leader Profile** - Authoritative sounds (Bell, Chime, Ding variations)
-  - **Raider Profile** - Gentle sounds (Chime, Ding, Bell)
-- ✅ **Built-in Sounds** - Bell, Chime (hotel bell sound), Ding (4 variations), Warcraft sounds (Job's Done, Work Complete)
-  - Note: The "Chime" option plays the hotel bell sound (hotel.mp3 file)
-- ✅ **Custom Sound Upload** - Upload your own MP3, WAV, or OGG files (up to 3 custom sounds)
-- ✅ **Volume Control** - Adjustable volume slider (0-100%)
-- ✅ **Profile-Specific Sounds** - Each profile remembers its preferred sound
-
-![Audio Settings](assets/images/Audio.png)
-
-### Text-to-Speech (TTS)
-- ✅ **Speech Announcements** - Announces auction completions with customizable messages
-- ✅ **Voice Selection** - Choose from available system voices
-- ✅ **Speed Control** - Adjustable voice speed (0.5x - 2.0x)
-- ✅ **Custom Templates** - Create custom TTS messages with placeholders:
-  - `{winner}` - Winner's name
-  - `{bidAmount}` - Bid amount
-  - `{itemName}` - Item name
-- ✅ **New Auction Readouts** - Speaks "New auction: Item Name" when auctions appear
-
-![TTS Settings](assets/images/Audio.png)
-
-![Advanced TTS Settings](assets/images/AdvancedTTS.png)
-
-### Smart Notifications
-- ✅ **Smart Bidding Mode (Raider Profile)** - Only alerts when YOU win an auction you bid on
-  - Automatically detects your characters from the page header
-  - Only triggers notifications when your character wins
-  - Perfect for raiders who only want to know about their own wins
-  - Automatically enabled when Raider profile is selected
-
-![Smart Raider Mode](assets/images/SmartRaider.png)
-
-- ✅ **Quiet Hours** - Disable sound notifications during specified hours
-  - Customizable start and end times
-  - Visual alerts still work during quiet hours
-- ✅ **Screen Flash** - Visual alert that flashes the screen
-- ✅ **Browser Notifications** - Desktop notifications with auction details
-  - Shows winner, item, and bid amount
-  - Click to view auction details
-
-![Smart Raid Leader Features](assets/images/SmartRaidLeader.png)
-
-![Browser Notifications](assets/images/BrowserNotification.png)
-
-### RaidTick Integration (Raid Leader Only)
-- ✅ **Quick Copy-to-Clipboard** - Easily copy RaidTick file contents for OpenDKP import
-- ✅ **File Browser** - Select your RaidTick folder or pick files individually
-- ✅ **Automatic Parsing** - Extracts raid list data and copies to clipboard
-- ✅ **How It Works**:
-  - In-game, type `/outputfile raidlist` (requires Zeal)
-  - This generates a `RaidTick-YYYY-MM-DD_HH-MM-SS.txt` file
-  - Use the extension to copy the file contents
-  - Paste directly into OpenDKP to import your raid list
-
-![RaidTick Integration](assets/images/RaidTick.png)
-
-### Loot Parser / EQ Log Monitoring (Raid Leader Only)
-- ✅ **EQ Log File Selection** - Select your EverQuest log file to monitor
-- ✅ **Loot Line Detection** - Automatically detects loot lines containing your tag
-- ✅ **Monitoring Window** - Dedicated window to monitor log activity in real-time
-- ✅ **Event Extraction** - Extracts item names from loot messages
-- ✅ **Tag Configuration** - Customize the loot tag to search for (e.g., "FG")
-- ✅ **Event Tracking** - Tracks detected loot events and displays them
-- ✅ **Date Filtering** - Shows only today's loot events in the popup
-- ✅ **Manual Refresh** - Refresh button to rescan files and update events
-- ✅ **How It Works**:
-  - In-game, type your identifier before pressing 'Link Loot' (Zeal feature)
-  - The parser monitors your EQ log file for messages containing your tag
-  - Detected loot items are extracted and displayed in the extension popup
-  - Copy buttons copy the item text to your clipboard so you can easily paste them into the Bidding Tool
-
-![Loot Parser](assets/images/LootParser.png)
-
-### RaidTick Reminders (Raid Leader Only)
-- ✅ **Scheduled Reminders** - Set reminders for specific times (e.g., "Run /outputfile raidlist")
-- ✅ **Recurring Reminders** - Daily, weekly, or custom schedule
-- ✅ **Day-of-Week Filtering** - Enable/disable reminders for specific days
-- ✅ **Multiple Reminder Types**:
-  - Screen flash
-  - Browser notifications
-  - Popup window
-- ✅ **5-Minute Boundaries** - Fires at :00 and :30 of each 5-minute interval
-- ✅ **Copy Button** - copies /outputfile raidlist to your clipboard so you can paste it into the game
-
-![RaidTick Reminder](assets/images/RaidlistReminder.png)
-
-![RaidTick Reminder Settings](assets/images/RaidTickReminderSettings.png)
-
-### OpenDKP API & Loot Queue (Raid Leader Only) — **v2.0**
-
-Connect the extension to the OpenDKP HTTP API to manage raids and queue loot without leaving the game flow.
-
-- ✅ **API sign-in** — Guild subdomain + OpenDKP username/password (Cognito); session refresh from Settings or popup
-- ✅ **Current raid** — Select or create a raid in Settings; picker in the extension popup (🔑 / raid dropdown)
-- ✅ **Create raids** — Name, pool, attendance, and RaidTick tick definitions from Settings
-- ✅ **Loot → bidding queue** — Queue items from the loot monitor or popup to the current raid (Create Auction API)
-- ✅ **Auto post** — Optional automatic queue when new loot lines are captured in the monitor window
-- ✅ **Auction defaults** — Pay strategy (exact / second+1 / etc.) and duration in Settings → OpenDKP API
-- ✅ **Loot exceptions** — Exclude spell lines and fixed item names from parser matching
-- ✅ **RaidTick queue (popup)** — Stage parsed tick files to numbered slots and upload ticks to the current raid (when enabled in Settings)
-- ✅ **Backup & restore** — Export/import JSON backup including API settings, watchlist, reminders, and custom sounds
-
-**Setup (Raid Leader):** Settings → **OpenDKP API** → enter guild subdomain → sign in → refresh pools → create or select current raid. Use the popup 🔑 control to refresh session and pick the active raid during a raid night.
-
-### Other Features
-- ✅ **Appearance theme** — Light, dark, or follow system (Settings → Appearance)
-- ✅ **Backup & Restore** — Export/import all settings and custom sounds (Settings → Backup & Restore)
-- ✅ **Settings Page** — Comprehensive options page with all settings
-- ✅ **Dark Mode** - Dark theme for easier viewing
-- ✅ **Cross-Browser** - Works in Firefox and Chrome
-- ✅ **Persistent Storage** - All settings saved and synced across browser instances
-- ✅ **Test Functions** - Test sounds, notifications, and TTS before saving
-
-## 📦 Installation
-
-### Option 1: Download from GitHub Releases (Recommended)
-
-Pre-built packages are available for both Chrome and Firefox on the [Releases](https://github.com/LordDemonos/opendkp-helper/releases) page.
-
-#### Chrome Installation:
-1. Download `opendkp-helper-v[X.X.X]-chrome.zip` from the latest release
-2. Extract the ZIP file (it will create a folder like `opendkp-helper-v[X.X.X]-chrome`)
-3. Open Chrome and navigate to `chrome://extensions`
-4. Enable **Developer mode** (toggle in top-right)
-5. Click **Load unpacked**
-6. Select the `opendkp-helper-v[X.X.X]-chrome` folder that was created when you extracted the ZIP
-7. The extension is now installed!
-
-#### Firefox Installation:
-1. Download `opendkp-helper-v[X.X.X]-firefox.zip` from the latest release
-2. Open Firefox and navigate to `about:debugging`
-3. Click **This Firefox** tab
-4. Click **Load Temporary Add-on...**
-5. Select the ZIP file you downloaded
-6. The extension is now installed!
-
-**Note:** Release packages are automatically built with the correct manifest configuration for each browser.
-
-### Option 2: Official Browser Stores
-
-- **Chrome**: Available on [Chrome Web Store](https://chrome.google.com/webstore/) (Coming Soon)
-- **Firefox**: Available on [Firefox Add-ons (AMO)](https://addons.mozilla.org/)
-
-### Option 3: Manual Installation from Source (Development/Testing)
-
-If you're building from source or testing a development version, you'll need to configure `manifest.json` differently for each browser:
-
-#### For Chrome:
-The `manifest.json` should use `background.service_worker`:
-```json
-{
-  "background": {
-    "service_worker": "background.js"
-  }
-}
-```
-
-#### For Firefox:
-The `manifest.json` should use `background.scripts`:
-```json
-{
-  "background": {
-    "scripts": ["background.js"]
-  },
-  "browser_specific_settings": {
-    "gecko": {
-      "id": "opendkp-helper@opendkp.com",
-      "strict_min_version": "126.0"
-    }
-  }
-}
-```
-
-**Note**: The GitHub Actions workflows automatically handle this conversion when building packages. See [Building from Source](#-building-from-source) below.
-
-#### Installation Steps:
-
-1. **Download or clone the repository**
-   ```bash
-   git clone https://github.com/LordDemonos/opendkp-helper.git
-   cd opendkp-helper
-   ```
-
-2. **Edit `manifest.json`** based on your browser (see above)
-
-3. **Load the extension**:
-   - **Chrome**: Open `chrome://extensions` → Enable "Developer mode" → "Load unpacked" → Select the extension folder
-   - **Firefox**: Open `about:debugging` → "This Firefox" → "Load Temporary Add-on" → Select `manifest.json`
-
-## 🚀 Quick Start
-
-1. **Install the extension** (see [Installation](#-installation) above) 
-
-2. **Open Settings:**
-   - Right-click the extension icon → "Options" or "Manage Extension"
-   - Or click the extension icon and click "Settings"
-
-3. **Choose Your Mode:**
-   - **Raid Leader Profile** - Full features including RaidTick and Loot Parser
-   - **Raider Profile** - Smart Bidding mode, only alerts when you win
-   
-   ![Mode Selection](assets/images/Mode.png)
-
-4. **For Raiders - Smart Bidding:**
-   - Select **Raider Profile** (Smart Bidding is auto-enabled)
-   - The extension will only alert when YOU win auctions you bid on
-   - Your character names are automatically detected from the page
-   
-   ![Smart Raider Mode](assets/images/SmartRaider.png)
-
-5. **For Raid Leaders - Set Up RaidTick:**
-   - Select **Raid Leader Profile**
-   - Click "Copy RaidTick from file" to copy raid lists to clipboard
-   - Or select your RaidTick folder in settings to browse files in popup
-   - Configure **RaidTick Reminders** to get reminders to run `/outputfile raidlist`
-   
-   ![RaidTick Integration](assets/images/RaidTick.png)
-
-6. **For Raid Leaders - Set Up Loot Parser:**
-   - Open the **Loot Monitor** from the popup (🕒) or use inline loot UI in Chrome popup
-   - Choose your EQ log file (Chrome uses a native file picker when available)
-   - Configure your loot tag (e.g., "FG" for Former Glory)
-   - Sign in to the **OpenDKP API** and select a **current raid** (see step 7)
-   - Optionally enable **Auto post** to queue loot to OpenDKP automatically
-   
-   ![Loot Parser](assets/images/LootParser.png)
-
-7. **For Raid Leaders - OpenDKP API (v2.0):**
-   - Settings → **OpenDKP API** → guild subdomain → **Sign in to API**
-   - **Refresh pools**, then **Create raid** or pick from the raid list
-   - In the popup: use 🔑 to refresh session and the raid dropdown for the active raid
-   - Queue loot from the monitor or popup; configure **Pay Strategy** / duration under API settings
-
-8. **Configure Audio & Visuals:**
-   - Set up **Quiet Hours** to silence notifications during sleep hours
-   - Configure **Text-to-Speech** if you want audio announcements
-   - Adjust volume and notification preferences
-
-9. **Save Settings** and start using!
-
-   ![Extension Popup](assets/images/Popup.png)
-
-## ⚙️ Settings Reference
-
-<a href="assets/images/SettingsFull.png" target="_blank">
-  <img src="assets/images/SettingsFull-thumb.png" alt="Full Settings Page (click to view full size)" style="max-width: 100%; height: auto; border: 1px solid #ccc;" />
-</a>
-
-<p><em>Click the image above to view the full-size settings page screenshot.</em></p>
-
-
-### Audio Settings
-- **Sound Profile**: Choose Raid Leader, Raider
-- **Notification Sound**: Select from built-in or custom sounds
-- **Volume**: 0-100% volume slider
-
-![Audio Settings](assets/images/Audio.png)
-
-### Text-to-Speech
-- **Enable Text-to-Speech**: Toggle TTS announcements
-- **Voice**: Select system voice
-- **Voice Speed**: Adjust playback speed (0.5x - 2.5x)
-- **Advanced TTS**: Enable custom message templates
-- **Read New Auctions**: Announce new auctions when they appear
-- **Time Windows**: Set when TTS is active
-
-### Custom Sound Manager
-- **Upload Audio File**: Upload MP3, WAV, or OGG files
-- **Sound Name**: Name your custom sound
-- **Maximum**: 3 custom sounds
-- **Size Limit**: Suggested ≤100 KB per file
-
-![Custom Sound Manager](assets/images/CustomSounds.png)
-
-### Smart Notifications
-- **Smart Bidding Mode (Raider)**: Only alert when you win auctions you bid on (auto-enabled for Raider profile)
-- **Quiet Hours**: Disable sounds during specified hours
-- **Screen Flash**: Visual alert when auctions complete
-- **Browser Notifications**: Desktop notifications with details
-
-![Smart Raid Leader Features](assets/images/SmartRaidLeader.png)
-
-### RaidTick Integration (Raid Leader Only)
-- **Copy RaidTick from file**: Quick button to select and copy RaidTick file contents to clipboard
-- **RaidTick Folder**: Select folder containing RaidTick .txt files for date-based browsing in popup
-- **Reminders**: Schedule reminders for tasks like "Run /outputfile raidlist"
-
-### Loot Parser (Raid Leader Only)
-- **Loot Monitor window** — Real-time EQ log polling, today's loot list, copy/queue buttons
-- **Auto post** — Queue new loot to OpenDKP when a current raid is set and API session is active
-- **Loot tag** — Tag used in raid/party/say tell lines (Settings or monitor)
-- **Loot exceptions** — Lines/items to ignore (Settings → OpenDKP API, or exceptions editor window)
-
-![Upload Logs Reminder](assets/images/UploadLogsReminder.png)
-
-### OpenDKP API (Raid Leader Only)
-- **Guild subdomain** — Your guild slug from `https://YOURGUILD.opendkp.com`
-- **Sign in / refresh / sign out** — Cognito session; tokens stored locally in the browser
-- **Raids** — List recent raids, create raid, set **current raid** for loot queue and tick upload
-- **Pools** — Refresh guild pools for raid creation
-- **RaidTick definitions** — Default tick rows used when creating raids
-- **Loot queue defaults** — Pay strategy and auction duration for queued items
-- **RaidTick upload toggle** — Enable/disable popup tick upload (see in-app note if upload is temporarily disabled)
-
-### Backup & Restore
-- **Download backup** — JSON export of sync settings, API config, watchlist, reminders, custom sound metadata
-- **Restore backup** — Import after reinstall or when testing new versions
-
-### Visual Settings
-- **Screen Flash**: Enable/disable screen flash alerts
-- **Browser Notifications**: Enable/disable desktop notifications
-- **Disable Visuals**: Global toggle to disable all visual alerts
-
-![Visual Settings](assets/images/Visuals.png)
-
-## 🔧 File Structure
-
-```
-opendkp-helper/
-├── manifest.json              # Extension manifest (version source of truth)
-├── background.js              # Background script (reminders, custom sounds)
-├── content.js                 # Main content script (timer monitoring)
-├── options.html / options.js  # Settings page
-├── popup.html                 # Popup shell
-├── popup-loader.js            # Loads lib/* then popup.js or popup-firefox.js
-├── popup.js                   # Popup logic (Chrome)
-├── popup-firefox.js           # Popup logic (Firefox)
-├── lib/                       # Shared modules (v2.0+)
-│   ├── opendkp-api.js         # Cognito + OpenDKP HTTP client
-│   ├── loot-queue.js          # Queue loot → Create Auction API
-│   ├── raidtick-queue.js      # Popup RaidTick slot queue / upload
-│   ├── raidtick-parse.js      # RaidTick file parsing
-│   ├── eqlog-parse.js         # EQ log loot line parsing
-│   └── popup-api-session.js   # Popup sign-in & raid picker
-├── eqlog-monitor.html/js      # Loot monitor window
-├── eqlog-exceptions.html/js   # Loot exception rules editor
-├── raidtick-pick-window.html/js
-├── copy-window.html/js        # Firefox RaidTick copy helper
-├── reminder.html/js           # RaidTick reminder popup
-├── icons/                     # Extension icons
-├── scripts/                   # build-chrome.js, build-firefox.js, package-release.js
-└── README.md
-```
-
-## 🎨 Browser Compatibility
-
-- ✅ **Chrome/Edge 88+** (Manifest v3)
-- ✅ **Firefox 126.0+** (Manifest v3)
-
-**Note**: Both browsers require Manifest V3. Chrome uses `background.service_worker` while Firefox uses `background.scripts`. The extension automatically detects and uses the appropriate API based on the browser.
-
-## 🏪 Publishing to Chrome & Firefox stores
-
-Both stores use the **same `manifest.json` version** (currently **2.0.0**). Mozilla rejects duplicate version strings; always bump before a new AMO submission.
-
-### GitHub Actions (on **Release published**)
-
-Creating a GitHub Release with tag **`v2.0.0`** (must match `manifest.json` without the `v`) triggers:
-
-| Workflow | Purpose |
-|----------|---------|
-| [`build-release.yml`](.github/workflows/build-release.yml) | Builds `opendkp-helper-v2.0.0-chrome.zip` and `-firefox.zip` and **attaches them to the Release** |
-| [`publish-chrome.yml`](.github/workflows/publish-chrome.yml) | Builds Chrome package; **auto-uploads only if** `CHROME_*` secrets are set (optional) |
-| [`publish-firefox.yml`](.github/workflows/publish-firefox.yml) | Builds Firefox tree; **`web-ext sign --channel listed`** if `AMO_JWT_ISSUER` + `AMO_JWT_SECRET` are set |
-
-Also on tag push `v*.*.*`: [`release-packages.yml`](.github/workflows/release-packages.yml) runs `npm run package:release` → `dist/*.zip` workflow artifact.
-
-**Repo secrets (optional automation):**
-
-- **Firefox AMO:** `AMO_JWT_ISSUER`, `AMO_JWT_SECRET` — [AMO API credentials](https://extensionworkshop.com/documentation/develop/getting-started-with-web-ext/web-ext-command-reference/#sign). Optional repo variable `AMO_CHANNEL`: `listed` (default, public updates) or `unlisted`.
-- **Chrome Web Store:** `CHROME_EXTENSION_ID`, `CHROME_CLIENT_ID`, `CHROME_CLIENT_SECRET`, `CHROME_REFRESH_TOKEN` — only if you want CI upload via `chrome-webstore-upload-cli`. See [`CURSOR.md`](CURSOR.md): **manual Chrome upload is the preferred path** (OAuth refresh tokens were painful to maintain).
-
-### Recommended release checklist
-
-1. **Version** — `node scripts/update-version.js 2.0.0` (updates `manifest.json` + options footer); keep `package.json` in sync.
-2. **Test locally** — Firefox: `npm run build:firefox` → load `build/temp-firefox-build`. Chrome: `npm run build:chrome` → load `build/temp-chrome-build` (not the repo root).
-3. **Optional:** `npm run package:release` → store-ready zips in `dist/` + checksums.
-4. **Commit & push** to `master` (your branch is ahead of origin — merge/push before releasing).
-5. **GitHub Release** — Tag `v2.0.0`, title `v2.0.0`, paste `CHANGELOG.md` section; publish release.
-6. **Chrome (manual, recommended)** — Download release ZIP *or* zip contents of `build/temp-chrome-build` → [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole) → **Upload new package** → submit for review.
-7. **Firefox** — If AMO secrets are configured, the workflow signs and submits the **listed** add-on. Otherwise download the Firefox ZIP from the Release and upload/sign via [AMO Developer Hub](https://addons.mozilla.org/developers/), or run locally:
-   ```bash
-   npm run build:firefox
-   web-ext sign --source-dir build/temp-firefox-build --api-key ... --api-secret ... --channel listed
-   ```
-
-See also [`CURSOR.md`](CURSOR.md) for maintainer notes on manual Chrome vs CI upload.
-
-## 🔨 Building from Source
-
-Local build scripts (restore `manifest.json` after each run):
-
-```bash
-npm run build:chrome    # → build/temp-chrome-build/
-npm run build:firefox   # → build/temp-firefox-build/
-npm run package:release # → dist/opendkp-helper-{browser}-2.0.0.zip + SHA256SUMS.txt
-npm run lint:webext     # Firefox addons-linter on source tree
-npm run test:chrome     # Puppeteer smoke test (after build:chrome)
-```
-
-When building from source without scripts, edit `manifest.json` manually (`background.service_worker` for Chrome, `background.scripts` for Firefox). The GitHub workflows handle this automatically for release packages.
-
-### Legacy workflow summary
-
-- **Release Builds**: `build-release.yml` — ZIPs attached to GitHub Releases
-- **Chrome Store**: `publish-chrome.yml` — optional automated upload
-- **Firefox Store**: `publish-firefox.yml` — optional `web-ext sign` when AMO JWT secrets exist
-
-## 🔐 Permissions
-
-**Extension permissions:**
-
-- **activeTab** — Access the active tab when you open the popup (e.g. detect opendkp.com)
-- **storage** — Save settings locally (and sync where the browser supports it)
-- **notifications** — Desktop notifications for auctions and reminders
-- **clipboardWrite** — Copy RaidTick data and loot lines
-- **scripting** — Inject content script on OpenDKP when needed (e.g. reminder flash)
-- **alarms** — Reliable RaidTick reminder scheduling (especially Chrome MV3 service worker)
-
-**Host permissions:**
-
-- **opendkp.com** — Auction timer monitoring and page integration
-- **api.opendkp.com / api-test.opendkp.com** — OpenDKP HTTP API (loot queue, raids, pools)
-- **cognito-idp.us-east-2.amazonaws.com** — API sign-in only (no data sent elsewhere)
-
-Auction alerts and settings stay local in your browser. **OpenDKP API features** send requests only to OpenDKP and AWS Cognito using credentials you enter in Settings; tokens are stored in extension local storage, not on third-party servers.
-
-## 📄 License
-
-MIT License - Feel free to modify and distribute.
-
-## 🤝 Contributing
-
-Contributions welcome! When adding features:
-
-1. Maintain the modular code structure
-2. Add settings to the options page
-3. Include test functions where applicable
-4. Update this README with new features
-5. **Test on both Firefox and Chrome** - The extension uses different manifest configurations:
-   - Firefox: Uses `background.scripts`
-   - Chrome: Uses `background.service_worker`
-6. Ensure cross-browser compatibility - The code handles browser differences automatically (e.g., `chrome` vs `browser` API)
-
-## 🆘 Support
-
-For issues, questions, or feature requests:
-- Check the browser console for error messages
-- Test individual features using the test buttons in settings
-- Issues, Pull Requests, and Suggestions are welcome!
-
-### Common Issues
-
-**Extension not loading after manual installation:**
-- Ensure `manifest.json` uses the correct `background` format for your browser (see [Installation](#-installation))
-- Check the browser console for errors (F12 → Console)
-- Verify all required files are present (see [File Structure](#-file-structure))
-
-**RaidTick reminders not working in Chrome:**
-- Chrome requires `background.service_worker` (not `scripts`) in manifest.json
-- Ensure the extension is reloaded after changing manifest.json
-- Check background script console: `chrome://extensions` → Developer mode → Extension details → Service worker
 ---
 
-**Note**: This extension is specifically designed for opendkp.com. If the site updates its markup, some features may need adjustments.
+## What it does
+
+OpenDKP Helper runs in the background while you have opendkp.com open. It can:
+
+- Alert you when an auction timer hits zero (sound, screen flash, or desktop notification).
+- Speak auction results with text-to-speech (optional).
+- Let **raiders** get alerts only when they win an item they bid on.
+- Let **raid leaders** copy RaidTick files, monitor EverQuest loot logs, queue items to OpenDKP, and manage raids through the OpenDKP API.
+- **Auto-bid** on items you care about through the OpenDKP API (raiders and raid leaders).
+
+All settings are stored in your browser. API passwords and tokens stay on your machine.
+
+---
+
+## Features
+
+### For everyone
+
+| Feature | Description |
+|--------|-------------|
+| **Auction timer alerts** | Watches progress bars on opendkp.com and alerts when a timer reaches 0%. |
+| **Sounds** | Built-in bell, chime, ding, and optional Warcraft-style clips. Upload up to 3 custom sounds. |
+| **Text-to-speech** | Optional voice announcements for finished auctions and new items. |
+| **Quiet hours** | Mute sounds during hours you choose (visual alerts can still show). |
+| **Item watchlist** | List item names you want to track. Get an alert when one appears on the site. |
+| **Auto-bid** | Set rules per item (name, max DKP, character, rank). The extension polls active auctions and bids for you via the OpenDKP API. Rank bid limits from your guild's Bid Rules page are applied automatically. Rules turn off when you win that item. |
+| **Appearance** | Light, dark, or follow your system theme. |
+| **Backup and restore** | Export and import all settings (including custom sound metadata). |
+
+### Raider mode
+
+Select **Raider Profile** in Settings for a simpler setup focused on personal alerts:
+
+- **Smart bidding alerts** — Only notifies you when *your* character wins an auction you participated in.
+- **Auto-bid sign-in** — Sign in to the OpenDKP API directly from the Auto-Bid section (same credentials as the website).
+
+### Raid Leader mode
+
+Select **Raid Leader Profile** for guild management tools:
+
+| Feature | Description |
+|--------|-------------|
+| **RaidTick copy** | Copy `/outputfile raidlist` output from disk to your clipboard for OpenDKP import. |
+| **RaidTick reminders** | Scheduled reminders to run `/outputfile raidlist` in game. |
+| **Loot monitor** | Watch your EverQuest log file for tagged loot lines, list today's drops, and copy or queue items. |
+| **OpenDKP API** | Sign in, create raids, pick the active raid, queue loot to bidding, and upload RaidTick ticks from the popup. |
+| **Loot exceptions** | Skip spell lines or specific item names in the parser. |
+
+---
+
+## Installation
+
+### From GitHub Releases (recommended)
+
+Download the latest release from [GitHub Releases](https://github.com/LordDemonos/opendkp-helper/releases).
+
+**Chrome or Edge**
+
+1. Download `opendkp-helper-chrome-X.X.X.zip`.
+2. Extract the ZIP. You should see `manifest.json` and the extension files in one folder (not inside another nested folder).
+3. Open `chrome://extensions`.
+4. Turn on **Developer mode**.
+5. Click **Load unpacked** and select that folder.
+
+**Firefox**
+
+1. Download `opendkp-helper-firefox-X.X.X.zip`.
+2. Open `about:debugging` → **This Firefox**.
+3. Click **Load Temporary Add-on** and choose the ZIP file.
+
+Release ZIPs are built for each browser automatically. You do not need to edit `manifest.json`.
+
+### From browser stores
+
+- **Chrome Web Store** — Coming soon.
+- **Firefox Add-ons (AMO)** — [addons.mozilla.org](https://addons.mozilla.org/) (when published).
+
+---
+
+## Quick start
+
+1. **Install** the extension (see above).
+
+2. **Open Settings** — Right-click the extension icon → Options, or open the popup and click Settings.
+
+3. **Pick a profile**
+   - **Raider** — Personal win alerts and auto-bid.
+   - **Raid Leader** — Full toolkit including loot monitor and API tools.
+
+4. **Set up alerts** (all users)
+   - Choose a notification sound and volume.
+   - Optionally enable screen flash, browser notifications, quiet hours, or text-to-speech.
+   - Test sounds from the Settings page before saving.
+
+5. **Set up auto-bid** (optional)
+   - Enable **Auto-Bid** in Settings.
+   - Enter your guild subdomain (the part before `.opendkp.com`) and sign in with your OpenDKP username and password.
+   - Click **Refresh my characters**, then **Add item rule** for each item you want to bid on.
+   - Keep an opendkp.com tab open while auto-bid is enabled.
+   - Open your guild's opendkp.com page once so rank bid limits can sync from the Bid Rules panel.
+
+6. **Raid leaders only — OpenDKP API**
+   - Settings → **OpenDKP API** → enter guild subdomain → **Sign in to API**.
+   - Refresh pools, create or select tonight's raid.
+   - In the popup, use the session control and raid dropdown during raid night.
+
+7. **Raid leaders only — Loot monitor**
+   - Open the loot monitor from the popup.
+   - Select your EverQuest log file and set your loot tag (for example `FG`).
+   - Enable **Auto post** to send new loot lines to the current raid automatically.
+
+8. **Save settings** and browse to your guild's opendkp.com page to start.
+
+---
+
+## Settings overview
+
+Most options live on the Settings page (`options.html`):
+
+- **Mode** — Raid Leader vs Raider profile.
+- **Auto-Bid** — API sign-in, bid increment, poll interval, per-item rules.
+- **Audio** — Sound profile, volume, custom uploads.
+- **Text-to-speech** — Voice, speed, templates, read-new-auctions schedule.
+- **Smart notifications** — Smart bidding (raider), quiet hours, screen flash, browser notifications.
+- **Watchlist** — Item names that trigger a special alarm when posted.
+- **RaidTick** — Folder selection, copy button, scheduled reminders.
+- **OpenDKP API** — Guild sign-in, raids, pools, loot queue defaults, tick upload (raid leaders).
+- **Backup and restore** — JSON export/import.
+
+The extension popup gives quick access to the loot monitor, API session refresh, and raid selection during a raid night.
+
+---
+
+## Browser support
+
+| Browser | Minimum version | Notes |
+|---------|-----------------|-------|
+| Chrome / Edge | 88+ | Manifest V3, service worker background |
+| Firefox | 126+ | Manifest V3, background scripts |
+
+Chrome and Firefox use slightly different packaging. Always install the ZIP built for your browser from the release page.
+
+---
+
+## Privacy and permissions
+
+The extension requests access to:
+
+- **opendkp.com** — Read auction timers and page content for alerts.
+- **api.opendkp.com** — OpenDKP API (raids, loot queue, auto-bid) when you sign in.
+- **AWS Cognito** — Login only; credentials you enter in Settings.
+- **Storage, notifications, clipboard, alarms** — Save settings, show alerts, copy RaidTick/loot text, and run reminders reliably.
+
+Auction alerts and local settings stay in your browser. API features only contact OpenDKP and AWS Cognito using credentials you provide.
+
+---
+
+## Building from source (developers)
+
+Requires Node.js 20+.
+
+```bash
+git clone https://github.com/LordDemonos/opendkp-helper.git
+cd opendkp-helper
+npm ci
+npm run build:chrome    # → build/temp-chrome-build/
+npm run build:firefox   # → build/temp-firefox-build/
+npm run package:release # → dist/opendkp-helper-{browser}-X.X.X.zip + SHA256SUMS.txt
+```
+
+Load `build/temp-chrome-build` or `build/temp-firefox-build` as an unpacked extension for testing. Do not load the repository root directly.
+
+Publishing a GitHub Release (tag `vX.Y.Z` matching `manifest.json`) runs CI that builds and attaches store-ready ZIPs automatically.
+
+---
+
+## License
+
+MIT License — free to use, modify, and distribute.
+
+## Support
+
+- [GitHub Issues](https://github.com/LordDemonos/opendkp-helper/issues) for bugs and feature requests.
+- Use the test buttons in Settings to verify sounds and notifications.
+- Check the browser console (F12) if something does not load after install.
+
+This extension targets opendkp.com. If the site changes its layout, some features may need an update.

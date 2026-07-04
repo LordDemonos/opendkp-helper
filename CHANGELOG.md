@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versioning follows the **same semver** as `manifest.json` (single version for Firefox and Chrome packages).
 
+## [2.3.0] - 2026-07-04
+
+### Added
+
+- **Auto-bid** — Set per-item rules (item name, max DKP, character, rank). The extension polls active auctions through the OpenDKP API and places bids in configurable increments until you are winning, hit your max, or run out of DKP. Available in both Raider and Raid Leader modes.
+- **Rank bid limits** — Reads your guild's Bid Rules from opendkp.com (for example "Maximum Bid for Raid Alt is: 400") and applies those caps in auto-bid rules and the settings UI.
+- **Character roster for auto-bid** — Refresh characters from the API to pick which toon bids on each rule; rank is loaded from OpenDKP.
+- **Rule auto-disable on win** — When your character wins a matching item, that rule turns off so you do not bid again on the same piece unless you re-enable it.
+
+### Fixed
+
+- **Release CI packages** — GitHub Actions now use `npm run package:release` instead of copying the whole repo, so release ZIPs match local store builds (no store screenshots, build scripts, or other dev files).
+- **Loot queue during API outages** — Keeps your selected raid when OpenDKP verify is temporarily unavailable instead of clearing it on transient errors.
+- **Raid context caching** — Short-lived cache so repeated loot queue actions do not re-verify the raid on every click.
+
+### Changed
+
+- **Loot monitor and popup** — Improved API session handling, queue feedback, and raid leader popup controls.
+- **RaidTick queue** — More reliable parsing and upload flow from the popup.
+
 ## [2.0.0] - 2026-07-03
 
 ### Added
