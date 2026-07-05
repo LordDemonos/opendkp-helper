@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versioning follows the **same semver** as `manifest.json` (single version for Firefox and Chrome packages).
 
+## [2.3.3] - 2026-07-04
+
+### Fixed
+
+- **Extension popup resizing the browser** — Removed `windows.update()` sizing that accidentally shrank the main Firefox/Chrome window when opening the toolbar popup.
+- **Loot Parser scroll** — Popup scrolls vertically when content exceeds the max height instead of clipping the loot list.
+
+### Changed
+
+- **Popup layout** — Dropped dynamic pop-out height logic; simpler scrollable body with a side scrollbar.
+
 ## [2.3.2] - 2026-07-04
 
 ### Fixed

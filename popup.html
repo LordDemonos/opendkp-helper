@@ -4,24 +4,39 @@
   <meta charset="utf-8">
   <style>
     html {
-      height: 100%;
-      overflow: hidden;
+      margin: 0;
     }
     
     body {
       width: 300px;
-      height: auto;
-      max-height: 560px;
+      max-height: 600px;
       padding: 16px;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       font-size: 14px;
       margin: 0;
       background: #f8f9fa;
       border-radius: 8px;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
+      overflow-x: hidden;
+      overflow-y: auto;
       box-sizing: border-box;
+    }
+
+    body::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    body::-webkit-scrollbar-track {
+      background: #f1f1f1;
+      border-radius: 4px;
+    }
+
+    body::-webkit-scrollbar-thumb {
+      background: #888;
+      border-radius: 4px;
+    }
+
+    body::-webkit-scrollbar-thumb:hover {
+      background: #555;
     }
     
     .header {
@@ -182,26 +197,12 @@
       padding: 20px;
     }
     
-    body.loot-monitor-expanded {
-      height: 720px;
-      max-height: 720px;
-    }
-
     .eq-log-section {
       margin-top: 16px;
       padding: 12px;
       background: #f0f8ff;
       border-radius: 6px;
       border: 1px solid #2196f3;
-      flex: 1 1 0;
-      display: flex;
-      flex-direction: column;
-      min-height: 0;
-      overflow: hidden;
-    }
-
-    body.loot-monitor-expanded .eq-log-events {
-      min-height: 320px;
     }
     
     .eq-log-section > div {
@@ -212,16 +213,10 @@
       margin: 0;
       font-size: 14px;
       color: #1976d2;
-      flex-shrink: 0;
     }
     
     .eq-log-events {
       margin-top: 12px;
-      flex: 1 1 0;
-      overflow-y: auto;
-      overflow-x: hidden;
-      scroll-behavior: smooth;
-      min-height: 0;
     }
     
     .eq-log-event {
@@ -775,14 +770,17 @@
     }
     
     /* Dark mode scrollbar */
+    body.dark-mode::-webkit-scrollbar-track,
     body.dark-mode .eq-log-events::-webkit-scrollbar-track {
       background: #2d2d2d;
     }
     
+    body.dark-mode::-webkit-scrollbar-thumb,
     body.dark-mode .eq-log-events::-webkit-scrollbar-thumb {
       background: #666;
     }
     
+    body.dark-mode::-webkit-scrollbar-thumb:hover,
     body.dark-mode .eq-log-events::-webkit-scrollbar-thumb:hover {
       background: #888;
     }
