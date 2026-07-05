@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versioning follows the **same semver** as `manifest.json` (single version for Firefox and Chrome packages).
 
+## [2.3.2] - 2026-07-04
+
+### Fixed
+
+- **RaidTick reminders (Firefox)** — One reminder popup per cycle; ding/TTS repeats every 5 seconds until Done. Done closes all matching reminder windows, even after the background script restarts.
+- **Reminder duplicate popups** — Persist fired-boundary state so Firefox background suspension does not spawn a new popup on every tick.
+
+### Changed
+
+- **Raid leader popup** — Taller layout (720px) when the inline Loot Parser section is active; stays compact for raiders or when loot monitor is hidden. Popped-out windows resize to match.
+
 ## [2.3.0] - 2026-07-04
 
 ### Added

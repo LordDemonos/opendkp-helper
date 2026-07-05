@@ -29,12 +29,19 @@ const POPUP_QUICK_ACTIONS_TEXT = `Quick Actions:
 • Click "Copy" to copy file contents to clipboard`;
 
 // Initialize function - can be called on DOMContentLoaded or directly if DOM already loaded
+function setLootPopupHeight(expanded) {
+  if (window.PopupLayout && PopupLayout.setLootMonitorExpanded) {
+    PopupLayout.setLootMonitorExpanded(expanded);
+    return;
+  }
+  document.body.style.height = expanded ? '720px' : 'auto';
+}
+
 function initializePopup() {
   console.log('Popup loaded');
   
-  // Set initial body height to auto (will be adjusted based on loot section visibility)
-  // Default to auto - JavaScript will set to 600px when loot section is shown
-  document.body.style.height = 'auto';
+  // Default compact height — expanded when loot monitor section is shown
+  setLootPopupHeight(false);
   
   const statusDiv = document.getElementById('status');
   const statusText = document.getElementById('statusText');
@@ -364,7 +371,7 @@ function initializePopup() {
       if (eqLogSection) {
         eqLogSection.style.display = 'none'; // Will be shown when events exist
         // Shrink body height when section is hidden
-        document.body.style.height = 'auto';
+        setLootPopupHeight(false);
       }
       if (window.PopupApiSession) {
         PopupApiSession.init({ isRaidLeader: true });
@@ -377,7 +384,7 @@ function initializePopup() {
       if (eqLogSection) {
         eqLogSection.style.display = 'none';
         // Shrink body height when section is hidden in Raider mode
-        document.body.style.height = 'auto';
+        setLootPopupHeight(false);
       }
       if (window.PopupApiSession) {
         PopupApiSession.init({ isRaidLeader: false });
@@ -933,14 +940,14 @@ function initializePopup() {
         // Keep section visible but show empty state when monitoring
         eqLogSection.style.display = 'flex';
         // Set body height to accommodate loot section
-        document.body.style.height = '600px';
+        setLootPopupHeight(true);
         // Force layout recalculation for Chrome
         void eqLogSection.offsetHeight;
       } else {
         // Hide section when not monitoring and no events
         eqLogSection.style.display = 'none';
         // Shrink body height when section is hidden
-        document.body.style.height = 'auto';
+        setLootPopupHeight(false);
       }
       console.log('[EQ Log Display] No events today, monitoring:', eqLogSettings.monitoring);
       return;
@@ -949,7 +956,7 @@ function initializePopup() {
     // Always show section when events exist
     eqLogSection.style.display = 'flex';
     // Set body height to accommodate loot section
-    document.body.style.height = '600px';
+    setLootPopupHeight(true);
     // Force layout recalculation for Chrome
     void eqLogSection.offsetHeight;
     // Ensure it's marked as raid leader section if events exist

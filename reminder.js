@@ -5,6 +5,9 @@
 	const msg = decodeURIComponent(params.get('msg') || 'Run /outputfile raidlist');
 	const messageEl = document.getElementById('message');
 	const statusEl = document.getElementById('status');
+	const REMINDER_NAG_MS = 5000;
+	let nagTimerId = null;
+	let finishing = false;
 	messageEl.textContent = msg;
 
 	function showStatus(text){ if(!statusEl) return; statusEl.textContent = text; setTimeout(()=>{ statusEl.textContent=''; }, 1500); }
@@ -98,26 +101,46 @@
 		} catch(_){}
 	}
 
+	function startNagTimer() {
+		if (nagTimerId || finishing) return;
+		nagTimerId = setInterval(function() {
+			if (finishing) return;
+			speakAndSound(msg);
+		}, REMINDER_NAG_MS);
+	}
+
+	function stopNagTimer() {
+		if (!nagTimerId) return;
+		clearInterval(nagTimerId);
+		nagTimerId = null;
+	}
+
 	document.getElementById('copyBtn').addEventListener('click', copyCommand);
 	document.getElementById('doneBtn').addEventListener('click', async function(){
+		if (finishing) return;
+		finishing = true;
+		stopNagTimer();
 		try { 
 			const result = await api.runtime.sendMessage({ type:'ackReminder', id, ts: Date.now() });
 			try { console.log('[Reminder] Done clicked, acknowledgment sent:', result); } catch(_) {}
-			// Background script should close all windows, but if it fails or doesn't respond,
-			// close this window after a longer delay to give background script time to process
+			// Background closes all matching reminder windows; close this one if it is still open.
 			setTimeout(() => {
 				try { window.close(); } catch(_) {}
-			}, 500); // Increased delay to give background script time to close windows
+			}, 500);
 		} catch(e) { 
 			try { console.warn('[Reminder] Failed to send acknowledgment:', e); } catch(_) {}
-			// If message failed, close immediately as fallback
+			finishing = false;
+			startNagTimer();
 			setTimeout(() => {
 				try { window.close(); } catch(_) {}
 			}, 100);
 		}
 	});
 
-	// On load, speak and sound
+	window.addEventListener('beforeunload', stopNagTimer);
+
+	// On load, speak and sound, then repeat until Done
 	speakAndSound(msg);
+	startNagTimer();
 
 })();

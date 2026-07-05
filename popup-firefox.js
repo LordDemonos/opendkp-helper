@@ -233,10 +233,18 @@ const POPUP_QUICK_ACTIONS_TEXT = `Quick Actions:
 • Click "Copy" to copy file contents to clipboard`;
 
 // Initialize function - can be called on DOMContentLoaded or directly if DOM already loaded
+function setLootPopupHeight(expanded) {
+  if (window.PopupLayout && PopupLayout.setLootMonitorExpanded) {
+    PopupLayout.setLootMonitorExpanded(expanded);
+    return;
+  }
+  document.body.style.height = expanded ? '720px' : 'auto';
+}
+
 function initializePopup() {
   console.log('Firefox-compatible popup initializing...');
   
-  // Initialize popup
+  setLootPopupHeight(false);
   
   const statusDiv = document.getElementById('status');
   const statusText = document.getElementById('statusText');
@@ -441,7 +449,7 @@ function initializePopup() {
         eqSection.style.display = 'none';
         eqSection.setAttribute('data-raid-leader', 'true');
         // Shrink body height when section is hidden
-        document.body.style.height = 'auto';
+        setLootPopupHeight(false);
       }
       if (window.PopupApiSession) {
         PopupApiSession.init({ isRaidLeader: true });
@@ -453,7 +461,7 @@ function initializePopup() {
       if (eqSection) {
         eqSection.style.display = 'none';
         // Shrink body height when section is hidden in Raider mode
-        document.body.style.height = 'auto';
+        setLootPopupHeight(false);
       }
       if (window.PopupApiSession) {
         PopupApiSession.init({ isRaidLeader: false });
@@ -1828,12 +1836,12 @@ function initializePopup() {
           // Keep section visible but show empty state when monitoring
           eqSection.style.display = 'flex';
           // Set body height to accommodate loot section
-          document.body.style.height = '600px';
+          setLootPopupHeight(true);
         } else {
           // Hide section when not monitoring and no events
           eqSection.style.display = 'none';
           // Shrink body height when loot section is hidden
-          document.body.style.height = 'auto';
+          setLootPopupHeight(false);
         }
       }
       console.log('[EQ Log Display] No events today, monitoring:', eqLogSettings.monitoring);
@@ -1847,7 +1855,7 @@ function initializePopup() {
         eqSection.setAttribute('data-raid-leader', 'true');
       }
       // Set body height to accommodate loot section
-      document.body.style.height = '600px';
+      setLootPopupHeight(true);
       // Force layout recalculation for Firefox
       void eqSection.offsetHeight;
     }

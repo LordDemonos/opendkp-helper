@@ -1735,38 +1735,6 @@ function wireAutoBidUi() {
     });
   }
 
-  const testPollBtn = document.getElementById('autoBidTestPoll');
-  if (testPollBtn) {
-    testPollBtn.addEventListener('click', async function () {
-      const outEl = document.getElementById('autoBidLastRun');
-      if (outEl) outEl.textContent = 'Running…';
-      try {
-        await persistAutoBidSettings({ silent: true });
-        const result = await new Promise(function (resolve, reject) {
-          api.runtime.sendMessage({ type: 'autoBidRun' }, function (resp) {
-            if (api.runtime.lastError) return reject(api.runtime.lastError);
-            resolve(resp || {});
-          });
-        });
-        const lines = [];
-        if (result.skipped) lines.push('Skipped: ' + (result.reason || 'none'));
-        (result.results || []).forEach(function (r) {
-          if (r.action === 'bid') {
-            lines.push('Bid ' + r.amount + ' on "' + r.itemName + '" as ' + (r.characterName || 'character'));
-          } else if (r.action === 'error') {
-            lines.push('Error on "' + r.itemName + '": ' + r.message);
-          }
-        });
-        if (!lines.length) lines.push(result.ok ? 'Poll complete — no bids placed.' : 'Poll failed: ' + (result.reason || 'unknown'));
-        if (outEl) outEl.textContent = lines.join('\n');
-        showStatus('Auto-bid test poll finished.', 'success');
-      } catch (e) {
-        if (outEl) outEl.textContent = 'Error: ' + (e.message || e);
-        showStatus('Test poll failed: ' + (e.message || e), 'error');
-      }
-    });
-  }
-
   const signIn = document.getElementById('autoBidSignIn');
   if (signIn) {
     signIn.addEventListener('click', async function () {
