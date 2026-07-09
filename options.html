@@ -48,6 +48,20 @@
             justify-content: space-between;
             margin-bottom: 15px;
         }
+
+        .setting-row.setting-row-days {
+            justify-content: flex-start;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .setting-row.setting-row-days .day-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            white-space: nowrap;
+            margin: 0;
+        }
         
         .setting-row:last-child {
             margin-bottom: 0;
@@ -989,7 +1003,7 @@
                 <span class="description">Saved in extension local storage only (not synced). Used for API sign-in.</span>
             </div>
             <p class="description" style="margin-top: 8px;">
-                <strong>Not the website login.</strong> This calls AWS Cognito (same flow as the Postman collection) and stores <strong>API tokens</strong> locally so the extension can manage raids on your guild. Sign-in also refreshes raids, pools, and roster when a guild subdomain is set. Roster names are cached locally per guild.
+                <strong>Not the website login.</strong> This calls AWS Cognito (same flow as the Postman collection) and stores <strong>API tokens</strong> locally so the extension can manage raids on your guild. Sign-in refreshes raids and pools when a guild subdomain is set. Roster download is optional (see Load roster under raid log upload).
             </p>
             <div class="setting-row" style="margin-top: 10px; flex-wrap: wrap; gap: 10px;">
                 <button type="button" id="opendkpSignIn">Sign in to API</button>
@@ -1058,11 +1072,11 @@
             <p id="opendkpRaidtickStageStatus" class="description"></p>
             <div class="setting-row" style="margin-top: 10px; flex-wrap: wrap; gap: 10px;">
                 <button type="button" id="opendkpRaidtickApply">Apply all staged ticks (confirm)</button>
-                <button type="button" class="test-button" id="opendkpRaidtickLoadRosterMap">Load roster for name → ID map</button>
+                <button type="button" class="test-button" id="opendkpRaidtickLoadRosterMap" title="Optional. OpenDKP creates new characters on upload; load roster only if you want a local name cache.">Load roster (optional)</button>
                 <button type="button" class="test-button" id="opendkpRaidtickPreviewPost">Preview POST body</button>
                 <button type="button" class="test-button" id="opendkpRaidtickClearStage">Clear staged files</button>
             </div>
-            <p class="description">Stage one or more <code>RaidTick-*.txt</code> files per hour on the <strong>current</strong> raid, preview the POST body, then apply. Unstaged ticks are sent with an empty roster (same as the OpenDKP website SAVE). Payload uses <code>RaidId</code>, <code>Pool.PoolId</code>, and <code>Ticks[].Characters</code>.</p>
+            <p class="description">Stage one or more <code>RaidTick-*.txt</code> files per hour on the <strong>current</strong> raid, preview the POST body, then apply. Names not yet on OpenDKP are created by the API (same as the website). Unstaged ticks are sent empty. Payload uses <code>RaidId</code>, <code>Pool.PoolId</code>, and <code>Ticks[].Characters</code>.</p>
             </div>
 
             <h4 style="margin: 16px 0 8px 0;">Loot queue defaults</h4>
@@ -1092,7 +1106,7 @@
         </div>
 
         <div class="setting-group" id="raidTickGroup">
-            <h3>📁 RaidTick Integration</h3>
+            <h3>📁 RaidTick Reminders</h3>
             <p class="section-description">Search for RaidTick .txt files in your TAKP folder and copies the contents to your clipboard for easy OpenDKP import.</p>
             <div class="setting-description">
                 In game, type <code>/outputfile raidlist</code> to generate a RaidTick <code>.txt</code> file with your current raid. 
@@ -1121,9 +1135,8 @@
             
             <input type="file" id="folderInput" multiple webkitdirectory style="display: none;">
 
-            <!-- Bundled: RaidTick Reminders (visible for Raid Leader only) -->
+            <!-- Bundled: reminder schedule (visible for Raid Leader only) -->
             <div id="raidTickReminders" style="display:none; margin-top:12px;">
-                <h4 style="margin:14px 0 8px 0;">⏰ RaidTick Reminders</h4>
                 <div class="setting-row" style="justify-content:flex-start; gap:10px;">
                     <button id="addReminder" class="btn btn-primary">Add Reminder</button>
                     <label style="margin-left:10px; display:flex; align-items:center; gap:6px;">
@@ -1133,15 +1146,15 @@
                         <input type="checkbox" id="reminderNotifications"> Browser Notifications
                     </label>
                 </div>
-                <div class="setting-row setting-row-days" style="margin-top:12px; align-items:center; flex-wrap:wrap; gap:8px;">
-                    <label style="display:flex; align-items:center; font-weight:bold; flex-shrink:0;">Enabled on:</label>
-                    <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay0" value="0"> Sunday</label>
-                    <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay1" value="1"> Monday</label>
-                    <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay2" value="2"> Tuesday</label>
-                    <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay3" value="3"> Wednesday</label>
-                    <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay4" value="4"> Thursday</label>
-                    <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay5" value="5"> Friday</label>
-                    <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay6" value="6"> Saturday</label>
+                <div class="setting-row setting-row-days" style="margin-top:12px; flex-wrap:wrap; gap:8px; align-items:center;">
+                    <span style="font-weight:bold; flex-shrink:0;">Enabled on:</span>
+                    <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay0" value="0"> Sun</label>
+                    <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay1" value="1"> Mon</label>
+                    <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay2" value="2"> Tue</label>
+                    <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay3" value="3"> Wed</label>
+                    <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay4" value="4"> Thu</label>
+                    <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay5" value="5"> Fri</label>
+                    <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay6" value="6"> Sat</label>
                 </div>
                 <div class="setting-row" style="margin-top:10px;">
                     <label style="display:flex; align-items:center; gap:6px;">
@@ -1162,9 +1175,10 @@
         <div class="setting-group" id="ffLootExplain" style="display:none;">
             <h3>⚔️ Loot Parser</h3>
             <p class="section-description">
-                Firefox restricts extensions from keeping live access to local files. To reliably parse loot:
-                open the <strong>Loot Monitor</strong> window, choose your EQ log once, and leave the window open.
-                It checks every few seconds and pushes new loot lines into the popup automatically.
+                Open the <strong>Loot Monitor</strong> window, choose your EQ log, and leave the window open.
+                On Chrome, use the system file picker so the monitor gets a <strong>live log link</strong> (it can keep reading while EverQuest is running).
+                On Firefox, snapshot mode is used — re-choose the log if new loot does not appear after you post.
+                The monitor checks every few seconds and pushes new loot lines into the popup automatically.
             </p>
              <div class="setting-description">
                 In game, type your identifier before pressing 'Link Loot' (Zeal Feature with compatible UI). The parser will detect log lines containing your identifier and push the items to the popup.
@@ -1451,7 +1465,7 @@
         <!-- Footer -->
         <div class="footer">
             <div class="footer-content">
-                <span class="footer-text">OpenDKP Helper v2.3.3</span>
+                <span class="footer-text">OpenDKP Helper v2.3.5</span>
                 <span class="footer-separator">•</span>
                 <a href="https://github.com/LordDemonos/opendkp-helper" target="_blank" rel="noopener" class="footer-link">GitHub</a>
                 <span class="footer-separator">•</span>

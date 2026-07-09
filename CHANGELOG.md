@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versioning follows the **same semver** as `manifest.json` (single version for Firefox and Chrome packages).
 
+## [2.3.5] - 2026-07-09
+
+### Added
+
+- **Loot monitor mode indicator** — Shows whether the EQ log is linked live (Chrome) or read in snapshot mode (Firefox), plus a visible lock-retry status when EverQuest has the file open.
+- **Persisted EQ log file handle (Chrome)** — Remembers your log file choice across monitor window sessions via IndexedDB.
+
+### Fixed
+
+- **RaidTick reminders** — When a reminder popup is already open, replay the alert instead of silently skipping the fire.
+- **RaidTick upload** — Resolves guild ClientId from the raid response and posts roster updates even when the local roster cache is empty (OpenDKP creates missing characters).
+
+### Changed
+
+- **Loot monitor polling** — Faster retries when the log is busy; shorter per-read retry window so polls do not stack up.
+- **RaidTick queue** — Uses `buildRaidUpdateBodyForQueuedTickRosters` for slot-based roster uploads.
+
 ## [2.3.3] - 2026-07-04
 
 ### Fixed

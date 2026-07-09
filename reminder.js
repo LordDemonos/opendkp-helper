@@ -5,8 +5,6 @@
 	const msg = decodeURIComponent(params.get('msg') || 'Run /outputfile raidlist');
 	const messageEl = document.getElementById('message');
 	const statusEl = document.getElementById('status');
-	const REMINDER_NAG_MS = 5000;
-	let nagTimerId = null;
 	let finishing = false;
 	messageEl.textContent = msg;
 
@@ -101,25 +99,18 @@
 		} catch(_){}
 	}
 
-	function startNagTimer() {
-		if (nagTimerId || finishing) return;
-		nagTimerId = setInterval(function() {
-			if (finishing) return;
-			speakAndSound(msg);
-		}, REMINDER_NAG_MS);
-	}
-
-	function stopNagTimer() {
-		if (!nagTimerId) return;
-		clearInterval(nagTimerId);
-		nagTimerId = null;
+	if (api.runtime && api.runtime.onMessage) {
+		api.runtime.onMessage.addListener(function(incoming) {
+			if (incoming && incoming.type === 'replayReminder' && !finishing) {
+				speakAndSound(msg);
+			}
+		});
 	}
 
 	document.getElementById('copyBtn').addEventListener('click', copyCommand);
 	document.getElementById('doneBtn').addEventListener('click', async function(){
 		if (finishing) return;
 		finishing = true;
-		stopNagTimer();
 		try { 
 			const result = await api.runtime.sendMessage({ type:'ackReminder', id, ts: Date.now() });
 			try { console.log('[Reminder] Done clicked, acknowledgment sent:', result); } catch(_) {}
@@ -130,17 +121,13 @@
 		} catch(e) { 
 			try { console.warn('[Reminder] Failed to send acknowledgment:', e); } catch(_) {}
 			finishing = false;
-			startNagTimer();
 			setTimeout(() => {
 				try { window.close(); } catch(_) {}
 			}, 100);
 		}
 	});
 
-	window.addEventListener('beforeunload', stopNagTimer);
-
-	// On load, speak and sound, then repeat until Done
+	// On load, speak and sound once; further dings come from the 5-minute scheduler until Done
 	speakAndSound(msg);
-	startNagTimer();
 
 })();

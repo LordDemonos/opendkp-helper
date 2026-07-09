@@ -28,16 +28,166 @@
   let lootExceptions = [];
   let raidLeaderMode = true;
   let consecutiveReadFailures = 0;
+  let lastBusyLogAt = 0;
   let sessionKeepAliveTimer = null;
   const OPEN_DKP_COGNITO_CLIENT_ID = '2sq61k8dj39e309tnh5tm70dd4';
 
   /** Tail size for handle-based setup reads — smaller reads release the lock sooner on Windows. */
   var TAIL_READ_BYTES = 256 * 1024;
-  var READ_RETRY_COUNT = 16;
-  var READ_RETRY_DELAY_MS = 75;
+  /** Keep per-poll retries short so pollInFlight does not block the next tick for seconds. */
+  var READ_RETRY_COUNT = 4;
+  var READ_RETRY_DELAY_MS = 40;
+  var POLL_INTERVAL_MS = 3000;
+  var BUSY_POLL_INTERVAL_MS = 1000;
+  var HANDLE_DB_NAME = 'opendkp-eqlog';
+  var HANDLE_DB_VERSION = 1;
+  var HANDLE_STORE = 'handles';
+  var HANDLE_KEY = 'eqLogFile';
 
   function delay(ms) {
     return new Promise(function (resolve) { setTimeout(resolve, ms); });
+  }
+
+  function isChromiumBrowser() {
+    return typeof window.showOpenFilePicker === 'function'
+      || (typeof navigator !== 'undefined' && /Chrome|Chromium|Edg\//.test(navigator.userAgent)
+        && !/Firefox/.test(navigator.userAgent));
+  }
+
+  function modeBadgeEl() { return document.getElementById('modeBadge'); }
+  function modeDetailEl() { return document.getElementById('modeDetail'); }
+  function lockStatusEl() { return document.getElementById('lockStatus'); }
+
+  function updateModeIndicator(mode, detail) {
+    const badge = modeBadgeEl();
+    const detailEl = modeDetailEl();
+    if (badge) {
+      badge.className = 'mode-badge mode-' + mode;
+      if (mode === 'live') badge.textContent = 'Live log link';
+      else if (mode === 'snapshot') badge.textContent = 'Snapshot mode';
+      else if (mode === 'warn') badge.textContent = 'Not live';
+      else badge.textContent = 'No log selected';
+    }
+    if (detailEl && detail != null) detailEl.textContent = detail;
+  }
+
+  function updateLockStatusUi() {
+    const el = lockStatusEl();
+    if (!el) return;
+    if (consecutiveReadFailures > 0) {
+      el.classList.add('visible');
+      el.textContent = 'Log locked by EQ — retrying (' + consecutiveReadFailures + ' failure'
+        + (consecutiveReadFailures === 1 ? '' : 's') + ')…';
+    } else {
+      el.classList.remove('visible');
+      el.textContent = '';
+    }
+  }
+
+  function openHandleDb() {
+    return new Promise(function (resolve, reject) {
+      if (typeof indexedDB === 'undefined') {
+        reject(new Error('IndexedDB unavailable'));
+        return;
+      }
+      const req = indexedDB.open(HANDLE_DB_NAME, HANDLE_DB_VERSION);
+      req.onupgradeneeded = function () {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(HANDLE_STORE)) {
+          db.createObjectStore(HANDLE_STORE);
+        }
+      };
+      req.onsuccess = function () { resolve(req.result); };
+      req.onerror = function () { reject(req.error || new Error('IndexedDB open failed')); };
+    });
+  }
+
+  async function persistLogFileHandle(handle) {
+    if (!handle) return;
+    try {
+      const db = await openHandleDb();
+      await new Promise(function (resolve, reject) {
+        const tx = db.transaction(HANDLE_STORE, 'readwrite');
+        tx.oncomplete = function () { resolve(); };
+        tx.onerror = function () { reject(tx.error); };
+        tx.objectStore(HANDLE_STORE).put(handle, HANDLE_KEY);
+      });
+      db.close();
+    } catch (err) {
+      console.warn('[EQ Log Monitor] Could not persist file handle:', err);
+    }
+  }
+
+  async function clearPersistedLogFileHandle() {
+    try {
+      const db = await openHandleDb();
+      await new Promise(function (resolve, reject) {
+        const tx = db.transaction(HANDLE_STORE, 'readwrite');
+        tx.oncomplete = function () { resolve(); };
+        tx.onerror = function () { reject(tx.error); };
+        tx.objectStore(HANDLE_STORE).delete(HANDLE_KEY);
+      });
+      db.close();
+    } catch (_) { /* ignore */ }
+  }
+
+  async function loadPersistedLogFileHandle() {
+    try {
+      const db = await openHandleDb();
+      const handle = await new Promise(function (resolve, reject) {
+        const tx = db.transaction(HANDLE_STORE, 'readonly');
+        const req = tx.objectStore(HANDLE_STORE).get(HANDLE_KEY);
+        req.onsuccess = function () { resolve(req.result || null); };
+        req.onerror = function () { reject(req.error); };
+      });
+      db.close();
+      return handle || null;
+    } catch (err) {
+      console.warn('[EQ Log Monitor] Could not load persisted file handle:', err);
+      return null;
+    }
+  }
+
+  async function ensureHandlePermission(handle, allowPrompt) {
+    if (!handle || typeof handle.queryPermission !== 'function') return !!handle;
+    try {
+      let state = await handle.queryPermission({ mode: 'read' });
+      if (state === 'granted') return true;
+      if (allowPrompt && typeof handle.requestPermission === 'function') {
+        state = await handle.requestPermission({ mode: 'read' });
+      }
+      return state === 'granted';
+    } catch (err) {
+      console.warn('[EQ Log Monitor] Handle permission check failed:', err);
+      return false;
+    }
+  }
+
+  async function tryRestorePersistedHandle(allowPrompt) {
+    const handle = await loadPersistedLogFileHandle();
+    if (!handle) return false;
+    const ok = await ensureHandlePermission(handle, !!allowPrompt);
+    if (!ok) {
+      if (allowPrompt) {
+        addLog('Could not reopen the saved log — pick it again.');
+      } else {
+        addLog('Saved log link found — click Choose EQ log to reconnect.');
+      }
+      updateModeIndicator('warn', 'Saved log needs permission. Click Choose EQ log to reconnect.');
+      return false;
+    }
+    try {
+      const file = await handle.getFile();
+      addLog('Restored live link to ' + file.name);
+      await onLogFileChosen(file, handle, { restored: true });
+      return true;
+    } catch (err) {
+      console.warn('[EQ Log Monitor] Restored handle unusable:', err);
+      await clearPersistedLogFileHandle();
+      addLog('Stored log link expired — click Choose EQ log.');
+      updateModeIndicator('none', 'Click Choose EQ log to start.');
+      return false;
+    }
   }
 
   function refreshSelectedFileFromInput() {
@@ -51,11 +201,7 @@
   async function refreshLogFile() {
     refreshSelectedFileFromInput();
     if (logFileHandle && typeof logFileHandle.getFile === 'function') {
-      try {
-        selectedFile = await logFileHandle.getFile();
-      } catch (err) {
-        console.warn('[EQ Log Monitor] getFile() failed, using last file snapshot:', err);
-      }
+      selectedFile = await logFileHandle.getFile();
     }
     return selectedFile;
   }
@@ -113,10 +259,12 @@
   }
 
   function logFileBusyMessage() {
+    updateLockStatusUi();
     const now = Date.now();
-    if (!window.lastPermissionError || (now - window.lastPermissionError) > 180000) {
-      addLog('EQ is writing to the log — retrying until the file unlocks…');
-      window.lastPermissionError = now;
+    if (!lastBusyLogAt || (now - lastBusyLogAt) > 4000) {
+      addLog('Log locked by EQ — retrying (' + consecutiveReadFailures + ' failure'
+        + (consecutiveReadFailures === 1 ? '' : 's') + ')…');
+      lastBusyLogAt = now;
     }
   }
 
@@ -125,6 +273,9 @@
       addLog('Log file readable again.');
     }
     consecutiveReadFailures = 0;
+    lastBusyLogAt = 0;
+    updateLockStatusUi();
+    schedulePollTimer();
   }
 
   async function loadProfileMode() {
@@ -218,7 +369,12 @@
         await syncLogReadOffsetToEnd();
         console.log('[EQ Log Monitor] Synced read offset to end (', logReadOffset, ')');
       } catch (e) {
-        if (isLogFileBusyError(e)) return [];
+        if (isLogFileBusyError(e)) {
+          consecutiveReadFailures++;
+          logFileBusyMessage();
+          schedulePollTimer();
+          return [];
+        }
         throw e;
       }
       return [];
@@ -280,6 +436,8 @@
         console.error('[EQ Log Monitor] Error priming:', e);
         needsEndOffsetSync = true;
         if (isLogFileBusyError(e)) {
+          consecutiveReadFailures++;
+          logFileBusyMessage();
           addLog('EQ is writing to the log — monitoring will retry until reads succeed.');
         } else {
           addLog('Error priming: ' + (e.message || String(e)));
@@ -314,6 +472,8 @@
       console.error('[EQ Log Monitor] Error capturing latest:', e);
       needsEndOffsetSync = true;
       if (isLogFileBusyError(e)) {
+        consecutiveReadFailures++;
+        logFileBusyMessage();
         addLog('EQ is writing to the log — monitoring will retry until reads succeed.');
       } else {
         addLog('Error capturing latest: ' + (e.message || String(e)));
@@ -321,11 +481,13 @@
     }
   }
 
-  async function onLogFileChosen(file, handle) {
+  async function onLogFileChosen(file, handle, options) {
+    const opts = options || {};
     selectedFile = file;
     logFileHandle = handle || null;
     if (!file) {
       console.log('[EQ Log Monitor] No file selected');
+      updateModeIndicator('none', 'Click Choose EQ log to start.');
       return;
     }
     console.log('[EQ Log Monitor] File selected:', file.name, handle ? '(persistent handle)' : '(file input)');
@@ -338,14 +500,24 @@
     console.log('[EQ Log Monitor] Using tag:', tag);
 
     if (handle) {
-      addLog('Live log link — new lines are picked up automatically.');
-    } else if (!monitoring) {
-      addLog('Snapshot mode (Firefox) — if new loot does not appear after you post, choose the log file again.');
+      await persistLogFileHandle(handle);
+      updateModeIndicator('live', file.name + ' — new lines are picked up automatically while this window stays open.');
+      if (!opts.restored) addLog('Live log link — new lines are picked up automatically.');
+    } else if (isChromiumBrowser()) {
+      updateModeIndicator('warn', 'Chrome needs a live file link. Click Choose EQ log and use the system file picker (do not rely on the fallback).');
+      addLog('WARNING: Snapshot mode on Chrome will not see new loot while EQ is running. Click Choose EQ log again for a live link.');
     } else {
-      addLog('Log snapshot refreshed.');
+      updateModeIndicator('snapshot', file.name + ' — Firefox snapshot mode. Re-choose the log if new loot does not appear after you post.');
+      if (!monitoring) {
+        addLog('Snapshot mode (Firefox) — if new loot does not appear after you post, choose the log file again.');
+      } else {
+        addLog('Log snapshot refreshed.');
+      }
     }
 
     consecutiveReadFailures = 0;
+    lastBusyLogAt = 0;
+    updateLockStatusUi();
     resetLogReadState();
 
     const captureLatest = !scanLatestNowEl || (scanLatestNowEl() && scanLatestNowEl().checked);
@@ -365,6 +537,19 @@
   }
 
   async function openLogFilePicker() {
+    // Complete a pending permission prompt for a saved Chrome handle (needs user gesture).
+    if (!logFileHandle && typeof window.showOpenFilePicker === 'function') {
+      const saved = await loadPersistedLogFileHandle();
+      if (saved && typeof saved.queryPermission === 'function') {
+        try {
+          const state = await saved.queryPermission({ mode: 'read' });
+          if (state === 'prompt') {
+            const restored = await tryRestorePersistedHandle(true);
+            if (restored) return;
+          }
+        } catch (_) { /* fall through to picker */ }
+      }
+    }
     if (typeof window.showOpenFilePicker === 'function') {
       try {
         const handles = await window.showOpenFilePicker({
@@ -378,11 +563,23 @@
           return;
         }
       } catch (e) {
-        if (e && e.name === 'AbortError') return;
-        console.warn('[EQ Log Monitor] showOpenFilePicker failed, using file input:', e);
+        if (e && e.name === 'AbortError') {
+          addLog('File picker cancelled.');
+          return;
+        }
+        console.warn('[EQ Log Monitor] showOpenFilePicker failed:', e);
+        if (isChromiumBrowser()) {
+          updateModeIndicator('warn', 'Live file picker failed. Click Choose EQ log again — Chrome snapshot fallback will not track a growing EQ log.');
+          addLog('Live picker failed on Chrome: ' + (e.message || String(e)) + '. Try Choose EQ log again.');
+          return;
+        }
       }
+    } else if (isChromiumBrowser()) {
+      updateModeIndicator('warn', 'This Chromium build has no live file picker. Live loot monitoring is unavailable.');
+      addLog('showOpenFilePicker unavailable — Chrome cannot keep a live link to the EQ log.');
+      return;
     } else {
-      console.log('[EQ Log Monitor] showOpenFilePicker unavailable — using file input (may need re-select when log grows)');
+      console.log('[EQ Log Monitor] showOpenFilePicker unavailable — using file input (Firefox snapshot mode)');
     }
     if (fileInput()) fileInput().click();
   }
@@ -688,7 +885,7 @@
     }
     pollInFlight = true;
     try {
-      if (!selectedFile) {
+      if (!selectedFile && !logFileHandle) {
         console.log('[EQ Log Monitor] Poll skipped - no file selected');
         return;
       }
@@ -696,7 +893,7 @@
         addLog('Parser not loaded — reload the extension.');
         return;
       }
-      console.log('[EQ Log Monitor] Polling file:', selectedFile.name, '- Tag:', tag);
+      console.log('[EQ Log Monitor] Polling file:', (selectedFile && selectedFile.name) || '(handle)', '- Tag:', tag);
       const newLines = await readNewLogLines();
       noteReadRecovered();
 
@@ -736,13 +933,30 @@
       if (isLogFileBusyError(e)) {
         consecutiveReadFailures++;
         logFileBusyMessage();
+        schedulePollTimer();
       } else {
         consecutiveReadFailures = 0;
+        updateLockStatusUi();
+        schedulePollTimer();
         addLog('Error: ' + (e.message || String(e)));
       }
     } finally {
       pollInFlight = false;
     }
+  }
+
+  function currentPollIntervalMs() {
+    return consecutiveReadFailures > 0 ? BUSY_POLL_INTERVAL_MS : POLL_INTERVAL_MS;
+  }
+
+  function schedulePollTimer() {
+    if (!monitoring) return;
+    if (timer) clearInterval(timer);
+    const interval = currentPollIntervalMs();
+    timer = setInterval(function () {
+      console.log('[EQ Log Monitor] Poll interval tick (' + interval + 'ms)');
+      poll();
+    }, interval);
   }
 
   async function start(){
@@ -752,15 +966,16 @@
     monitoring = true; 
     console.log('[EQ Log Monitor] Monitoring started. Tag:', tag);
     addLog('Monitoring started. Tag: '+tag);
-    timer = setInterval(() => {
-      console.log('[EQ Log Monitor] Poll interval tick');
-      poll();
-    }, 3000);
-    // Set monitoring status in storage
+    schedulePollTimer();
     await api.storage.sync.set({ eqLogMonitoring: true });
   }
 
-  function stop(){ monitoring=false; if (timer) clearInterval(timer); timer=null; addLog('Monitoring stopped.'); }
+  function stop(){
+    monitoring = false;
+    if (timer) clearInterval(timer);
+    timer = null;
+    addLog('Monitoring stopped.');
+  }
 
   function init(){
     console.log('[EQ Log Monitor] Initializing...');
@@ -773,10 +988,22 @@
   }
 
   function bootMonitorUi(){
+    updateModeIndicator('none', 'Click Choose EQ log to start. Chrome needs a live file link; Firefox can use snapshot mode.');
     if (pickBtn()) pickBtn().addEventListener('click', function () { openLogFilePicker(); });
     if (fileInput()) fileInput().addEventListener('change', async function () {
       const file = (fileInput().files || [])[0];
+      if (!file) return;
+      if (isChromiumBrowser()) {
+        logFileHandle = null;
+        await clearPersistedLogFileHandle();
+        selectedFile = null;
+        if (nameEl()) nameEl().textContent = file.name + ' (not live)';
+        updateModeIndicator('warn', 'Chrome snapshot fallback selected — live monitoring will not work while EQ is running. Click Choose EQ log and use the system picker.');
+        addLog('WARNING: File input on Chrome is not a live link. Click Choose EQ log for a live File System Access picker.');
+        return;
+      }
       logFileHandle = null;
+      await clearPersistedLogFileHandle();
       await onLogFileChosen(file, null);
     });
     if (tagInput()) {
@@ -830,8 +1057,11 @@
         await clearTodayLootEvents();
       });
     }
-    // attempt auto open picker first time
-    setTimeout(function () { openLogFilePicker(); }, 100);
+    tryRestorePersistedHandle(false).then(function (restored) {
+      if (!restored) {
+        addLog('Choose your EQ log to begin monitoring.');
+      }
+    });
   }
 
   document.addEventListener('DOMContentLoaded', init);

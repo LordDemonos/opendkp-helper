@@ -324,7 +324,13 @@ console.log('🔵 Background script executing at:', new Date().toISOString());
     // One popup per reminder cycle — existing window repeats ding/TTS on its own timer
     const existing = await findReminderTargets(rem.id);
     if (existing.length > 0) {
-      try { console.log('[ODKP Reminder] Popup already open for', rem.id, '- skipping new window (', existing.length, 'found)'); } catch (_) {}
+      try { console.log('[ODKP Reminder] Popup already open for', rem.id, '- replaying alert (', existing.length, 'found)'); } catch (_) {}
+      for (const target of existing) {
+        if (target.tabId == null || !api.tabs || !api.tabs.sendMessage) continue;
+        try {
+          await api.tabs.sendMessage(target.tabId, { type: 'replayReminder' });
+        } catch (_) {}
+      }
       return;
     }
 

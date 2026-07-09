@@ -1888,9 +1888,6 @@ function openDkpGatherRaidtickBatchInputs(opts) {
   if (!s || !Array.isArray(s.ticks) || !s.ticks.length) {
     return { ok: false, message: 'Refresh raid list and set a current raid first.' };
   }
-  if (!Object.keys(__odRosterNameToId).length) {
-    return { ok: false, message: 'Load roster for name \u2192 ID map before applying (Settings \u2192 Load roster).' };
-  }
 
   const namesBySlotIndex = [];
   const missing = [];
@@ -1926,19 +1923,7 @@ function openDkpGatherRaidtickBatchInputs(opts) {
     return { ok: false, message: 'Choose at least one RaidTick .txt file first.' };
   }
 
-  if (window.RaidTickParse && RaidTickParse.auditRosterMapping) {
-    const audit = RaidTickParse.auditRosterMapping(allNames, __odRosterNameToId);
-    if (audit.unmapped.length > 0) {
-      const sample = audit.unmapped.slice(0, 8).join(', ');
-      const suffix = audit.unmapped.length > 8 ? '\u2026' : '';
-      return {
-        ok: false,
-        message:
-          audit.unmapped.length + ' name(s) not found in OpenDKP roster: ' + sample + suffix
-      };
-    }
-  }
-
+  // Roster cache is optional — OpenDKP creates missing characters on raid update.
   return {
     ok: true,
     cfg: cfg,
@@ -2543,12 +2528,8 @@ async function openDkpPostSignInBootstrap(cfg) {
     errors.push('pools: ' + (e.message || e));
   }
 
-  try {
-    const roster = await openDkpRefreshRosterFromApi(cfg, { merge: true, silent: true });
-    loaded.push('roster (' + roster.total + ' names' + (roster.added ? ', +' + roster.added + ' new' : '') + ')');
-  } catch (e) {
-    errors.push('roster: ' + (e.message || e));
-  }
+  // Roster is not loaded on sign-in — OpenDKP creates new characters on tick upload.
+  // Use Settings → "Load roster" only when you need a local name → ID cache.
 
   if (loaded.length && !errors.length) {
     return 'Signed in — loaded ' + loaded.join(', ') + '.';
@@ -2602,7 +2583,7 @@ function openDkpWireRaidWorkflowUi() {
         await openDkpUpdateTokenStatusEl();
         const cfg = getOpenDkpApiConfig();
         if (!cfg.clientSlug) {
-          showStatus('Signed in (credentials saved). Enter guild subdomain to load raids, pools, and roster.', 'success');
+          showStatus('Signed in (credentials saved). Enter guild subdomain to load raids and pools.', 'success');
           return;
         }
         try {
@@ -2911,7 +2892,10 @@ function openDkpWireRaidWorkflowUi() {
           ? OpenDkpApi.resolveGuildClientId(full, __odClientId)
           : full.ClientId || __odClientId || '';
         if (!guildClientId) {
-          return showStatus('Guild ClientId is missing; reload roster in Settings and try again.', 'error');
+          return showStatus(
+            'Guild ClientId is missing from the raid response. Refresh the current raid and try again.',
+            'error'
+          );
         }
         if (__odClientId && full.ClientId && String(__odClientId) !== String(full.ClientId)) {
           console.warn(
@@ -2941,7 +2925,7 @@ function openDkpWireRaidWorkflowUi() {
           prev.textContent =
             'Upload failed:\n\n' +
             msg +
-            '\n\nUse Preview POST body to inspect the JSON. Unmapped roster names are the most common apply failure.';
+            '\n\nUse Preview POST body to inspect the JSON. Check ClientId, TickIds, and that the API session is still valid.';
         }
         showStatus('Apply failed: ' + msg, 'error');
       }
@@ -3073,8 +3057,10 @@ function applySettingsToUI() {
   const flashEl = document.getElementById('flashScreen'); if (flashEl) flashEl.checked = currentSettings.flashScreen;
   document.getElementById('browserNotifications').checked = currentSettings.browserNotifications;
   document.getElementById('checkInterval').value = currentSettings.checkInterval;
-  // RaidTick Integration settings - only show for Raid Leader profile
+  // RaidTick Reminders settings - only show for Raid Leader profile
   const raidTickGroup = Array.from(document.querySelectorAll('.setting-group')).find(group => 
+    group.id === 'raidTickGroup' ||
+    group.querySelector('h3')?.textContent.includes('RaidTick Reminders') ||
     group.querySelector('h3')?.textContent.includes('RaidTick Integration')
   );
   const lootGroup = document.getElementById('ffLootExplain');
@@ -3825,19 +3811,21 @@ function updateSoundProfile() {
   }
   }
   
-  // Handle RaidTick Integration visibility
+  // Handle RaidTick Reminders visibility
   const raidTickGroup = Array.from(document.querySelectorAll('.setting-group')).find(group => 
+    group.id === 'raidTickGroup' ||
+    group.querySelector('h3')?.textContent.includes('RaidTick Reminders') ||
     group.querySelector('h3')?.textContent.includes('RaidTick Integration')
   );
   if (profile === 'raidleader') {
     if (raidTickGroup) {
       raidTickGroup.style.display = 'block';
-      console.log('Raid leader profile - RaidTick integration shown');
+      console.log('Raid leader profile - RaidTick reminders shown');
     }
   } else {
     if (raidTickGroup) {
       raidTickGroup.style.display = 'none';
-      console.log('Non-raid leader profile - RaidTick integration hidden');
+      console.log('Non-raid leader profile - RaidTick reminders hidden');
     }
   }
   

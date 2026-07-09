@@ -41,6 +41,22 @@
     .btn-post-all { background:#1565c0; padding:4px 8px; font-size:11px; flex-shrink:0; }
     .btn-post-all:hover { background:#0d47a1; }
     .btn-post-all:disabled { opacity:0.6; cursor:wait; }
+    .mode-row { margin-top:10px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .mode-badge {
+      display:inline-block; font-size:11px; font-weight:700; letter-spacing:0.02em;
+      padding:4px 10px; border-radius:4px; border:1px solid transparent;
+    }
+    .mode-badge.mode-none { background:#333; color:#aaa; border-color:#555; }
+    .mode-badge.mode-live { background:#1b5e20; color:#c8e6c9; border-color:#2e7d32; }
+    .mode-badge.mode-snapshot { background:#e65100; color:#ffe0b2; border-color:#ef6c00; }
+    .mode-badge.mode-warn { background:#b71c1c; color:#ffcdd2; border-color:#c62828; }
+    .mode-detail { font-size:12px; color:#b0b0b0; flex:1; min-width:180px; }
+    .lock-status {
+      display:none; margin-top:8px; font-size:12px; font-weight:600;
+      color:#ffcc80; background:#3e2723; border:1px solid #bf360c;
+      border-radius:6px; padding:8px 10px;
+    }
+    .lock-status.visible { display:block; }
   </style>
   <script defer src="lib/eqlog-parse.js"></script>
   <script defer src="lib/opendkp-api.js"></script>
@@ -59,7 +75,12 @@
     <div class="row" style="margin-top:8px;">
       <label class="small"><input type="checkbox" id="scanLatestNow" checked style="margin-right:6px;">Scan latest line now</label>
     </div>
-    <div class="small" style="margin-top:4px; color:#888;">Matches raid/party/say tells containing your tag. EverQuest may lock the log while writing — the monitor retries automatically. On Firefox snapshot mode, re-choose the log after posting loot if lines do not appear.</div>
+    <div class="mode-row">
+      <span id="modeBadge" class="mode-badge mode-none">No log selected</span>
+      <span id="modeDetail" class="mode-detail">Click Choose EQ log to start. Chrome needs a live file link; Firefox can use snapshot mode.</span>
+    </div>
+    <div id="lockStatus" class="lock-status" role="status" aria-live="polite"></div>
+    <div class="small" style="margin-top:8px; color:#888;">Matches raid/party/say tells containing your tag. EverQuest may briefly lock the log while writing — the monitor retries automatically. Keep this window open.</div>
     <div class="status" id="log"></div>
     <div class="small">Window must remain open to monitor. Close to stop monitoring.</div>
   </div>
