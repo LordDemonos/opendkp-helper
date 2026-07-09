@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versioning follows the **same semver** as `manifest.json` (single version for Firefox and Chrome packages).
 
+## [2.3.10] - 2026-07-09
+
+### Fixed
+
+- **Loot tag at end of message** — EQ log parser now detects your loot tag at the start or end of the quoted tell (e.g. `FG Sword of Truth` or `Jacinth | Grimoire FG`), strips it correctly, and extracts item names. Matches how Zeal Link Loot is commonly used in game.
+
+### Changed
+
+- **Loot parser help text** — Settings and loot monitor copy updated to describe start-or-end tag placement.
+
 ## [2.3.7] - 2026-07-09
 
 ### Added
