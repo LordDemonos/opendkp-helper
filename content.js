@@ -68,6 +68,9 @@
   // Polling interval ID for cleanup
   let checkIntervalId = null;
   let autoBidIntervalId = null;
+  let autoBidCurrentPollSec = null;
+  let autoBidUrgentMode = false;
+  const AUTO_BID_URGENT_POLL_SEC = 2;
   let rankBidLimitsSyncIntervalId = null;
   
   // Audio element for playing chime
@@ -430,27 +433,51 @@
   
   /**
    * Poll background auto-bid engine while on OpenDKP (requires open tab).
+   * Speeds up to every 2s when a matching auction has ≤30s remaining.
    */
   function setupAutoBidPolling() {
+    autoBidUrgentMode = false;
+    autoBidCurrentPollSec = null;
     if (autoBidIntervalId) {
       clearInterval(autoBidIntervalId);
       autoBidIntervalId = null;
     }
     if (!settings.AUTO_BID_ENABLED) return;
-    var ms = (settings.AUTO_BID_POLL_SEC || 15) * 1000;
-    autoBidIntervalId = setInterval(function () {
-      try {
-        api.runtime.sendMessage({ type: 'autoBidRun' }, function (resp) {
-          if (api.runtime.lastError) return;
-          if (resp && resp.results && resp.results.length) {
-            log('Auto-bid:', resp.results);
-          }
-        });
-      } catch (e) {
-        log('Auto-bid poll error:', e);
-      }
-    }, ms);
-    log('Auto-bid polling every', ms + 'ms');
+    scheduleAutoBidPoll(settings.AUTO_BID_POLL_SEC || 15);
+  }
+
+  function scheduleAutoBidPoll(pollSec) {
+    if (autoBidIntervalId) {
+      clearInterval(autoBidIntervalId);
+      autoBidIntervalId = null;
+    }
+    var sec = pollSec > 0 ? pollSec : 15;
+    autoBidCurrentPollSec = sec;
+    var ms = sec * 1000;
+    autoBidIntervalId = setInterval(runAutoBidPollTick, ms);
+    log('Auto-bid polling every', ms + 'ms' + (autoBidUrgentMode ? ' (urgent)' : ''));
+  }
+
+  function applyAutoBidPollMode(urgent) {
+    if (!settings.AUTO_BID_ENABLED) return;
+    var nextSec = urgent ? AUTO_BID_URGENT_POLL_SEC : (settings.AUTO_BID_POLL_SEC || 15);
+    if (urgent === autoBidUrgentMode && nextSec === autoBidCurrentPollSec) return;
+    autoBidUrgentMode = !!urgent;
+    scheduleAutoBidPoll(nextSec);
+  }
+
+  function runAutoBidPollTick() {
+    try {
+      api.runtime.sendMessage({ type: 'autoBidRun' }, function (resp) {
+        if (api.runtime.lastError) return;
+        if (resp && resp.results && resp.results.length) {
+          log('Auto-bid:', resp.results);
+        }
+        applyAutoBidPollMode(resp && resp.urgentPoll === true);
+      });
+    } catch (e) {
+      log('Auto-bid poll error:', e);
+    }
   }
 
   /**

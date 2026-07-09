@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versioning follows the **same semver** as `manifest.json` (single version for Firefox and Chrome packages).
 
+## [2.3.7] - 2026-07-09
+
+### Added
+
+- **Auto-bid urgent polling** — When a matching auction has 30 seconds or less remaining, poll interval drops to every 2 seconds so late bids are not missed.
+
+### Fixed
+
+- **Auto-bid all-in bids** — If a full increment would exceed your max DKP, the extension bids the remaining amount up to the cap when that still beats the leader (e.g. leader at 380, increment 50, max 400 → bids 400 instead of skipping).
+
+### Changed
+
+- **Auto-bid settings copy** — Settings description updated to explain all-in bidding and urgent polling behavior.
+
 ## [2.3.5] - 2026-07-09
 
 ### Added
