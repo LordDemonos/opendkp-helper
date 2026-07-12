@@ -171,42 +171,47 @@ function setStatusMessageStructured(container, statusDiv, config) {
 }
 
 /**
- * Build status text with domain, profile, sound, volume, and extras
- * Uses DOM API to safely create structured HTML
- * @param {HTMLElement} container - The status text container
- * @param {Object} config - { icon, domain, profile, soundType, volume, extras }
+ * Build compact status: domain/context + profile and live exception flags.
+ * @param {HTMLElement} container
+ * @param {{ icon?: string, domain?: string, flags?: string[] }} config
  */
 function buildStatusTextStructured(container, config) {
   if (!container) return;
-  
-  const { icon = '✅', domain = '', profile = '', soundType = '', volume = '', extras = [] } = config;
-  
-  container.textContent = ''; // Clear
-  
-  // Icon and domain
+
+  const { icon = '✅', domain = '', flags = [] } = config;
+
+  container.textContent = '';
+
   container.appendChild(document.createTextNode(icon + ' '));
   if (domain) {
     const domainSpan = document.createElement('span');
     domainSpan.textContent = domain;
     container.appendChild(domainSpan);
   }
-  
-  // Line break
+
   container.appendChild(document.createElement('br'));
-  
-  // Details in small tag (single line: profile, sound, volume, TTS, …)
+
   const small = document.createElement('small');
-  const details = [];
-  if (profile) details.push(`Profile: ${profile}`);
-  if (soundType) details.push(`Sound: ${soundType}`);
-  if (volume) details.push(`Volume: ${volume}%`);
-  if (extras.length > 0) {
-    extras.forEach(function (item) {
-      details.push(item);
-    });
-  }
-  small.textContent = details.join(' | ');
+  small.textContent = (flags || []).join(' · ');
   container.appendChild(small);
+}
+
+function formatProfileLabel(profile) {
+  return profile === 'raider' ? 'Raider' : 'Raid Leader';
+}
+
+function buildStatusFlags(settings, isTimeWindowActiveFn) {
+  const flags = [formatProfileLabel(settings.soundProfile || 'raidleader')];
+  if (settings.autoBidEnabled) {
+    flags.push('Auto-Bid on');
+  }
+  if (settings.quietHours && isTimeWindowActiveFn(settings.quietStart, settings.quietEnd)) {
+    flags.push('Quiet Hours');
+  }
+  if (settings.reminderPrefs && settings.reminderPrefs.remindersEnabled === false) {
+    flags.push('Reminders off');
+  }
+  return flags;
 }
 
 /**
@@ -303,7 +308,8 @@ function initializePopup() {
       'eqLogLastPosition',
       'eqLogEvents',
       'eqLogMonitoring',
-      'autoBidEnabled'
+      'autoBidEnabled',
+      'reminderPrefs'
     ]).then(function(settings) {
       // Apply dark mode if enabled
       if (settings.darkMode) {
@@ -339,62 +345,31 @@ function initializePopup() {
   }
   
   function processSettings(settings) {
-    // Update status based on settings
-    const profile = settings.soundProfile || 'raidleader';
-    const soundType = settings.soundType || 'bell';
-    const volume = typeof settings.volume === 'number' ? settings.volume : 70;
-    
     // Check if we're on an OpenDKP page
     browser.tabs.query({active: true, currentWindow: true}).then(function(tabs) {
       const currentTab = tabs[0];
-      const isOpenDKP = currentTab.url.includes('opendkp.com');
+      const isOpenDKP = !!(currentTab && currentTab.url && currentTab.url.includes('opendkp.com'));
       
       const allowStatusUpdate = Date.now() >= statusLockUntil;
-      const extras = [];
-      if (settings.enableTTS) {
-        const v = String(settings.voice || 'Default');
-        let short = v;
-        if (/zira/i.test(v)) short = 'Zira';
-        else if (/david/i.test(v)) short = 'David';
-        else if (/mark/i.test(v)) short = 'Mark';
-        else short = (v.split(' ').find(Boolean)) || 'Default';
-        extras.push(`TTS: ${escapeHtml(short)}`);
-      }
-      if (settings.announceAuctions) {
-        const active = isTimeWindowActive(settings.announceStart, settings.announceEnd);
-        extras.push(`Read Auctions: ${active ? 'active' : 'scheduled'}`);
-      }
-      if (settings.quietHours && isTimeWindowActive(settings.quietStart, settings.quietEnd)) {
-        extras.push('Quiet Hours: active');
-      }
-      if (settings.eqLogTag) {
-        extras.push(`Loot Tag: ${escapeHtml(settings.eqLogTag)}`);
-      }
-      if (settings.autoBidEnabled) {
-        extras.push('Auto-Bid: on');
-      }
+      const flags = buildStatusFlags(settings, isTimeWindowActive);
       if (allowStatusUpdate) {
         if (isOpenDKP) {
-          const url = new URL(currentTab.url);
-          const domain = url.hostname;
+          let domain = 'opendkp.com';
+          try {
+            domain = new URL(currentTab.url).hostname;
+          } catch (_) {}
           statusDiv.className = 'status active';
           buildStatusTextStructured(statusText, {
             icon: '✅',
             domain: domain,
-            profile: profile,
-            soundType: soundType,
-            volume: String(volume),
-            extras: extras
+            flags: flags
           });
         } else {
           statusDiv.className = 'status inactive';
           buildStatusTextStructured(statusText, {
             icon: '⚠️',
-            domain: 'Not on OpenDKP page',
-            profile: profile,
-            soundType: soundType,
-            volume: String(volume),
-            extras: extras
+            domain: 'Not on OpenDKP',
+            flags: flags
           });
         }
       }

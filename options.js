@@ -151,9 +151,11 @@ const DEFAULT_SETTINGS = {
   raidTickFileList: [],
   // RaidTick Reminders
   reminders: [],
-  reminderPrefs: { flash: true, notifications: true, enabledDays: [0,1,2,3,4,5,6] }, // All days enabled by default (0=Sunday, 6=Saturday)
+  reminderPrefs: { remindersEnabled: true, flash: true, notifications: true, enabledDays: [0,1,2,3,4,5,6] }, // All days enabled by default (0=Sunday, 6=Saturday)
   // OpenDKP HTTP API (v2 raid workflow) — never hardcode a guild slug in code
   opendkpClientSlug: '',
+  opendkpRaidListCount: 1,
+  opendkpBiddingToolRaidLock: true,
   opendkpCurrentRaidId: null,
   opendkpCurrentRaidSummaryJson: '',
   opendkpRaidtickUploadEnabled: false,
@@ -415,9 +417,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         });
       }
 
-      // Firefox: Loot monitor description + button
-      const ffLoot = document.getElementById('ffLootExplain');
-      if (ffLoot) ffLoot.style.display = 'block';
+      // Firefox: Loot monitor button (section lives in Raid Leader region)
       const ffOpenLootBtn = document.getElementById('ffOpenLootMonitor');
       if (ffOpenLootBtn) {
         ffOpenLootBtn.addEventListener('click', async function(){
@@ -457,9 +457,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         });
       }
 
-      // Chrome: Loot monitor description + button (can use same monitor window as Firefox)
-      const ffLoot = document.getElementById('ffLootExplain');
-      if (ffLoot) ffLoot.style.display = 'block';
+      // Chrome: Loot monitor button (section lives in Raid Leader region)
       const ffOpenLootBtn = document.getElementById('ffOpenLootMonitor');
       if (ffOpenLootBtn) {
         ffOpenLootBtn.addEventListener('click', async function(){
@@ -830,10 +828,18 @@ function loadSettings() {
     }
     applyCriticalSettingsMirror(settings, localOpenDkp[LOCAL_SETTINGS_MIRROR_KEY]);
     currentSettings = { ...DEFAULT_SETTINGS, ...settings };
+    currentSettings.opendkpRaidListCount = openDkpNormalizeRaidListCountSetting(
+      currentSettings.opendkpRaidListCount
+    );
     currentSettings.opendkpRaidTickDefs = openDkpNormalizeRaidTickDefs(
       currentSettings.opendkpRaidTickDefs,
       currentSettings.opendkpTickDkpValue
     );
+    currentSettings.raidleaderSound =
+      currentSettings.raidleaderSound || currentSettings.raidLeaderSounds || 'bell';
+    currentSettings.raiderSound =
+      currentSettings.raiderSound || currentSettings.raiderSounds || 'chime';
+    currentSettings.opendkpTickDkpValue = openDkpResolveTickDkpValueForPersist();
     if (!Array.isArray(currentSettings.eqLogLootExceptions)) {
       currentSettings.eqLogLootExceptions = parseEqLogLootExceptionsFromText(
         currentSettings.eqLogLootExceptions
@@ -879,10 +885,13 @@ function applyCriticalSettingsMirror(target, mirror) {
     'watchlistItems',
     'opendkpClientSlug',
     'opendkpCognitoUsername',
+    'opendkpRaidListCount',
+    'opendkpBiddingToolRaidLock',
     'opendkpCurrentRaidId',
     'opendkpCurrentRaidSummaryJson',
     'opendkpRaidtickUploadEnabled',
     'opendkpRaidTickDefs',
+    'opendkpTickDkpValue',
     'opendkpAttendance',
     'opendkpPreferredPoolId',
     'opendkpAuctionPayStrategy',
@@ -911,6 +920,11 @@ function collectCriticalSettingsFromUI() {
     watchlistItems: getVal('watchlistItems', currentSettings.watchlistItems || ''),
     opendkpClientSlug: rawOpenSlug === '' ? '' : (normOpenSlug || currentSettings.opendkpClientSlug || ''),
     opendkpCognitoUsername: String(getVal('opendkpCognitoUser', currentSettings.opendkpCognitoUsername || '')).trim(),
+    opendkpRaidListCount: openDkpGetRaidListCountFromUI(),
+    opendkpBiddingToolRaidLock: getChecked(
+      'opendkpBiddingToolRaidLock',
+      currentSettings.opendkpBiddingToolRaidLock !== false
+    ),
     opendkpCurrentRaidId: currentSettings.opendkpCurrentRaidId,
     opendkpCurrentRaidSummaryJson: currentSettings.opendkpCurrentRaidSummaryJson || '',
     opendkpRaidtickUploadEnabled: isOpenDkpRaidtickUploadSunset()
@@ -920,6 +934,7 @@ function collectCriticalSettingsFromUI() {
       currentSettings.opendkpRaidTickDefs,
       currentSettings.opendkpTickDkpValue
     ).slice(0, OPEN_DKP_MAX_RAID_TICK_DEFS),
+    opendkpTickDkpValue: openDkpResolveTickDkpValueForPersist(),
     opendkpAttendance: openDkpParseAttendance(getVal('opendkpAttendance', currentSettings.opendkpAttendance)),
     opendkpPreferredPoolId: (() => {
       const el = document.getElementById('opendkpPoolSelect');
@@ -999,9 +1014,23 @@ function countWatchlistLines(raw) {
   return String(raw || '').split('\n').map(function(line) { return line.trim(); }).filter(Boolean).length;
 }
 
-function buildBackupManifest(syncData, localData) {
+function countCachedRankBidLimits(localData) {
+  const root = localData && localData.opendkpRankBidLimitsBySlug;
+  if (!root || typeof root !== 'object') return 0;
+  let total = 0;
+  Object.keys(root).forEach(function (slug) {
+    const ranks = root[slug] && root[slug].ranks;
+    if (ranks && typeof ranks === 'object') {
+      total += Object.keys(ranks).length;
+    }
+  });
+  return total;
+}
+
+function buildBackupManifest(syncData, localData, eqLogHandleMeta) {
   const mirror = (localData && localData[LOCAL_SETTINGS_MIRROR_KEY]) || {};
   const watchlistRaw = syncData.watchlistItems || mirror.watchlistItems || '';
+  const eqMeta = eqLogHandleMeta || {};
   return {
     watchlistItemCount: countWatchlistLines(watchlistRaw),
     watchlistAlarmEnabled: !!(syncData.watchlistAlarmEnabled || mirror.watchlistAlarmEnabled),
@@ -1015,7 +1044,10 @@ function buildBackupManifest(syncData, localData) {
     autoBidEnabled: !!(syncData.autoBidEnabled || mirror.autoBidEnabled),
     autoBidRuleCount: Array.isArray(syncData.autoBidRules)
       ? syncData.autoBidRules.length
-      : (Array.isArray(mirror.autoBidRules) ? mirror.autoBidRules.length : 0)
+      : (Array.isArray(mirror.autoBidRules) ? mirror.autoBidRules.length : 0),
+    rankBidLimitCount: countCachedRankBidLimits(localData),
+    eqLogHandlePresent: !!eqMeta.handlePresent,
+    eqLogFileName: eqMeta.handleName || (eqMeta.fileMeta && eqMeta.fileMeta.name) || ''
   };
 }
 
@@ -1039,11 +1071,21 @@ function formatBackupRestoreSummary(backup) {
     ? sync.autoBidRules.length
     : (Array.isArray(mirror.autoBidRules) ? mirror.autoBidRules.length : 0);
   if (autoBidRules) parts.push(autoBidRules + ' auto-bid rule(s)');
+  const rankLimitCount = countCachedRankBidLimits(local);
+  if (rankLimitCount) parts.push(rankLimitCount + ' rank bid limit(s)');
+  const eqMeta = backup.eqLogHandle || {};
+  const eqName = eqMeta.handleName
+    || (eqMeta.fileMeta && eqMeta.fileMeta.name)
+    || (sync.eqLogFileMeta && sync.eqLogFileMeta.name)
+    || '';
+  if (eqName || eqMeta.handlePresent || sync.eqLogFileMeta) {
+    parts.push(eqName ? ('EQ log ' + eqName + ' — re-select in Loot Monitor') : 'EQ log — re-select in Loot Monitor');
+  }
   return parts.join(', ');
 }
 
 function wireCriticalSettingsAutoSave() {
-  ['opendkpClientSlug', 'opendkpCognitoUser', 'opendkpAttendance', 'opendkpAuctionPayStrategy', 'opendkpAuctionDuration'].forEach(function(id) {
+  ['opendkpClientSlug', 'opendkpCognitoUser', 'opendkpAttendance', 'opendkpAuctionPayStrategy', 'opendkpAuctionDuration', 'opendkpRaidListCount'].forEach(function(id) {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener('input', schedulePersistCriticalSettings);
@@ -1152,12 +1194,92 @@ function openDkpUpdateRaidtickUploadBlockVisibility() {
   if (block) block.style.display = enabled ? '' : 'none';
 }
 
+function updateProfileRegions(profile) {
+  const activeProfile = profile != null ? profile : currentSettings.soundProfile;
+  const isLeader = activeProfile === 'raidleader';
+  const leaderRegion = document.getElementById('raidLeaderSettingsRegion');
+  if (leaderRegion) leaderRegion.style.display = isLeader ? 'block' : 'none';
+
+  // Reminders live inside the leader region; keep them visible whenever the region is shown
+  const remSec = document.getElementById('raidTickReminders');
+  if (remSec) remSec.style.display = isLeader ? 'block' : 'none';
+  const raidLeaderSettings = document.getElementById('raidLeaderOnlySettings');
+  if (raidLeaderSettings) raidLeaderSettings.style.display = isLeader ? 'block' : 'none';
+
+  document.querySelectorAll('#settingsToc [data-toc-leader]').forEach(function (el) {
+    el.style.display = isLeader ? '' : 'none';
+  });
+
+  if (isLeader) {
+    try { renderRemindersUI(); } catch (_) {}
+  }
+  try { updateScrollFab(); } catch (_) {}
+}
+
+const SCROLL_FAB_TOP_THRESHOLD = 80;
+let _scrollFabRaf = 0;
+
+function isNearPageTop() {
+  return (window.scrollY || document.documentElement.scrollTop || 0) < SCROLL_FAB_TOP_THRESHOLD;
+}
+
+function prefersReducedMotion() {
+  try {
+    return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  } catch (_) {
+    return false;
+  }
+}
+
+function updateScrollFab() {
+  const fab = document.getElementById('scrollFab');
+  if (!fab) return;
+  if (isNearPageTop()) {
+    fab.textContent = '↓';
+    fab.setAttribute('aria-label', 'Scroll to bottom');
+    fab.title = 'Scroll to bottom';
+    fab.dataset.direction = 'bottom';
+  } else {
+    fab.textContent = '↑';
+    fab.setAttribute('aria-label', 'Scroll to top');
+    fab.title = 'Scroll to top';
+    fab.dataset.direction = 'top';
+  }
+}
+
+function onScrollFabClick() {
+  const fab = document.getElementById('scrollFab');
+  const goBottom = !fab || fab.dataset.direction === 'bottom' || isNearPageTop();
+  const bottom = Math.max(
+    document.documentElement.scrollHeight,
+    document.body.scrollHeight
+  );
+  if (prefersReducedMotion()) {
+    window.scrollTo(0, goBottom ? bottom : 0);
+  } else {
+    window.scrollTo({ top: goBottom ? bottom : 0, behavior: 'smooth' });
+  }
+}
+
+function wireScrollFab() {
+  const fab = document.getElementById('scrollFab');
+  if (!fab || fab.dataset.wired === '1') return;
+  fab.dataset.wired = '1';
+  fab.addEventListener('click', onScrollFabClick);
+  window.addEventListener('scroll', function () {
+    if (_scrollFabRaf) return;
+    _scrollFabRaf = requestAnimationFrame(function () {
+      _scrollFabRaf = 0;
+      updateScrollFab();
+    });
+  }, { passive: true });
+  updateScrollFab();
+}
+
 function updateOpenDkpApiGroupVisibility(profile) {
   const activeProfile = profile != null ? profile : currentSettings.soundProfile;
-  const apiGroup = document.getElementById('openDkpApiGroup');
-  if (apiGroup) {
-    apiGroup.style.display = activeProfile === 'raidleader' ? 'block' : 'none';
-  }
+  // openDkpApiGroup lives inside #raidLeaderSettingsRegion — region toggle is enough
+  updateProfileRegions(activeProfile);
   updateAutoBidSectionVisibility();
   updateAutoBidApiBlockVisibility(activeProfile);
 }
@@ -1328,11 +1450,11 @@ async function autoBidLoadRankLimitsCache() {
 
 function autoBidRankMaxHintText(rank) {
   if (!window.OpenDkpRankBidLimits || !rank || rank === '—') {
-    return 'Open a guild tab on opendkp.com to sync rank bid limits.';
+    return 'Select a character to load its OpenDKP rank.';
   }
   var max = OpenDkpRankBidLimits.getRankMax(__autoBidRankLimits, rank);
   if (max == null) {
-    return 'Open a guild tab on opendkp.com to sync rank bid limits.';
+    return 'Open Bidding Tool and select this rank once to cache its OpenDKP max (kept in backup).';
   }
   return 'OpenDKP max for ' + rank + ': ' + max;
 }
@@ -1978,6 +2100,18 @@ function openDkpParseTickDkpValue(raw) {
   return Number.isNaN(n) || n < 0 ? 1 : n;
 }
 
+/** Fallback DKP used when normalizing empty tick-def lists; keep in sync with last def. */
+function openDkpResolveTickDkpValueForPersist() {
+  const defs = openDkpNormalizeRaidTickDefs(
+    currentSettings.opendkpRaidTickDefs,
+    currentSettings.opendkpTickDkpValue
+  );
+  if (defs.length) {
+    return openDkpParseTickDkpValue(defs[defs.length - 1].value);
+  }
+  return openDkpParseTickDkpValue(currentSettings.opendkpTickDkpValue);
+}
+
 function openDkpDefaultRaidTickDefs(tickDkpValue) {
   const value = openDkpParseTickDkpValue(tickDkpValue);
   return [
@@ -2137,11 +2271,13 @@ function saveOpenDkpRaidTickDefsPartial() {
     currentSettings.opendkpRaidTickDefs,
     currentSettings.opendkpTickDkpValue
   );
+  currentSettings.opendkpTickDkpValue = openDkpResolveTickDkpValueForPersist();
   try {
     if (_openDkpRaidTickDefsSaveTimer) clearTimeout(_openDkpRaidTickDefsSaveTimer);
     _openDkpRaidTickDefsSaveTimer = setTimeout(function () {
       const payload = {
-        opendkpRaidTickDefs: (currentSettings.opendkpRaidTickDefs || []).slice(0, OPEN_DKP_MAX_RAID_TICK_DEFS)
+        opendkpRaidTickDefs: (currentSettings.opendkpRaidTickDefs || []).slice(0, OPEN_DKP_MAX_RAID_TICK_DEFS),
+        opendkpTickDkpValue: currentSettings.opendkpTickDkpValue
       };
       api.storage.sync.set(payload, function () {
         const err = (api.runtime && api.runtime.lastError) || (chrome.runtime && chrome.runtime.lastError);
@@ -2429,8 +2565,11 @@ async function openDkpFetchAndRenderPools(cfg, options) {
 }
 
 async function openDkpFetchAndRenderRaids(cfg) {
-  const body = await OpenDkpApi.getRaids(cfg, { count: 3 });
-  const raids = openDkpCoerceArray(body);
+  const count = window.OpenDkpApi
+    ? await OpenDkpApi.readRaidListCount()
+    : 1;
+  const body = await OpenDkpApi.getRaids(cfg, { count: count });
+  const raids = openDkpCoerceArray(body).slice(0, count);
   const ul = document.getElementById('opendkpRaidList');
   if (ul) {
     ul.textContent = '';
@@ -2464,6 +2603,29 @@ async function openDkpFetchAndRenderRaids(cfg) {
     });
   }
   return raids.length;
+}
+
+function openDkpNormalizeRaidListCountSetting(raw) {
+  if (window.OpenDkpApi && OpenDkpApi.normalizeRaidListCount) {
+    return OpenDkpApi.normalizeRaidListCount(raw);
+  }
+  const n = parseInt(String(raw != null ? raw : 1), 10);
+  if (Number.isNaN(n) || n < 1) return 1;
+  if (n > 5) return 5;
+  return n;
+}
+
+function openDkpGetRaidListCountFromUI() {
+  const el = document.getElementById('opendkpRaidListCount');
+  const raw = el ? el.value : currentSettings.opendkpRaidListCount;
+  return openDkpNormalizeRaidListCountSetting(raw);
+}
+
+function openDkpUpdateFetchRaidsButtonLabel() {
+  const btn = document.getElementById('opendkpFetchRaids');
+  if (!btn) return;
+  const count = openDkpGetRaidListCountFromUI();
+  btn.textContent = 'Refresh raid list (last ' + count + ')';
 }
 
 async function openDkpRefreshRosterFromApi(cfg, options) {
@@ -2629,25 +2791,6 @@ function openDkpWireRaidWorkflowUi() {
       }
     });
   }
-  const probe = document.getElementById('opendkpProbeTokens');
-  if (probe) {
-    probe.addEventListener('click', async () => {
-      if (!window.OpenDkpApi) return;
-      const cfg = getOpenDkpApiConfig();
-      if (!cfg.clientSlug) return showStatus('Enter guild subdomain first.', 'error');
-      const api = typeof browser !== 'undefined' ? browser : chrome;
-      const r = await new Promise((res) => api.storage.local.get([OpenDkpApi.STORAGE_KEYS.idToken, OpenDkpApi.STORAGE_KEYS.accessToken], res));
-      const idT = r[OpenDkpApi.STORAGE_KEYS.idToken];
-      const acT = r[OpenDkpApi.STORAGE_KEYS.accessToken];
-      try {
-        const out = await OpenDkpApi.probeTokenForRaids(cfg, idT, acT);
-        showStatus('Probe: idToken ' + (out.idToken.ok ? 'OK' : 'fail') + '; accessToken ' + (out.accessToken.ok ? 'OK' : 'fail'), 'success');
-      } catch (e) {
-        showStatus('Probe error: ' + (e.message || e), 'error');
-      }
-    });
-  }
-
   const fetchPoolsBtn = document.getElementById('opendkpFetchPools');
   if (fetchPoolsBtn) {
     fetchPoolsBtn.addEventListener('click', async () => {
@@ -2677,6 +2820,18 @@ function openDkpWireRaidWorkflowUi() {
       }
     });
   }
+
+  const raidListCountInput = document.getElementById('opendkpRaidListCount');
+  if (raidListCountInput) {
+    raidListCountInput.addEventListener('input', openDkpUpdateFetchRaidsButtonLabel);
+    raidListCountInput.addEventListener('change', function () {
+      const normalized = openDkpNormalizeRaidListCountSetting(raidListCountInput.value);
+      raidListCountInput.value = String(normalized);
+      currentSettings.opendkpRaidListCount = normalized;
+      openDkpUpdateFetchRaidsButtonLabel();
+    });
+  }
+  openDkpUpdateFetchRaidsButtonLabel();
 
   const createBtn = document.getElementById('opendkpCreateRaid');
   if (createBtn) {
@@ -2720,6 +2875,7 @@ function openDkpWireRaidWorkflowUi() {
           }));
           openDkpPersistCurrentRaid(rid, { name: created.Name || nm, ticks: ticksOut });
           showStatus('Raid created.', 'success');
+          await openDkpFetchAndRenderRaids(cfg);
         }
       } catch (e) {
         showStatus('Create failed: ' + (e.message || e), 'error');
@@ -2814,53 +2970,6 @@ function openDkpWireRaidWorkflowUi() {
     });
   }
 
-  const previewPostBtn = document.getElementById('opendkpRaidtickPreviewPost');
-  if (previewPostBtn) {
-    previewPostBtn.addEventListener('click', async () => {
-      if (!window.OpenDkpApi || !window.RaidTickParse) return;
-      const prev = document.getElementById('opendkpRaidtickPreview');
-      const inputs = openDkpGatherRaidtickBatchInputs({ allowPartialExisting: true });
-      if (!inputs.ok) {
-        if (prev) prev.textContent = 'Cannot build POST body:\n\n' + inputs.message;
-        return showStatus(inputs.message, 'error');
-      }
-      try {
-        const built = await openDkpBuildRaidtickPostBodyBatch(inputs);
-        const tickSummary = (built.postBody.Ticks || [])
-          .map(function (t, i) {
-            return (
-              '#' +
-              (i + 1) +
-              ' ' +
-              (t.Description || 'tick') +
-              ': ' +
-              ((t.Characters && t.Characters.length) || 0) +
-              ' character(s)'
-            );
-          })
-          .join('\n');
-        const summary =
-          'RaidId=' +
-          built.postBody.RaidId +
-          ', Version=' +
-          (built.postBody.Version != null ? built.postBody.Version : '?') +
-          ', Ticks=' +
-          (built.postBody.Ticks || []).length +
-          (inputs.allStaged ? '' : ' (partial — unstaged ticks keep existing rosters or stay empty)') +
-          '\n' +
-          tickSummary;
-        const text = summary + '\n\n' + JSON.stringify(built.postBody, null, 2);
-        if (prev) prev.textContent = text;
-        console.log('[OpenDKP] Preview POST raid update', built.postBody);
-        showStatus('POST body preview ready (not sent).', 'success');
-      } catch (e) {
-        const msg = e && e.message ? e.message : String(e);
-        if (prev) prev.textContent = 'Cannot build POST body:\n\n' + msg;
-        showStatus('Preview failed: ' + msg, 'error');
-      }
-    });
-  }
-
   const applyTick = document.getElementById('opendkpRaidtickApply');
   if (applyTick) {
     applyTick.addEventListener('click', async () => {
@@ -2925,7 +3034,7 @@ function openDkpWireRaidWorkflowUi() {
           prev.textContent =
             'Upload failed:\n\n' +
             msg +
-            '\n\nUse Preview POST body to inspect the JSON. Check ClientId, TickIds, and that the API session is still valid.';
+            '\n\nCheck ClientId, TickIds, and that the API session is still valid.';
         }
         showStatus('Apply failed: ' + msg, 'error');
       }
@@ -2995,17 +3104,19 @@ function applySettingsToUI() {
   
   // Handle Smart Bidding Mode visibility based on profile
   const smartBiddingCheckbox = document.getElementById('smartBidding');
-  const smartBiddingRow = smartBiddingCheckbox.closest('.setting-row');
-  const smartBiddingDescription = smartBiddingRow.nextElementSibling;
-  
+  const smartBiddingRow = document.getElementById('smartBiddingRow')
+    || (smartBiddingCheckbox && smartBiddingCheckbox.closest('.setting-row'));
+  const smartBiddingDescription = document.getElementById('smartBiddingDescription')
+    || (smartBiddingRow && smartBiddingRow.nextElementSibling);
+
   if (currentSettings.soundProfile === 'raidleader') {
     // Hide Smart Bidding Mode entirely for Raid Leader
-    smartBiddingRow.style.display = 'none';
-    smartBiddingDescription.style.display = 'none';
+    if (smartBiddingRow) smartBiddingRow.style.display = 'none';
+    if (smartBiddingDescription) smartBiddingDescription.style.display = 'none';
   } else {
     // Show Smart Bidding Mode for other profiles
-    smartBiddingRow.style.display = 'flex';
-    smartBiddingDescription.style.display = 'block';
+    if (smartBiddingRow) smartBiddingRow.style.display = 'flex';
+    if (smartBiddingDescription) smartBiddingDescription.style.display = 'block';
   }
   
   document.getElementById('quietHours').checked = currentSettings.quietHours;
@@ -3056,38 +3167,15 @@ function applySettingsToUI() {
   try { autoBidUpdateTokenStatusEl(); } catch (_) {}
   const flashEl = document.getElementById('flashScreen'); if (flashEl) flashEl.checked = currentSettings.flashScreen;
   document.getElementById('browserNotifications').checked = currentSettings.browserNotifications;
-  document.getElementById('checkInterval').value = currentSettings.checkInterval;
-  // RaidTick Reminders settings - only show for Raid Leader profile
-  const raidTickGroup = Array.from(document.querySelectorAll('.setting-group')).find(group => 
-    group.id === 'raidTickGroup' ||
-    group.querySelector('h3')?.textContent.includes('RaidTick Reminders') ||
-    group.querySelector('h3')?.textContent.includes('RaidTick Integration')
-  );
-  const lootGroup = document.getElementById('ffLootExplain');
+  // checkInterval is fixed at 100ms (no Settings UI)
+  // Profile regions (Raid Leader tools shown/hidden; Raider region always visible)
   if (currentSettings.soundProfile === 'raidleader') {
-    if (raidTickGroup) {
-      raidTickGroup.style.display = 'block';
-      const rtEnabled = document.getElementById('raidTickEnabled');
-      const rtFolder = document.getElementById('raidTickFolder');
-      const rtClearBtn = document.getElementById('clearFolder');
-      if (rtEnabled) rtEnabled.checked = !!currentSettings.raidTickEnabled;
-      if (rtFolder) rtFolder.value = currentSettings.raidTickFolder || '';
-      if (rtClearBtn) rtClearBtn.style.display = currentSettings.raidTickFolder ? 'inline-block' : 'none';
-    }
-    if (lootGroup) lootGroup.style.display = 'block';
-    // Show reminders section
-    try {
-      const remSec = document.getElementById('raidTickReminders');
-      if (remSec) remSec.style.display = 'block';
-      renderRemindersUI();
-    } catch(_) {}
-    updateOpenDkpApiGroupVisibility('raidleader');
-  } else {
-    if (raidTickGroup) {
-      raidTickGroup.style.display = 'none';
-    }
-    if (lootGroup) lootGroup.style.display = 'none';
-    try { const remSec = document.getElementById('raidTickReminders'); if (remSec) remSec.style.display = 'none'; } catch(_) {}
+    const rtEnabled = document.getElementById('raidTickEnabled');
+    const rtFolder = document.getElementById('raidTickFolder');
+    const rtClearBtn = document.getElementById('clearFolder');
+    if (rtEnabled) rtEnabled.checked = !!currentSettings.raidTickEnabled;
+    if (rtFolder) rtFolder.value = currentSettings.raidTickFolder || '';
+    if (rtClearBtn) rtClearBtn.style.display = currentSettings.raidTickFolder ? 'inline-block' : 'none';
   }
   updateOpenDkpApiGroupVisibility(currentSettings.soundProfile);
   const odSlug = document.getElementById('opendkpClientSlug');
@@ -3099,6 +3187,17 @@ function applySettingsToUI() {
   if (odAtt) {
     odAtt.value = String(openDkpParseAttendance(currentSettings.opendkpAttendance));
   }
+  const odRaidListCount = document.getElementById('opendkpRaidListCount');
+  if (odRaidListCount) {
+    odRaidListCount.value = String(
+      openDkpNormalizeRaidListCountSetting(currentSettings.opendkpRaidListCount)
+    );
+  }
+  const odBiddingToolRaidLock = document.getElementById('opendkpBiddingToolRaidLock');
+  if (odBiddingToolRaidLock) {
+    odBiddingToolRaidLock.checked = currentSettings.opendkpBiddingToolRaidLock !== false;
+  }
+  openDkpUpdateFetchRaidsButtonLabel();
   const odPayStrategy = document.getElementById('opendkpAuctionPayStrategy');
   if (odPayStrategy) {
     const ps = currentSettings.opendkpAuctionPayStrategy || 'exact';
@@ -3173,20 +3272,14 @@ function updateEqLogLootExceptionsSummary() {
     (rules.length > 3 ? '…' : '');
 }
 
-function openEqLogExceptionsWindow() {
-  const ext = typeof browser !== 'undefined' ? browser : chrome;
-  const url = ext.runtime.getURL('eqlog-exceptions.html');
-  if (typeof browser !== 'undefined' && browser.windows && browser.windows.create) {
-    browser.windows.create({ url: url, type: 'popup', width: 520, height: 460 }).catch(function () {
-      window.open(url, '_blank', 'width=520,height=460');
-    });
-    return;
-  }
-  if (typeof chrome !== 'undefined' && chrome.windows && chrome.windows.create) {
-    chrome.windows.create({ url: url, type: 'popup', width: 520, height: 460 });
-    return;
-  }
-  window.open(url, '_blank', 'width=520,height=460');
+function restoreEqLogLootExceptionsDefaults() {
+  const defaults = Array.isArray(DEFAULT_SETTINGS.eqLogLootExceptions)
+    ? DEFAULT_SETTINGS.eqLogLootExceptions.slice()
+    : [];
+  const el = document.getElementById('eqLogLootExceptions');
+  if (el) el.value = defaults.join('\n');
+  currentSettings.eqLogLootExceptions = defaults;
+  updateEqLogLootExceptionsSummary();
 }
 
 /**
@@ -3194,6 +3287,7 @@ function openEqLogExceptionsWindow() {
  */
 function setupEventListeners() {
   wireCriticalSettingsAutoSave();
+  wireScrollFab();
   wireAutoBidUi();
   // OpenDKP API: wire first so a failure later in this function cannot skip these handlers
   openDkpWireRaidWorkflowUi();
@@ -3309,6 +3403,11 @@ function setupEventListeners() {
   const soundProfileEl = document.getElementById('soundProfile');
   if (soundProfileEl) soundProfileEl.addEventListener('change', function(e) {
     e.preventDefault();
+    const prevProfile = currentSettings.soundProfile;
+    const soundTypeSelect = document.getElementById('soundType');
+    if (prevProfile && soundTypeSelect && soundTypeSelect.value) {
+      currentSettings[prevProfile + 'Sound'] = soundTypeSelect.value;
+    }
     updateSoundProfile();
     // Ensure custom sounds are added after profile changes
     updateCustomSoundOptions();
@@ -3377,28 +3476,11 @@ function setupEventListeners() {
   if (soundTypeSelectEl) {
     soundTypeSelectEl.addEventListener('change', function() {
       currentSettings.soundType = this.value;
-      console.log('[SoundType] Selection changed to:', this.value);
+      const profile = currentSettings.soundProfile || 'raidleader';
+      currentSettings[profile + 'Sound'] = this.value;
+      console.log('[SoundType] Selection changed to:', this.value, 'for profile:', profile);
     });
   }
-  
-  // Test notification buttons
-  const testSingleEl = document.getElementById('testSingleWinner'); if (testSingleEl) testSingleEl.addEventListener('click', () => testNotification('single'));
-  const testRollEl = document.getElementById('testRollOff'); if (testRollEl) testRollEl.addEventListener('click', () => testNotification('rolloff'));
-  const testMultiEl = document.getElementById('testMultiWinner'); if (testMultiEl) testMultiEl.addEventListener('click', () => testNotification('multi'));
-  
-  // Smart notification permission check/request
-  // Uses the single button that intelligently requests permission if needed, or just checks status
-  const notificationButtonEl = document.getElementById('notificationPermission'); 
-  if (notificationButtonEl) {
-    notificationButtonEl.addEventListener('click', checkOrRequestNotificationPermission);
-  }
-  
-  // Keep legacy function names for backwards compatibility if needed elsewhere
-  const requestPermEl = document.getElementById('requestPermission'); 
-  if (requestPermEl) requestPermEl.addEventListener('click', requestNotificationPermission);
-  
-  const checkStatusEl = document.getElementById('checkStatus'); 
-  if (checkStatusEl) checkStatusEl.addEventListener('click', checkNotificationStatus);
   
   // Raid leader settings
   const raidLeaderNotifEl = document.getElementById('raidLeaderNotification');
@@ -3445,25 +3527,16 @@ function setupEventListeners() {
       });
     }
   }
-  // Only notify on OpenDKP (and exceptions)
-  const onlyNotifyEl = document.getElementById('onlyNotifyOnOpenDKP');
-  if (onlyNotifyEl) {
-    onlyNotifyEl.addEventListener('change', function() {
-      currentSettings.reminderPrefs = currentSettings.reminderPrefs || { flash: true, notifications: true, enabledDays: [0,1,2,3,4,5,6] };
-      currentSettings.reminderPrefs.onlyNotifyOnOpenDKP = !!this.checked;
-      saveRemindersPartial();
-    });
-  }
-  const domainListEl = document.getElementById('domainExceptionList');
-  if (domainListEl) {
-    domainListEl.addEventListener('change', function() {
-      currentSettings.reminderPrefs = currentSettings.reminderPrefs || { flash: true, notifications: true, enabledDays: [0,1,2,3,4,5,6] };
-      currentSettings.reminderPrefs.domainExceptionList = (this.value || '').split(/\n/).map(s => s.trim()).filter(Boolean);
-      saveRemindersPartial();
-    });
-    domainListEl.addEventListener('blur', function() {
-      currentSettings.reminderPrefs = currentSettings.reminderPrefs || { flash: true, notifications: true, enabledDays: [0,1,2,3,4,5,6] };
-      currentSettings.reminderPrefs.domainExceptionList = (this.value || '').split(/\n/).map(s => s.trim()).filter(Boolean);
+  const remindersEnabledEl = document.getElementById('remindersEnabled');
+  if (remindersEnabledEl) {
+    remindersEnabledEl.addEventListener('change', function() {
+      currentSettings.reminderPrefs = currentSettings.reminderPrefs || {
+        remindersEnabled: true,
+        flash: true,
+        notifications: true,
+        enabledDays: [0, 1, 2, 3, 4, 5, 6]
+      };
+      currentSettings.reminderPrefs.remindersEnabled = !!this.checked;
       saveRemindersPartial();
     });
   }
@@ -3491,11 +3564,11 @@ function setupEventListeners() {
     updateBackupCredentialsWarning();
   }
 
-  const openEqLogExceptionsBtn = document.getElementById('openEqLogExceptionsWindow');
-  if (openEqLogExceptionsBtn) {
-    openEqLogExceptionsBtn.addEventListener('click', function (e) {
+  const restoreEqLogExceptionsBtn = document.getElementById('restoreEqLogExceptionsDefaults');
+  if (restoreEqLogExceptionsBtn) {
+    restoreEqLogExceptionsBtn.addEventListener('click', function (e) {
       e.preventDefault();
-      openEqLogExceptionsWindow();
+      restoreEqLogLootExceptionsDefaults();
     });
   }
 }
@@ -3517,12 +3590,9 @@ function renderRemindersUI() {
   const notif = document.getElementById('reminderNotifications');
   if (flash) flash.checked = !!currentSettings.reminderPrefs.flash;
   if (notif) notif.checked = !!currentSettings.reminderPrefs.notifications;
-  const onlyNotifyEl = document.getElementById('onlyNotifyOnOpenDKP');
-  if (onlyNotifyEl) onlyNotifyEl.checked = currentSettings.reminderPrefs.onlyNotifyOnOpenDKP !== false;
-  const domainListEl = document.getElementById('domainExceptionList');
-  if (domainListEl) {
-    const list = currentSettings.reminderPrefs.domainExceptionList;
-    domainListEl.value = Array.isArray(list) ? list.join('\n') : (typeof list === 'string' ? list : '');
+  const remindersEnabledEl = document.getElementById('remindersEnabled');
+  if (remindersEnabledEl) {
+    remindersEnabledEl.checked = currentSettings.reminderPrefs.remindersEnabled !== false;
   }
   // Load day checkboxes
   for (let day = 0; day < 7; day++) {
@@ -3666,11 +3736,13 @@ function saveRemindersPartial() {
   if (!Array.isArray(currentSettings.reminderPrefs.enabledDays)) {
     currentSettings.reminderPrefs.enabledDays = [0,1,2,3,4,5,6];
   }
-  // Sync "only on OpenDKP" and domain exception list from UI so they are always persisted
-  const onlyNotifyEl = document.getElementById('onlyNotifyOnOpenDKP');
-  if (onlyNotifyEl) currentSettings.reminderPrefs.onlyNotifyOnOpenDKP = !!onlyNotifyEl.checked;
-  const domainListEl = document.getElementById('domainExceptionList');
-  if (domainListEl) currentSettings.reminderPrefs.domainExceptionList = (domainListEl.value || '').split(/\n/).map(s => s.trim()).filter(Boolean);
+  // Sync master switch from UI so it is always persisted
+  const remindersEnabledEl = document.getElementById('remindersEnabled');
+  if (remindersEnabledEl) {
+    currentSettings.reminderPrefs.remindersEnabled = !!remindersEnabledEl.checked;
+  } else if (currentSettings.reminderPrefs.remindersEnabled === undefined) {
+    currentSettings.reminderPrefs.remindersEnabled = true;
+  }
   try {
     if (_reminderSaveTimer) clearTimeout(_reminderSaveTimer);
     _reminderSaveTimer = setTimeout(() => {
@@ -3774,7 +3846,7 @@ function updateSoundProfile() {
     }
   }
   
-  // Show/hide raid leader only settings
+  // Show/hide raid leader only settings (region toggle also covers this)
   if (raidLeaderSettings) {
     raidLeaderSettings.style.display = profile === 'raidleader' ? 'block' : 'none';
   }
@@ -3793,8 +3865,10 @@ function updateSoundProfile() {
   // Handle Smart Bidding Mode visibility and settings
   const smartBiddingCheckbox = document.getElementById('smartBidding');
   if (smartBiddingCheckbox) {
-  const smartBiddingRow = smartBiddingCheckbox.closest('.setting-row');
-  const smartBiddingDescription = smartBiddingRow && smartBiddingRow.nextElementSibling;
+  const smartBiddingRow = document.getElementById('smartBiddingRow')
+    || smartBiddingCheckbox.closest('.setting-row');
+  const smartBiddingDescription = document.getElementById('smartBiddingDescription')
+    || (smartBiddingRow && smartBiddingRow.nextElementSibling);
   
   if (profile === 'raider') {
     // Show Smart Bidding Mode for Raider and auto-enable it
@@ -3810,42 +3884,24 @@ function updateSoundProfile() {
     console.log('Raid leader profile - smart bidding mode hidden');
   }
   }
-  
-  // Handle RaidTick Reminders visibility
-  const raidTickGroup = Array.from(document.querySelectorAll('.setting-group')).find(group => 
-    group.id === 'raidTickGroup' ||
-    group.querySelector('h3')?.textContent.includes('RaidTick Reminders') ||
-    group.querySelector('h3')?.textContent.includes('RaidTick Integration')
-  );
-  if (profile === 'raidleader') {
-    if (raidTickGroup) {
-      raidTickGroup.style.display = 'block';
-      console.log('Raid leader profile - RaidTick reminders shown');
-    }
-  } else {
-    if (raidTickGroup) {
-      raidTickGroup.style.display = 'none';
-      console.log('Non-raid leader profile - RaidTick reminders hidden');
-    }
-  }
-  
-  // Handle Loot Parser visibility (only show for Raid Leader)
-  const lootGroup = document.getElementById('ffLootExplain');
-  if (lootGroup) {
-    lootGroup.style.display = profile === 'raidleader' ? 'block' : 'none';
-    console.log('Loot Parser visibility set for profile:', profile);
-  }
+
   updateOpenDkpApiGroupVisibility(profile);
   }); // Close preserveScrollPosition wrapper
 }
 
 function getSavedSoundForProfile(profile) {
-  // Check if there's a saved sound for this profile
+  // Check if there's a saved sound for this profile (canonical + legacy plural keys)
   const profileKey = profile + 'Sound';
   if (currentSettings[profileKey]) {
     return currentSettings[profileKey];
   }
-  
+  if (profile === 'raidleader' && currentSettings.raidLeaderSounds) {
+    return currentSettings.raidLeaderSounds;
+  }
+  if (profile === 'raider' && currentSettings.raiderSounds) {
+    return currentSettings.raiderSounds;
+  }
+
   // Fallback to default for the profile
   const profileSounds = PROFILE_SOUNDS[profile];
   return profileSounds.default;
@@ -4376,216 +4432,6 @@ function isQuietHours() {
   }
 }
 
-/**
- * Request notification permission
- */
-function requestNotificationPermission() {
-  if ('Notification' in window) {
-    Notification.requestPermission().then(permission => {
-      showStatus('Notification permission: ' + permission, permission === 'granted' ? 'success' : 'warning');
-      checkNotificationStatus();
-    });
-  } else {
-    showStatus('Browser does not support notifications', 'error');
-  }
-}
-
-/**
- * Check and request notification permission if needed, then display status
- * This is a smart function that requests permission only if it's not yet requested,
- * otherwise just checks and displays the current status.
- */
-function checkOrRequestNotificationPermission() {
-  if ('Notification' in window) {
-    const currentPermission = Notification.permission;
-    
-    // Only request permission if it hasn't been requested yet (is "default")
-    if (currentPermission === 'default') {
-      Notification.requestPermission().then(permission => {
-        showStatus('Notification permission: ' + permission, permission === 'granted' ? 'success' : 'warning');
-        checkNotificationStatus();
-      });
-    } else {
-      // Permission already requested - just check and display status
-      checkNotificationStatus();
-    }
-  } else {
-    showStatus('Browser does not support notifications', 'error');
-  }
-}
-
-/**
- * Check notification status and display
- */
-function checkNotificationStatus() {
-  const statusDiv = document.getElementById('notificationStatus');
-  const contentDiv = document.getElementById('statusContent');
-  
-  let status = {
-    supported: 'Notification' in window,
-    permission: Notification.permission,
-    browserNotifications: currentSettings.browserNotifications
-  };
-  
-  // Test if we can actually create a notification
-  let testResult = null;
-  if (status.supported && status.permission === 'granted') {
-    try {
-      const api = typeof browser !== 'undefined' ? browser : chrome;
-      const iconUrl = api.runtime.getURL('icons/icon-48.png');
-      const testNotification = new Notification('Test Notification', {
-        body: 'If you see this, notifications are working!',
-        icon: iconUrl,
-        tag: 'opendkp-status-test',
-        silent: false
-      });
-      
-      let notificationShown = false;
-      let notificationError = null;
-      
-      testNotification.onshow = () => {
-        notificationShown = true;
-        console.log('[StatusCheck] ✅ Test notification shown event fired');
-      };
-      
-      testNotification.onerror = (e) => {
-        notificationError = e;
-        console.error('[StatusCheck] ❌ Test notification error event:', e);
-      };
-      
-      // Wait a moment to see if events fire, then update the display
-      setTimeout(() => {
-        testNotification.close();
-        testResult = {
-          created: true,
-          shown: notificationShown,
-          error: notificationError
-        };
-        console.log('[StatusCheck] Test notification result:', testResult);
-        
-        // Update the status display with the test result
-        updateStatusWithTestResult(statusDiv, contentDiv, status, testResult);
-      }, 1500);
-    } catch (e) {
-      testResult = {
-        created: false,
-        error: e.message
-      };
-      console.error('[StatusCheck] Failed to create test notification:', e);
-    }
-  }
-  
-  // Helper function to update status display with test result
-  function updateStatusWithTestResult(statusDiv, contentDiv, status, testResult) {
-    let message = '=== Notification Status ===\n\n';
-    message += `Browser Support: ${status.supported ? '✅ Yes' : '❌ No'}\n`;
-    
-    if (status.supported) {
-      message += `Permission: ${status.permission}\n`;
-      message += `Permission Status: ${status.permission === 'granted' ? '✅ Granted' : status.permission === 'denied' ? '❌ Denied' : '⚠️ Not Requested'}\n`;
-      
-      // Check if Chrome notifications might be blocked
-      const isChrome = typeof chrome !== 'undefined' && !navigator.userAgent.includes('Firefox');
-      if (isChrome && status.permission === 'granted') {
-        message += '\n=== Chrome-Specific Checks ===\n\n';
-        message += '⚠️ If notifications aren\'t appearing:\n';
-        message += '1. Check Chrome\'s notification center (bell icon 🔔 in address bar)\n';
-        message += '   → Notifications might be going there instead of banners\n';
-        message += '2. Chrome Settings → Privacy and security → Site Settings → Notifications\n';
-        message += '   → Ensure "Sites can ask to send notifications" is enabled\n';
-        message += '   → Check that your extension URL is in "Allow" list\n';
-        message += '3. Try: chrome://settings/content/notifications\n';
-        message += '4. Check Windows Settings → System → Notifications → Chrome\n';
-        message += '   → Ensure "Banners" and "Sounds" are enabled\n';
-        message += '5. Check if Focus Assist (Windows) or Do Not Disturb is active\n';
-        message += '6. Try clicking the bell icon 🔔 in Chrome\'s address bar\n';
-        message += '   → Notifications might be there but not showing as banners\n';
-      }
-      
-      message += '\n=== Notification Settings ===\n\n';
-      message += `Browser Notifications: ${status.browserNotifications ? '✅ Enabled' : '❌ Disabled'}\n`;
-      
-      message += '\n=== Test Notification Result ===\n\n';
-      if (testResult) {
-        if (testResult.created && !testResult.error) {
-          message += `✅ Test notification created successfully\n`;
-          if (testResult.shown) {
-            message += `✅ Notification "shown" event fired (notification appeared)\n`;
-          } else {
-            message += `❌ Notification created but "shown" event did NOT fire\n`;
-            message += `   → This means notifications are being BLOCKED\n`;
-            message += `   → Check Chrome Settings → Site Settings → Notifications\n`;
-            message += `   → Check Windows Settings → Notifications → Chrome\n`;
-            message += `   → Disable Focus Assist / Do Not Disturb\n`;
-          }
-          if (testResult.error) {
-            message += `❌ Notification error event: ${testResult.error}\n`;
-          }
-        } else {
-          message += `❌ Failed to create test notification\n`;
-          if (testResult.error) {
-            message += `   Error: ${testResult.error}\n`;
-          }
-        }
-      } else {
-        message += `⚠️ Test notification running... (should update shortly)\n`;
-      }
-      
-      message += '\n=== Expected Behavior ===\n\n';
-      
-      if (status.permission === 'granted' && status.browserNotifications) {
-        message += '✅ Desktop notifications should appear\n';
-        if (testResult && testResult.created && !testResult.shown) {
-          message += '❌ BUT: Notification created but not appearing\n';
-          message += '   → DEFINITELY blocked by Chrome or Windows settings\n';
-        }
-      } else if (status.permission !== 'granted') {
-        message += '⚠️ Desktop notifications NOT configured\n';
-        message += '   → Click "Request Notification Permission" button\n';
-      } else if (!status.browserNotifications) {
-        message += '⚠️ Desktop notifications disabled in settings\n';
-        message += '   → Enable "Browser Notifications" checkbox\n';
-      }
-      
-      message += '\n=== Quick Fix ===\n\n';
-      if (status.permission !== 'granted') {
-        message += '1. Click "Request Notification Permission"\n';
-      }
-      if (!status.browserNotifications) {
-        message += '2. Check "Browser Notifications" checkbox\n';
-      }
-      if (status.permission === 'granted' && status.browserNotifications && testResult && !testResult.shown) {
-        message += '3. ⚠️ CRITICAL: Permission granted but notifications blocked:\n';
-        message += '   → Chrome: chrome://settings/content/notifications\n';
-        message += '   → Windows: Settings → System → Notifications → Chrome\n';
-        message += '   → Disable Focus Assist / Do Not Disturb\n';
-        message += '   → Check Chrome\'s notification center (bell icon)\n';
-      }
-      if (status.permission === 'granted' && status.browserNotifications && (!testResult || testResult.shown)) {
-        message += '✅ All notification settings are correct!\n';
-      }
-    } else {
-      message += '\n❌ Your browser does not support notifications\n';
-      message += 'Please use a modern browser (Chrome, Firefox, Edge)\n';
-    }
-    
-    contentDiv.textContent = message;
-  }
-  
-  // Initial display (will be updated after test completes if permission is granted)
-  if (status.permission === 'granted' && status.supported) {
-    // Show initial message, will be updated by test result
-    updateStatusWithTestResult(statusDiv, contentDiv, status, null);
-  } else {
-    // Show immediate result if no test needed
-    updateStatusWithTestResult(statusDiv, contentDiv, status, testResult);
-  }
-  statusDiv.style.display = 'block';
-}
-
-/**
- * Test the currently selected sound
- */
 function testCurrentSound() {
   const soundType = document.getElementById('soundType').value;
   const volume = document.getElementById('volume').value / 100;
@@ -4899,422 +4745,6 @@ function generateTTSMessage(template, context) {
   
   return message;
 }
-function testTTSForNotification(context) {
-  console.log('TTS Test: Checking if TTS is enabled...');
-  
-  if (!document.getElementById('enableTTS').checked) {
-    console.log('TTS Test: TTS is disabled, skipping');
-    return;
-  }
-  
-  console.log('TTS Test: TTS is enabled, generating message...');
-  
-  let message = '';
-  
-  // Check if advanced TTS is enabled and use custom template
-  if (document.getElementById('enableAdvancedTTS').checked) {
-    const template = document.getElementById('ttsTemplate').value;
-    if (template.trim()) {
-      message = generateTTSMessage(template, context);
-      console.log('TTS Test: Using custom template:', message);
-    } else {
-      console.log('TTS Test: Custom template is empty, using default');
-      // Fall back to default logic
-      if (context.isRollOff) {
-        message = `Roll-off for ${context.itemName}. Participants: ${context.winners.join(', ')}`;
-      } else if (context.multipleWinners) {
-        message = `Multiple winners for ${context.itemName}. Winners: ${context.winners.join(', ')}`;
-      } else if (context.winner && context.bidAmount) {
-        message = `Auction Finished. ${context.winner} for ${context.bidAmount} DKP on ${context.itemName}`;
-      } else {
-        message = `Auction Finished for ${context.itemName}`;
-      }
-    }
-  } else {
-    // Use default logic
-    if (context.isRollOff) {
-      message = `Roll-off for ${context.itemName}. Participants: ${context.winners.join(', ')}`;
-    } else if (context.multipleWinners) {
-      message = `Multiple winners for ${context.itemName}. Winners: ${context.winners.join(', ')}`;
-    } else if (context.winner && context.bidAmount) {
-      message = `Auction Finished. ${context.winner} for ${context.bidAmount} DKP on ${context.itemName}`;
-    } else {
-      message = `Auction Finished for ${context.itemName}`;
-    }
-  }
-  
-  console.log('TTS Test: Message generated:', message);
-  
-  const utterance = new SpeechSynthesisUtterance(message);
-  
-  // Set voice if specified
-  const voiceName = document.getElementById('voice').value;
-  console.log('TTS Test: Selected voice:', voiceName);
-  
-  if (voiceName) {
-    const voices = speechSynthesis.getVoices();
-    console.log('TTS Test: Available voices:', voices.length);
-    const selectedVoice = voices.find(voice => voice.name === voiceName);
-    if (selectedVoice) {
-      utterance.voice = selectedVoice;
-      console.log('TTS Test: Voice set to:', selectedVoice.name);
-    } else {
-      console.log('TTS Test: Voice not found, using default');
-    }
-  }
-  
-  // Chrome's Speech Synthesis API caps rate at 2.0x, Firefox supports higher
-  const isFirefox = (typeof browser !== 'undefined' && navigator.userAgent.includes('Firefox'));
-  const maxRate = isFirefox ? 2.5 : 2.0;
-  const voiceSpeed = parseFloat(document.getElementById('voiceSpeed').value);
-  utterance.rate = Math.min(voiceSpeed, maxRate);
-  utterance.volume = 0.8;
-  
-  console.log('TTS Test: Speaking with rate:', utterance.rate, 'volume:', utterance.volume);
-  
-  speechSynthesis.speak(utterance);
-  console.log('TTS Test: Speech synthesis started');
-}
-
-/**
- * Test different notification types
- */
-function testNotification(type) {
-  const volume = document.getElementById('volume').value / 100;
-  const quietEnabled = document.getElementById('quietHours').checked;
-  const inQuiet = quietEnabled && isQuietHours();
-  if (inQuiet) {
-    console.log('[TestNotification] Quiet Hours active → suppressing sound and TTS');
-  }
-
-  // 0) Always run flash first (before notifications)
-  try { 
-    if (document.getElementById('flashScreen').checked) { 
-      flashScreen(); 
-    } 
-  } catch (e) { 
-    console.error('[TestNotification] Flash screen error:', e);
-  }
-
-  // 1) Always run visuals first (flash + desktop notification) regardless of Quiet Hours
-  const browserNotificationsChecked = document.getElementById('browserNotifications').checked;
-  console.log('[TestNotification] Browser notifications enabled:', browserNotificationsChecked);
-  
-  if (browserNotificationsChecked) {
-    let message, details;
-    switch (type) {
-      case 'single':
-        message = 'Auction Timer Complete!';
-        details = ['Item: Epic Sword', 'Winner: TestPlayer', 'Bid: 1000'];
-        break;
-      case 'rolloff':
-        message = 'Roll-off Required!';
-        details = ['Item: Rare Potion', 'Bid Amount: 500', 'Roll-off Participants: Player1, Player2, Player3'];
-        break;
-      case 'multi':
-        message = 'Multiple Winners!';
-        details = ['Item: Common Item x 2', 'Quantity: 2', 'Winners: Player1, Player2', 'Bid Amount: 100'];
-        break;
-    }
-    
-    console.log('[TestNotification] Notification type:', type);
-    console.log('[TestNotification] Message:', message);
-    console.log('[TestNotification] Details:', details);
-    
-    // Get proper icon URL for extension context
-    const api = typeof browser !== 'undefined' ? browser : chrome;
-    const iconUrl = api.runtime.getURL('icons/icon-48.png');
-    console.log('[TestNotification] Icon URL:', iconUrl);
-    console.log('[TestNotification] Notification API available:', typeof Notification !== 'undefined');
-    console.log('[TestNotification] Current permission:', Notification.permission);
-    
-    // Check if we're on an extension page (Chrome blocks web Notification API from extension pages)
-    const isExtensionPage = window.location.protocol === 'chrome-extension:' || 
-                           window.location.protocol === 'moz-extension:' ||
-                           window.location.href.includes('chrome-extension://') ||
-                           window.location.href.includes('moz-extension://');
-    
-    console.log('[TestNotification] Is extension page:', isExtensionPage, 'Protocol:', window.location.protocol);
-    
-    // Try Chrome's notifications API first for extension pages
-    if (isExtensionPage && typeof chrome !== 'undefined' && chrome.notifications) {
-      console.log('[TestNotification] Using chrome.notifications API (extension page)');
-      try {
-        chrome.notifications.create('opendkp-test-' + Date.now(), {
-          type: 'basic',
-          iconUrl: iconUrl,
-          title: message,
-          message: details.join('\n')
-        }, (notificationId) => {
-          if (chrome.runtime.lastError) {
-            console.error('[TestNotification] ❌ chrome.notifications error:', chrome.runtime.lastError.message);
-            showStatus('Error creating notification: ' + chrome.runtime.lastError.message, 'error');
-          } else {
-            console.log('[TestNotification] ✅ Chrome notification created:', notificationId);
-            showStatus('✅ Test notification sent! (Using Chrome notifications API)', 'success');
-            
-            // Auto-close after 5 seconds
-            setTimeout(() => {
-              chrome.notifications.clear(notificationId, (wasCleared) => {
-                console.log('[TestNotification] Notification cleared:', wasCleared);
-              });
-            }, 5000);
-          }
-        });
-        // Continue to sound/TTS code below, don't return early
-      } catch (e) {
-        console.error('[TestNotification] ❌ chrome.notifications creation error:', e);
-        // Fall through to web Notification API
-      }
-    }
-    
-    // Use web Notification API (works on regular pages, blocked on extension pages)
-    try {
-      if (Notification.permission === 'granted') {
-        console.log('[TestNotification] ✅ Permission granted, creating notification...');
-        const notification = new Notification(message, {
-          body: details.join('\n'),
-          icon: iconUrl,
-          tag: 'opendkp-test'
-        });
-        console.log('[TestNotification] ✅ Notification created:', notification);
-        
-        notification.onerror = (e) => {
-          console.error('[TestNotification] ❌ Notification error event:', e);
-        };
-        notification.onclick = () => {
-          console.log('[TestNotification] 📌 Notification clicked');
-          notification.close();
-        };
-        notification.onshow = () => {
-          console.log('[TestNotification] 👁️ Notification shown');
-          // If shown event fires but user doesn't see it, might be in notification center
-          const isChrome = typeof chrome !== 'undefined' && !navigator.userAgent.includes('Firefox');
-          if (isChrome) {
-            console.log('[TestNotification] 💡 Chrome notification shown - check notification center (bell icon) if you don\'t see a banner');
-            showStatus('Notification created! If you don\'t see a banner, check Chrome\'s notification center (bell icon 🔔)', 'info');
-          }
-        };
-        notification.onclose = () => {
-          console.log('[TestNotification] 🔒 Notification closed');
-        };
-      } else if (Notification.permission === 'denied') {
-        console.warn('[TestNotification] ❌ Notification permission denied');
-        showStatus('Notification permission denied. Please enable in browser settings.', 'error');
-      } else {
-        console.log('[TestNotification] ⚠️ Permission not yet requested, requesting...');
-        Notification.requestPermission().then(permission => {
-          console.log('[TestNotification] Permission request result:', permission);
-          if (permission === 'granted') {
-            console.log('[TestNotification] ✅ Permission granted after request, creating notification...');
-            const notification = new Notification(message, {
-              body: details.join('\n'),
-              icon: iconUrl,
-              tag: 'opendkp-test'
-            });
-            console.log('[TestNotification] ✅ Notification created:', notification);
-            
-            notification.onerror = (e) => {
-              console.error('[TestNotification] ❌ Notification error event:', e);
-            };
-            notification.onclick = () => {
-              console.log('[TestNotification] 📌 Notification clicked');
-            };
-            notification.onshow = () => {
-              console.log('[TestNotification] 👁️ Notification shown');
-            };
-            notification.onclose = () => {
-              console.log('[TestNotification] 🔒 Notification closed');
-            };
-          } else {
-            console.warn('[TestNotification] ❌ Permission denied after request:', permission);
-            showStatus('Notification permission denied: ' + permission, 'warning');
-          }
-        }).catch(err => {
-          console.error('[TestNotification] ❌ Notification permission request error:', err);
-          showStatus('Error requesting notification permission: ' + err.message, 'error');
-        });
-      }
-    } catch (e) {
-      console.error('[TestNotification] ❌ Notification creation error:', e);
-      console.error('[TestNotification] Error stack:', e.stack);
-      if (isExtensionPage) {
-        showStatus('❌ Chrome blocks web notifications from extension pages. Notifications work on opendkp.com!', 'error');
-      } else {
-        showStatus('Error creating notification: ' + e.message, 'error');
-      }
-    }
-  } else {
-    console.log('[TestNotification] ⚠️ Browser notifications disabled in settings (sound and TTS will still work)');
-    // Don't show warning - tests should work even if notifications are disabled
-    // showStatus('Browser notifications are disabled. Enable them in settings first.', 'warning');
-  }
-
-  // If quiet hours are active, stop here (visuals already shown)
-  if (inQuiet) {
-    console.log('[TestNotification] Quiet hours active, skipping sound and TTS');
-    return;
-  }
-
-  // 2) Sound + TTS always run (not blocked by visual settings) - only quiet hours block them
-  const soundType = document.getElementById('soundType').value;
-  let sound = null;
-  
-  // Check if it's a custom sound first
-  if (currentSettings.customSounds && currentSettings.customSounds[soundType]) {
-    try {
-      const customSoundData = currentSettings.customSounds[soundType];
-      console.log('Test notification - Custom sound data:', customSoundData);
-      
-      // Convert base64 back to AudioBuffer
-      const binaryString = atob(customSoundData.data);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-      
-      // Convert bytes back to Float32Array
-      const float32Array = new Float32Array(bytes.buffer);
-      console.log('Test notification - Float32Array length:', float32Array.length, 'Expected:', customSoundData.length);
-      
-      // Create AudioBuffer with correct parameters
-      const audioBuffer = audioContext.createBuffer(1, customSoundData.length, customSoundData.sampleRate);
-      const channelData = audioBuffer.getChannelData(0);
-      
-      // Copy the float data
-      for (let i = 0; i < Math.min(float32Array.length, channelData.length); i++) {
-        channelData[i] = float32Array[i];
-      }
-      
-      // Create the custom sound
-      const source = audioContext.createBufferSource();
-      const gainNode = audioContext.createGain();
-      
-      source.buffer = audioBuffer;
-      gainNode.gain.setValueAtTime(volume, audioContext.currentTime);
-      
-      source.connect(gainNode);
-      gainNode.connect(audioContext.destination);
-      
-      sound = source;
-      console.log('Using custom sound for test notification:', soundType);
-      
-    } catch (error) {
-      console.error('Error loading custom sound for test:', error);
-    }
-  } else if (!inQuiet && SOUND_OPTIONS[soundType]) {
-    sound = SOUND_OPTIONS[soundType].generate();
-    if (sound && typeof sound.then === 'function') {
-      sound.then((audio) => {
-        if (!audio) return;
-        if (audio instanceof HTMLAudioElement) {
-          audio.volume = volume;
-          audio.currentTime = 0;
-          audio.play().catch(() => {});
-        } else if (typeof audio.start === 'function') {
-          try { if (audio.gainNode) audio.gainNode.gain.setValueAtTime(volume, audioContext.currentTime); } catch(_) {}
-          audio.start();
-        }
-      }).catch(() => {});
-      // leave 'sound' as promise; duration calc below handles only non-promise
-      sound = null;
-    } else if (sound) {
-      if (typeof sound.volume !== 'undefined') sound.volume = volume;
-      if (typeof sound.play === 'function') { try { sound.currentTime = 0; sound.play(); } catch(_) {} }
-      else if (typeof sound.start === 'function') { try { sound.start(); } catch(_) {} }
-    }
-  } else if (!inQuiet) {
-    // Try DB custom
-    try {
-      const recPromise = getSoundFromDB(soundType);
-      // Return early; we'll play async below
-      recPromise.then(rec => {
-        if (!rec || !rec.data) return;
-        const blob = (rec.data instanceof Blob)
-          ? rec.data
-          : new Blob([rec.data instanceof ArrayBuffer ? rec.data : (rec.data && rec.data.buffer ? rec.data.buffer : new ArrayBuffer(0))], { type: rec.type || 'audio/mpeg' });
-        const url = URL.createObjectURL(blob);
-        const audio = new Audio(url);
-        audio.volume = volume;
-        audio.play().finally(() => {
-          audio.onended = () => URL.revokeObjectURL(url);
-          setTimeout(() => URL.revokeObjectURL(url), 10000);
-        });
-      }).catch(() => {});
-    } catch (_) {}
-  }
-  
-  // (visuals already executed at start)
-  
-  // Play sound and calculate duration for TTS timing
-  let soundDuration = 0;
-  if (!inQuiet && sound) {
-    try {
-      // Use .start() for Web Audio API AudioBufferSourceNode, .play() for HTMLAudioElement
-      if (typeof sound.start === 'function') {
-        // Web Audio API AudioBufferSourceNode
-        sound.start();
-        console.log('Sound started using Web Audio API');
-        
-        // Calculate duration from buffer
-        if (sound.buffer) {
-          soundDuration = sound.buffer.duration * 1000; // Convert to milliseconds
-          console.log('Sound duration:', soundDuration + 'ms');
-        }
-      } else if (typeof sound.play === 'function') {
-        // HTML Audio Element
-        sound.play().then(() => {
-          console.log('Sound played using HTML Audio API');
-          
-          // Calculate duration from audio element
-          if (sound.duration && !isNaN(sound.duration)) {
-            soundDuration = sound.duration * 1000; // Convert to milliseconds
-            console.log('Sound duration:', soundDuration + 'ms');
-          }
-        }).catch(error => {
-          console.error('Error playing notification sound:', error);
-        });
-      } else {
-        console.error('Sound object has neither start() nor play() method:', sound);
-      }
-    } catch (error) {
-      console.error('Error playing notification sound:', error);
-    }
-  }
-  
-  // Test TTS if enabled - wait for sound to finish plus a small buffer
-  if (!inQuiet) {
-    const ttsDelay = Math.max(soundDuration + 200, 500); // At least 500ms, or sound duration + 200ms buffer
-    console.log('TTS will start after:', ttsDelay + 'ms');
-    setTimeout(() => {
-      let context = {};
-      switch (type) {
-        case 'single':
-          context = { winner: 'TestPlayer', bidAmount: 1000, itemName: 'Epic Sword' };
-          break;
-        case 'rolloff':
-          context = { isRollOff: true, itemName: 'Rare Potion', winners: ['Player1', 'Player2', 'Player3'] };
-          break;
-        case 'multi':
-          context = { multipleWinners: true, itemName: 'Common Item x2', winners: ['Player1', 'Player2'] };
-          break;
-      }
-      testTTSForNotification(context);
-    }, ttsDelay);
-  }
-  
-  // Flash screen if enabled
-  try { if (document.getElementById('flashScreen').checked) { flashScreen(); } } catch (_) {}
-}
-
-/**
- * Check if two time windows overlap
- * @param {string} start1 - Start time in HH:MM format
- * @param {string} end1 - End time in HH:MM format
- * @param {string} start2 - Start time in HH:MM format
- * @param {string} end2 - End time in HH:MM format
- * @returns {boolean} - True if the windows overlap
- */
 function timeWindowsOverlap(start1, end1, start2, end2) {
   const timeToMinutes = (timeStr) => {
     const [h, m] = timeStr.split(':').map(x => parseInt(x) || 0);
@@ -5381,6 +4811,15 @@ function saveSettings() {
     showStatus('Guild subdomain invalid (lowercase letters, numbers, hyphens only).', 'error');
     return;
   }
+  const profileForSave = getVal('soundProfile', currentSettings.soundProfile);
+  const soundTypeForSave = getVal('soundType', currentSettings.soundType);
+  const raidleaderSoundForSave = profileForSave === 'raidleader'
+    ? soundTypeForSave
+    : (currentSettings.raidleaderSound || currentSettings.raidLeaderSounds || 'bell');
+  const raiderSoundForSave = profileForSave === 'raider'
+    ? soundTypeForSave
+    : (currentSettings.raiderSound || currentSettings.raiderSounds || 'chime');
+  const tickDkpForSave = openDkpResolveTickDkpValueForPersist();
   const newSettings = {
     enableTTS: getChecked('enableTTS', currentSettings.enableTTS),
     voice: getVal('voice', currentSettings.voice),
@@ -5388,10 +4827,14 @@ function saveSettings() {
     enableAdvancedTTS: getChecked('enableAdvancedTTS', currentSettings.enableAdvancedTTS),
     ttsTemplate: getVal('ttsTemplate', currentSettings.ttsTemplate),
     volume: parseInt(getVal('volume', currentSettings.volume)),
-    soundProfile: getVal('soundProfile', currentSettings.soundProfile),
-    soundType: getVal('soundType', currentSettings.soundType),
-    // Save the current sound for the current profile
-    [getVal('soundProfile', currentSettings.soundProfile) + 'Sound']: getVal('soundType', currentSettings.soundType),
+    soundProfile: profileForSave,
+    soundType: soundTypeForSave,
+    // Persist both profiles so mode toggles keep the right sound
+    raidleaderSound: raidleaderSoundForSave,
+    raiderSound: raiderSoundForSave,
+    // Legacy aliases (older content.js / backups)
+    raidLeaderSounds: raidleaderSoundForSave,
+    raiderSounds: raiderSoundForSave,
     customSounds: currentSettings.customSounds || {},
     smartBidding: getChecked('smartBidding', currentSettings.smartBidding),
     quietHours: getChecked('quietHours', currentSettings.quietHours),
@@ -5426,10 +4869,15 @@ function saveSettings() {
     raidLeaderNotification: getChecked('raidLeaderNotification', currentSettings.raidLeaderNotification),
     flashScreen: getChecked('flashScreen', currentSettings.flashScreen),
     browserNotifications: getChecked('browserNotifications', currentSettings.browserNotifications),
-    checkInterval: parseInt(getVal('checkInterval', currentSettings.checkInterval)),
+    checkInterval: 100,
     theme: (() => { const el = document.getElementById('theme'); return (el && (el.value === 'light' || el.value === 'dark' || el.value === 'system')) ? el.value : (currentSettings.theme || 'system'); })(),
     darkMode: (() => { const el = document.getElementById('theme'); const t = el ? el.value : (currentSettings.theme || 'system'); return t === 'dark' || (t === 'system' && typeof matchMedia !== 'undefined' && matchMedia('(prefers-color-scheme: dark)').matches); })(),
     opendkpClientSlug: normOpenSlug,
+    opendkpRaidListCount: openDkpGetRaidListCountFromUI(),
+    opendkpBiddingToolRaidLock: getChecked(
+      'opendkpBiddingToolRaidLock',
+      currentSettings.opendkpBiddingToolRaidLock !== false
+    ),
     opendkpCurrentRaidId: currentSettings.opendkpCurrentRaidId,
     opendkpCurrentRaidSummaryJson: currentSettings.opendkpCurrentRaidSummaryJson || '',
     opendkpRaidtickUploadEnabled: isOpenDkpRaidtickUploadSunset()
@@ -5440,8 +4888,9 @@ function saveSettings() {
         ),
     opendkpRaidTickDefs: openDkpNormalizeRaidTickDefs(
       currentSettings.opendkpRaidTickDefs,
-      currentSettings.opendkpTickDkpValue
+      tickDkpForSave
     ).slice(0, OPEN_DKP_MAX_RAID_TICK_DEFS),
+    opendkpTickDkpValue: tickDkpForSave,
     opendkpAttendance: openDkpParseAttendance(getVal('opendkpAttendance', currentSettings.opendkpAttendance)),
     opendkpPreferredPoolId: (() => {
       const el = document.getElementById('opendkpPoolSelect');
@@ -5558,7 +5007,62 @@ function showStatus(message, type) {
 }
 
 /** Backup format version for future migrations */
-const BACKUP_VERSION = 4;
+const BACKUP_VERSION = 5;
+
+/** Same IndexedDB as eqlog-monitor.js — FileSystemHandles cannot go in JSON backups. */
+const EQLOG_HANDLE_DB_NAME = 'opendkp-eqlog';
+const EQLOG_HANDLE_DB_VERSION = 1;
+const EQLOG_HANDLE_STORE = 'handles';
+const EQLOG_HANDLE_KEY = 'eqLogFile';
+
+function openEqLogHandleDb() {
+  return new Promise(function (resolve, reject) {
+    if (typeof indexedDB === 'undefined') {
+      reject(new Error('IndexedDB unavailable'));
+      return;
+    }
+    const req = indexedDB.open(EQLOG_HANDLE_DB_NAME, EQLOG_HANDLE_DB_VERSION);
+    req.onupgradeneeded = function () {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(EQLOG_HANDLE_STORE)) {
+        db.createObjectStore(EQLOG_HANDLE_STORE);
+      }
+    };
+    req.onsuccess = function () { resolve(req.result); };
+    req.onerror = function () { reject(req.error || new Error('IndexedDB open failed')); };
+  });
+}
+
+/** Probe whether a live EQ log file handle is stored (not serializable to JSON). */
+async function collectEqLogHandleMetaForBackup(syncData) {
+  const fileMeta = syncData && syncData.eqLogFileMeta && typeof syncData.eqLogFileMeta === 'object'
+    ? syncData.eqLogFileMeta
+    : null;
+  let handlePresent = false;
+  let handleName = '';
+  try {
+    const db = await openEqLogHandleDb();
+    const handle = await new Promise(function (resolve, reject) {
+      const tx = db.transaction(EQLOG_HANDLE_STORE, 'readonly');
+      const req = tx.objectStore(EQLOG_HANDLE_STORE).get(EQLOG_HANDLE_KEY);
+      req.onsuccess = function () { resolve(req.result || null); };
+      req.onerror = function () { reject(req.error); };
+    });
+    db.close();
+    if (handle) {
+      handlePresent = true;
+      handleName = handle.name || '';
+    }
+  } catch (e) {
+    try { console.warn('[Backup] Could not probe EQ log handle IndexedDB:', e); } catch (_) {}
+  }
+  return {
+    handlePresent: handlePresent,
+    handleName: handleName || (fileMeta && fileMeta.name) || '',
+    fileMeta: fileMeta,
+    note: 'Browser file handles cannot be restored from JSON. Re-select the EQ log in Loot Monitor after restore on a new profile/machine.'
+  };
+}
 
 function arrayBufferToBase64(arrayBuffer) {
   const bytes = new Uint8Array(arrayBuffer);
@@ -5679,14 +5183,22 @@ function exportBackup() {
     });
     return Promise.all([getSync(), getLocal()])
       .then(function ([syncData, localData]) {
-        return collectCustomSoundsForBackup(localData).then(function (customSounds) {
-          return { syncData: syncData, localData: localData, customSounds: customSounds };
+        return Promise.all([
+          collectCustomSoundsForBackup(localData),
+          collectEqLogHandleMetaForBackup(syncData)
+        ]).then(function (results) {
+          return {
+            syncData: syncData,
+            localData: localData,
+            customSounds: results[0],
+            eqLogHandle: results[1]
+          };
         });
       })
-      .then(function ({ syncData, localData, customSounds }) {
+      .then(function ({ syncData, localData, customSounds, eqLogHandle }) {
         const includeCredentials = isBackupIncludeCredentialsChecked();
         const exportLocalData = includeCredentials ? localData : stripSensitiveBackupLocalData(localData);
-        const manifest = Object.assign({}, buildBackupManifest(syncData, exportLocalData), {
+        const manifest = Object.assign({}, buildBackupManifest(syncData, exportLocalData, eqLogHandle), {
           includesSensitiveCredentials: includeCredentials
         });
         const backup = {
@@ -5695,7 +5207,8 @@ function exportBackup() {
           manifest: manifest,
           sync: syncData,
           local: exportLocalData,
-          customSounds: customSounds
+          customSounds: customSounds,
+          eqLogHandle: eqLogHandle
         };
         const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -5708,7 +5221,12 @@ function exportBackup() {
           'Backup downloaded (' + manifest.watchlistItemCount + ' watchlist item(s)' +
           (manifest.opendkpClientSlug ? ', guild ' + manifest.opendkpClientSlug : '') +
           (manifest.opendkpCognitoUsername ? ', API user saved' : '') +
+          (manifest.rankBidLimitCount ? ', ' + manifest.rankBidLimitCount + ' rank bid limit(s)' : '') +
+          (manifest.eqLogFileName ? ', EQ log ' + manifest.eqLogFileName : '') +
           (includeCredentials ? ', password & tokens included' : ', password & tokens excluded') + ').';
+        if (manifest.eqLogHandlePresent || manifest.eqLogFileName) {
+          statusMsg += ' Note: re-select the EQ log in Loot Monitor after restore on a new browser profile.';
+        }
         if (includeCredentials) {
           showStatus(BACKUP_CREDENTIALS_WARNING, 'warning');
           setTimeout(function() {

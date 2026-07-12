@@ -86,6 +86,8 @@ const REQUIRED_FILES = [
   'lib/auto-bid.js',
   'lib/popup-notify.js',
   'lib/popup-api-session.js',
+  'lib/raid-context.js',
+  'lib/bidding-tool-raid.js',
   'lib/eqlog-parse.js',
   'bell.mp3',
   'alarm.mp3',

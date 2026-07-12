@@ -101,13 +101,13 @@ async function runTests() {
           fail('Issue #5: ' + (e.message || e));
         }
 
-        // Issue #1 — only notify when OpenDKP open (#onlyNotifyOnOpenDKP) when present; else raid leader notification
+        // Issue #1 — reminders master switch (#remindersEnabled) when present; else raid leader notification
         try {
-          const only = await page.$('#onlyNotifyOnOpenDKP');
+          const master = await page.$('#remindersEnabled');
           const rl = await page.$('#raidLeaderNotification');
-          if (only) pass('Issue #1: Only notify on OpenDKP (#onlyNotifyOnOpenDKP) present');
+          if (master) pass('Issue #1: Reminders master switch (#remindersEnabled) present');
           else if (rl) pass('Issue #1: Raid leader notification (#raidLeaderNotification) present');
-          else fail('Issue #1: Neither #onlyNotifyOnOpenDKP nor #raidLeaderNotification found');
+          else fail('Issue #1: Neither #remindersEnabled nor #raidLeaderNotification found');
         } catch (e) {
           fail('Issue #1: ' + (e.message || e));
         }

@@ -75,85 +75,91 @@ function initializePopup() {
   }, 5000);
   
   /**
-   * Helper function to build status text with all details
+   * Compact status: where you are, profile, and live exception flags only.
    */
-  function buildStatusText(settings, isOpenDKP) {
-    const profile = settings.soundProfile || 'raidleader';
-    const soundType = settings.soundType || 'bell';
-    const volume = settings.volume || 70;
-    
-    // Helper to check if current time is within a time window
-    function isTimeWindowActive(startTime, endTime) {
-      if (!startTime || !endTime) return false;
-      const now = new Date();
-      const currentHour = now.getHours();
-      const currentMinute = now.getMinutes();
-      const currentTime = currentHour * 60 + currentMinute;
-      
-      // Parse start and end times (format: "HH:MM")
-      const [startHour, startMin] = startTime.split(':').map(Number);
-      const [endHour, endMin] = endTime.split(':').map(Number);
-      const startTimeMinutes = startHour * 60 + startMin;
-      const endTimeMinutes = endHour * 60 + endMin;
-      
-      if (startTimeMinutes <= endTimeMinutes) {
-        // Same day window (e.g., 09:00 to 17:00)
-        return currentTime >= startTimeMinutes && currentTime < endTimeMinutes;
-      } else {
-        // Overnight window (e.g., 22:00 to 06:00)
-        return currentTime >= startTimeMinutes || currentTime < endTimeMinutes;
-      }
+  function formatProfileLabel(profile) {
+    return profile === 'raider' ? 'Raider' : 'Raid Leader';
+  }
+
+  function isTimeWindowActive(startTime, endTime) {
+    if (!startTime || !endTime) return false;
+    const now = new Date();
+    const currentTime = now.getHours() * 60 + now.getMinutes();
+    const [startHour, startMin] = startTime.split(':').map(Number);
+    const [endHour, endMin] = endTime.split(':').map(Number);
+    const startTimeMinutes = startHour * 60 + startMin;
+    const endTimeMinutes = endHour * 60 + endMin;
+    if (startTimeMinutes <= endTimeMinutes) {
+      return currentTime >= startTimeMinutes && currentTime < endTimeMinutes;
     }
-    
-    // Build detail line (profile, sound, volume, TTS, etc.)
-    const detailParts = [
-      `Profile: ${escapeHtml(profile)}`,
-      `Sound: ${escapeHtml(soundType)}`,
-      `Volume: ${escapeHtml(String(volume))}%`
-    ];
-    if (settings.enableTTS) {
-      const v = String(settings.voice || 'Default');
-      let short = v;
-      if (/zira/i.test(v)) short = 'Zira';
-      else if (/david/i.test(v)) short = 'David';
-      else if (/mark/i.test(v)) short = 'Mark';
-      else short = (v.split(' ').find(Boolean)) || 'Default';
-      detailParts.push(`TTS: ${escapeHtml(short)}`);
-    }
-    if (settings.announceAuctions) {
-      const active = isTimeWindowActive(settings.announceStart, settings.announceEnd);
-      detailParts.push(`Read Auctions: ${active ? 'active' : 'scheduled'}`);
+    return currentTime >= startTimeMinutes || currentTime < endTimeMinutes;
+  }
+
+  function buildStatusFlags(settings) {
+    const flags = [formatProfileLabel(settings.soundProfile || 'raidleader')];
+    if (settings.autoBidEnabled) {
+      flags.push('Auto-Bid on');
     }
     if (settings.quietHours && isTimeWindowActive(settings.quietStart, settings.quietEnd)) {
-      detailParts.push('Quiet Hours: active');
+      flags.push('Quiet Hours');
     }
-    if (settings.eqLogTag) {
-      detailParts.push(`Loot Tag: ${escapeHtml(settings.eqLogTag)}`);
+    if (settings.reminderPrefs && settings.reminderPrefs.remindersEnabled === false) {
+      flags.push('Reminders off');
     }
-    if (settings.autoBidEnabled) {
-      detailParts.push('Auto-Bid: on');
-    }
+    return flags;
+  }
 
-    const detailsHtml = `<small>${detailParts.join(' | ')}</small>`;
-    
+  function buildStatusText(settings, isOpenDKP, domain) {
+    const detailsHtml = `<small>${buildStatusFlags(settings).map(escapeHtml).join(' · ')}</small>`;
     if (isOpenDKP) {
-      return `
-        ✅ Active on OpenDKP<br>
-        ${detailsHtml}
-      `;
-    } else {
-      if (settings.raidTickEnabled && settings.raidTickFolder) {
-        return `
-          📁 RaidTick Mode<br>
-          ${detailsHtml}
-        `;
-      } else {
-        return `
-          ⚠️ Not on OpenDKP page<br>
-          ${detailsHtml}
-        `;
+      const host = domain || 'opendkp.com';
+      return `✅ ${escapeHtml(host)}<br>${detailsHtml}`;
+    }
+    return `⚠️ Not on OpenDKP<br>${detailsHtml}`;
+  }
+
+  const STATUS_STORAGE_KEYS = [
+    'soundProfile',
+    'quietHours',
+    'quietStart',
+    'quietEnd',
+    'autoBidEnabled',
+    'reminderPrefs'
+  ];
+
+  function opendkpDomainFromUrl(url) {
+    if (!url || typeof url !== 'string' || url.indexOf('opendkp.com') < 0) {
+      return { isOpenDKP: false, domain: '' };
+    }
+    try {
+      return { isOpenDKP: true, domain: new URL(url).hostname };
+    } catch (_) {
+      return { isOpenDKP: true, domain: '' };
+    }
+  }
+
+  function applyStatusFromSettings(settings, url) {
+    const info = opendkpDomainFromUrl(url || '');
+    if (statusDiv) {
+      statusDiv.className = info.isOpenDKP ? 'status active' : 'status inactive';
+    }
+    if (statusText) {
+      try {
+        statusText.innerHTML = buildStatusText(settings || defaultSettings, info.isOpenDKP, info.domain);
+      } catch (error) {
+        console.error('Error building status text:', error);
+        statusText.innerHTML = '⚠️ Status unavailable';
       }
     }
+  }
+
+  function refreshStatusDisplay() {
+    api.storage.sync.get(STATUS_STORAGE_KEYS, function (settings) {
+      api.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+        const url = tabs && tabs[0] ? tabs[0].url || '' : '';
+        applyStatusFromSettings(settings, url);
+      });
+    });
   }
   
   // Load current settings and update UI
@@ -168,7 +174,7 @@ function initializePopup() {
   };
 
   let statusUpdated = false;
-  const updateStatus = function(isOpenDKP, settings) {
+  const updateStatus = function(isOpenDKP, settings, domain) {
     if (statusUpdated) return;
     statusUpdated = true;
     const s = settings || defaultSettings;
@@ -177,7 +183,7 @@ function initializePopup() {
     }
     if (statusText) {
       try {
-        const statusHtml = buildStatusText(s, isOpenDKP);
+        const statusHtml = buildStatusText(s, isOpenDKP, domain);
         statusText.innerHTML = statusHtml || '⚠️ Status unavailable';
       } catch (error) {
         console.error('Error building status text:', error);
@@ -260,7 +266,8 @@ function initializePopup() {
     'eqLogFile',
     'eqLogTag',
     'eqLogEvents',
-    'autoBidEnabled'
+    'autoBidEnabled',
+    'reminderPrefs'
   ], function(settings) {
     // Handle storage API errors gracefully
     if (api.runtime.lastError) {
@@ -309,8 +316,14 @@ function initializePopup() {
       }
 
       const currentTab = tabs && tabs[0];
-      const isOpenDKP = currentTab && currentTab.url && currentTab.url.includes('opendkp.com');
-      updateStatus(isOpenDKP, settings);
+      const isOpenDKP = !!(currentTab && currentTab.url && currentTab.url.includes('opendkp.com'));
+      let domain = '';
+      if (isOpenDKP) {
+        try {
+          domain = new URL(currentTab.url).hostname;
+        } catch (_) {}
+      }
+      updateStatus(isOpenDKP, settings, domain);
     });
     
     // Initialize EQ Log parser for raid leaders (Chrome: displays inline in popup)
@@ -492,24 +505,7 @@ function initializePopup() {
             // Restore original status after 3 seconds
             setTimeout(() => {
               if (statusText && statusDiv) {
-                browserApi.tabs.query({active: true, currentWindow: true}, function(tabs) {
-                  if (tabs && tabs[0]) {
-                    const url = tabs[0].url || '';
-                    const isOpenDKP = url.includes('opendkp.com');
-                    if (isOpenDKP) {
-                      statusDiv.className = 'status active';
-                    } else {
-                      statusDiv.className = 'status inactive';
-                    }
-                    browserApi.storage.sync.get([
-                      'soundProfile', 'soundType', 'volume', 'enableTTS', 'voice',
-                      'announceAuctions', 'announceStart', 'announceEnd',
-                      'quietHours', 'quietStart', 'quietEnd', 'eqLogTag'
-                    ], function(settings) {
-                      statusText.innerHTML = buildStatusText(settings, isOpenDKP);
-                    });
-                  }
-                });
+                refreshStatusDisplay();
               }
             }, 3000);
           }
@@ -520,24 +516,7 @@ function initializePopup() {
             statusText.innerHTML = '❌ Failed to copy file: ' + escapeHtml(error.message);
             setTimeout(() => {
               if (statusText && statusDiv) {
-                browserApi.tabs.query({active: true, currentWindow: true}, function(tabs) {
-                  if (tabs && tabs[0]) {
-                    const url = tabs[0].url || '';
-                    const isOpenDKP = url.includes('opendkp.com');
-                    if (isOpenDKP) {
-                      statusDiv.className = 'status active';
-                    } else {
-                      statusDiv.className = 'status inactive';
-                    }
-                    browserApi.storage.sync.get([
-                      'soundProfile', 'soundType', 'volume', 'enableTTS', 'voice',
-                      'announceAuctions', 'announceStart', 'announceEnd',
-                      'quietHours', 'quietStart', 'quietEnd', 'eqLogTag'
-                    ], function(settings) {
-                      statusText.innerHTML = buildStatusText(settings, isOpenDKP);
-                    });
-                  }
-                });
+                refreshStatusDisplay();
               }
             }, 3000);
           }
@@ -609,31 +588,7 @@ function initializePopup() {
           
           // After showing success message, update status with new volume (don't reload)
           setTimeout(() => {
-            // Refresh status with updated volume, but use the saved value we just set
-            api.storage.sync.get(['soundProfile', 'soundType', 'enableTTS', 'voice', 'announceAuctions', 'announceStart', 'announceEnd', 'quietHours', 'quietStart', 'quietEnd', 'eqLogTag', 'autoBidEnabled'], function(settings) {
-              // Use the volume we just saved
-              settings.volume = v;
-              
-              // Check if we're on OpenDKP page
-              api.tabs.query({active: true, currentWindow: true}, function(tabs) {
-                const currentTab = tabs && tabs[0];
-                const isOpenDKP = currentTab && currentTab.url && currentTab.url.includes('opendkp.com');
-                
-                // Update status display with new volume
-                if (statusDiv) {
-                  statusDiv.className = isOpenDKP ? 'status active' : 'status inactive';
-                }
-                if (statusText) {
-                  try {
-                    const statusHtml = buildStatusText(settings, isOpenDKP);
-                    statusText.innerHTML = statusHtml || '⚠️ Status unavailable';
-                  } catch (error) {
-                    console.error('Error building status text:', error);
-                    statusText.innerHTML = '⚠️ Status unavailable';
-                  }
-                }
-              });
-            });
+            refreshStatusDisplay();
           }, 1500);
         }
       });
@@ -689,42 +644,11 @@ function initializePopup() {
         if (volumeIcon) {
           volumeIcon.classList.remove('vol-dirty', 'vol-saved');
         }
-        // Update status with new volume without reloading (to avoid flicker)
-        // Only update if status isn't currently showing a save message
-        setTimeout(() => {
-          const statusTextEl = document.getElementById('statusText');
-          if (statusTextEl && !statusTextEl.innerHTML.includes('Volume setting saved')) {
-            api.storage.sync.get(['soundProfile', 'soundType', 'enableTTS', 'voice', 'announceAuctions', 'announceStart', 'announceEnd', 'quietHours', 'quietStart', 'quietEnd', 'eqLogTag', 'autoBidEnabled'], function(settings) {
-              settings.volume = newVolume;
-              
-              // Check if we're on OpenDKP page
-              api.tabs.query({active: true, currentWindow: true}, function(tabs) {
-                const currentTab = tabs && tabs[0];
-                const isOpenDKP = currentTab && currentTab.url && currentTab.url.includes('opendkp.com');
-                
-                // Update status display with new volume
-                const statusDivEl = document.getElementById('status');
-                const statusTextEl = document.getElementById('statusText');
-                if (statusDivEl) {
-                  statusDivEl.className = isOpenDKP ? 'status active' : 'status inactive';
-                }
-                if (statusTextEl) {
-                  try {
-                    const statusHtml = buildStatusText(settings, isOpenDKP);
-                    statusTextEl.innerHTML = statusHtml || '⚠️ Status unavailable';
-                  } catch (error) {
-                    console.error('Error building status text:', error);
-                    statusTextEl.innerHTML = '⚠️ Status unavailable';
-                  }
-                }
-              });
-            });
-          }
-        }, 100);
+        // Volume is not shown in the status strip — no status rebuild needed
       }
       
       // Handle other general settings changes
-      if (changes.soundType || changes.enableTTS || changes.smartBidding || changes.autoBidEnabled) {
+      if (changes.soundType || changes.enableTTS || changes.smartBidding || changes.autoBidEnabled || changes.reminderPrefs || changes.quietHours) {
         setTimeout(() => {
           location.reload();
         }, 100);

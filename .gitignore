@@ -1,31 +1,51 @@
-# Documentation and Design Docs (not needed for extension functionality)
-# Exception: Keep README.md for GitHub
+# Documentation tracked on GitHub
 *.md
 !README.md
 !CHANGELOG.md
 !CURSOR.md
+!STORE_DESCRIPTION.md
+!LICENSE
 
-# Docs folder (documentation for reference, not included in builds)
+# Local agent planning (also covered by *.md)
+task_plan.md
+findings.md
+progress.md
+
+# Docs folder (reference only)
 Docs/
 
 # Tracked API planning docs (exceptions to *.md)
 !docs/PHASE_0_INTEGRATION_MAP.md
 
-# Development and Build Scripts
+# Dependencies
 node_modules/
+
+# Development / generator scripts (repo root)
 /generate_chime*.html
 /generate_chime*.js
 /generate_chime*.py
 /create_icons.*
 /create_simple_chime.*
 
-# Test Files
+# Test / scratch
 /test_audio.html
+/test_audio.js
+dom-viewer.html
 
-# Non-Icon Images (development resources - exclude PNGs in root, keep icons folder)
+# Root PNGs (store promo drafts); keep assets/images/ and icons/
 /*.png
 
-# OS and Editor Files
+# Secrets and local env
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+credentials*.json
+client_secret*.json
+chrome-webstore*.json
+
+# OS and Editor
 .DS_Store
 Thumbs.db
 *.swp
@@ -34,13 +54,15 @@ Thumbs.db
 .project
 .classpath
 .settings/
+.vscode/
+.idea/
 
-# Temporary Files
+# Temporary
 *.tmp
 *.bak
 *.log
 
-# Build Output
+# Build output
 build/
 dist/
 *.zip

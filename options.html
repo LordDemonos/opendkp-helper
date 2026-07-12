@@ -262,28 +262,6 @@
             box-shadow: 0 2px 4px rgba(40,167,69,0.3) !important;
         }
         
-        .preview-buttons {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-            margin-top: 10px;
-        }
-        
-        .preview-buttons button {
-            flex: 1;
-            min-width: 120px;
-        }
-        
-        #notificationStatus {
-            background: #f8f9fa;
-            border: 1px solid #dee2e6;
-            color: #495057;
-        }
-        
-        #notificationStatus pre {
-            color: #495057;
-        }
-        
         .status {
             position: fixed;
             top: 16px;
@@ -415,72 +393,6 @@
         
         body.dark-mode .preview-section p {
             color: #b0b0b0 !important;
-        }
-        
-        body.dark-mode .preview-buttons {
-            background: #333 !important;
-        }
-        
-        body.dark-mode .preview-buttons button {
-            background: #444 !important;
-            color: #e0e0e0 !important;
-            border-color: #666 !important;
-        }
-        
-        body.dark-mode .preview-buttons button:hover {
-            background: #555 !important;
-        }
-        
-        /* Override for test buttons in preview section - use teal color */
-        body.dark-mode .preview-buttons .test-button {
-            background: #0f6674 !important;
-            border-color: #0f6674 !important;
-        }
-        
-        body.dark-mode .preview-buttons .test-button:hover {
-            background: #0c5460 !important;
-            border-color: #0c5460 !important;
-            box-shadow: 0 2px 4px rgba(15,102,116,0.4) !important;
-        }
-        
-        body.dark-mode .preview-buttons button.btn-secondary {
-            background: #6c757d !important;
-            border-color: #6c757d !important;
-        }
-        
-        body.dark-mode .preview-buttons button.btn-secondary:hover {
-            background: #5a6268 !important;
-            border-color: #5a6268 !important;
-        }
-        
-        body.dark-mode .preview-buttons button.btn-primary {
-            background: #007bff !important;
-            border-color: #007bff !important;
-        }
-        
-        body.dark-mode .preview-buttons button.btn-primary:hover {
-            background: #0056b3 !important;
-            border-color: #0056b3 !important;
-        }
-        
-        body.dark-mode .preview-buttons button.btn-success {
-            background: #28a745 !important;
-            border-color: #28a745 !important;
-        }
-        
-        body.dark-mode .preview-buttons button.btn-success:hover {
-            background: #1e7e34 !important;
-            border-color: #1e7e34 !important;
-        }
-        
-        body.dark-mode #notificationStatus {
-            background: #333 !important;
-            border-color: #555 !important;
-            color: #e0e0e0 !important;
-        }
-        
-        body.dark-mode #notificationStatus pre {
-            color: #e0e0e0 !important;
         }
         
         body.dark-mode input[type="range"] {
@@ -899,6 +811,196 @@
         .setting-row.feature-sunset input[type="checkbox"]:disabled {
             cursor: not-allowed;
         }
+
+        /* Sticky Mode bar */
+        #modeGroup {
+            position: sticky;
+            top: 0;
+            z-index: 40;
+            background: #fafafa;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            margin-bottom: 16px;
+            padding: 12px 16px;
+        }
+        #modeGroup h3 {
+            margin: 0 0 8px 0;
+            font-size: 15px;
+        }
+        body.dark-mode #modeGroup {
+            background: #333;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+        }
+        .mode-controls-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 12px 20px;
+            margin-bottom: 8px;
+        }
+        .mode-controls-row .mode-field {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .mode-controls-row label {
+            margin: 0;
+            white-space: nowrap;
+        }
+        body.dark-mode .mode-controls-row label {
+            color: #e0e0e0;
+        }
+        .mode-controls-row select {
+            margin-left: 0;
+            min-width: 160px;
+        }
+        .settings-toc {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 6px 4px;
+            font-size: 13px;
+            line-height: 1.3;
+        }
+        .settings-toc a {
+            color: #2980b9;
+            text-decoration: none;
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+        .settings-toc a:hover {
+            text-decoration: underline;
+            background: rgba(41, 128, 185, 0.1);
+        }
+        .settings-toc .toc-sep {
+            color: #99a;
+            user-select: none;
+        }
+        body.dark-mode .settings-toc a {
+            color: #7ec8e3;
+        }
+        body.dark-mode .settings-toc a:hover {
+            background: rgba(126, 200, 227, 0.12);
+        }
+        body.dark-mode .settings-toc .toc-sep {
+            color: #778;
+        }
+        #autoBidGroup,
+        #alertsSoundsGroup,
+        #openDkpApiGroup,
+        #raidTickGroup {
+            scroll-margin-top: 110px;
+        }
+
+        /* Profile regions */
+        .settings-region {
+            margin: 0 0 28px 0;
+            padding: 16px 16px 8px;
+            border-radius: 8px;
+            border: 1px solid #cfd6dd;
+            border-left-width: 4px;
+            background: #f7f8fa;
+        }
+        .settings-region-label {
+            display: inline-block;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            margin: 0 0 12px 0;
+            padding: 3px 8px;
+            border-radius: 4px;
+            color: #445;
+            background: rgba(0,0,0,0.05);
+        }
+        .settings-region--raider {
+            border-color: #9ec9c4;
+            border-left-color: #2a9a8f;
+            background: #f0f8f7;
+        }
+        .settings-region--raider .settings-region-label {
+            color: #1a6b63;
+            background: rgba(42, 154, 143, 0.16);
+        }
+        .settings-region--raidleader {
+            border-color: #e0c48a;
+            border-left-color: #c4922a;
+            background: #fbf7ef;
+        }
+        .settings-region--raidleader .settings-region-label {
+            color: #7a5a12;
+            background: rgba(196, 146, 42, 0.18);
+        }
+        body.dark-mode .settings-region--raider {
+            border-color: #3d6e69;
+            border-left-color: #4db8ac;
+            background: #24302e;
+        }
+        body.dark-mode .settings-region--raider .settings-region-label {
+            color: #a8e0d9;
+            background: rgba(77, 184, 172, 0.2);
+        }
+        body.dark-mode .settings-region--raidleader {
+            border-color: #7a6230;
+            border-left-color: #d4a84b;
+            background: #332e24;
+        }
+        body.dark-mode .settings-region--raidleader .settings-region-label {
+            color: #efd39a;
+            background: rgba(212, 168, 75, 0.22);
+        }
+        .settings-region .setting-group {
+            background: #fafafa;
+        }
+        body.dark-mode .settings-region .setting-group {
+            background: #333;
+        }
+        .settings-region .setting-group h4 {
+            margin: 16px 0 8px 0;
+            color: #34495e;
+            font-size: 14px;
+        }
+        body.dark-mode .settings-region .setting-group h4 {
+            color: #e0e0e0;
+        }
+        .clipboard-raidtick-helper {
+            margin-top: 16px;
+            padding-top: 12px;
+            border-top: 1px solid #e0e0e0;
+        }
+        body.dark-mode .clipboard-raidtick-helper {
+            border-top-color: #555;
+        }
+
+        /* Dual scroll FAB */
+        #scrollFab {
+            position: fixed;
+            right: 18px;
+            bottom: 18px;
+            z-index: 50;
+            width: 44px;
+            height: 44px;
+            border: none;
+            border-radius: 50%;
+            background: #2c3e50;
+            color: #fff;
+            font-size: 20px;
+            line-height: 1;
+            cursor: pointer;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+        }
+        #scrollFab:hover {
+            background: #1a252f;
+        }
+        body.dark-mode #scrollFab {
+            background: #4a90a4;
+            color: #fff;
+        }
+        body.dark-mode #scrollFab:hover {
+            background: #3a7a8c;
+        }
+        @media (prefers-reduced-motion: reduce) {
+            html { scroll-behavior: auto; }
+        }
     </style>
 </head>
 <body>
@@ -908,541 +1010,483 @@
             <img id="extensionIcon" src="" alt="OpenDKP Helper" style="width: 24px; height: 24px; vertical-align: middle; margin-right: 8px;">
             OpenDKP Helper Settings
         </h1>
-        <div class="setting-group" id="modeGroup" >
-            <h3>🎚️ Mode</h3>
-            <p class="section-description">Choose how the extension behaves. Raid Leader mode enables raid leader tools and stronger alerts. Raider mode focuses on personal alerts. Auto-Bid is available in both modes.</p>
-            <div class="setting-row" style="justify-content:flex-start; gap:10px;">
-                <select id="soundProfile" style="margin-left:0;">
-                    <option value="raidleader">Raid Leader Profile</option>
-                    <option value="raider">Raider Profile</option>
-                </select>
+
+        <div class="setting-group" id="modeGroup">
+            <h3>Mode &amp; Appearance</h3>
+            <div class="mode-controls-row">
+                <div class="mode-field">
+                    <label for="soundProfile">Profile:</label>
+                    <select id="soundProfile">
+                        <option value="raidleader">Raid Leader Profile</option>
+                        <option value="raider">Raider Profile</option>
+                    </select>
+                </div>
+                <div class="mode-field">
+                    <label for="theme">Theme:</label>
+                    <select id="theme">
+                        <option value="system">System (follow OS)</option>
+                        <option value="light">Light</option>
+                        <option value="dark">Dark</option>
+                    </select>
+                </div>
             </div>
+            <nav id="settingsToc" class="settings-toc" aria-label="Settings sections">
+                <a href="#autoBidGroup">Bidding</a>
+                <span class="toc-sep" aria-hidden="true">·</span>
+                <a href="#alertsSoundsGroup">Alerts &amp; Sounds</a>
+                <span class="toc-sep" data-toc-leader aria-hidden="true">·</span>
+                <a href="#openDkpApiGroup" data-toc-leader>OpenDKP Raids</a>
+                <span class="toc-sep" data-toc-leader aria-hidden="true">·</span>
+                <a href="#raidTickGroup" data-toc-leader>Reminders</a>
+            </nav>
         </div>
 
-        <div class="setting-group" id="autoBidGroup">
-            <h3>🤖 Auto-Bid</h3>
-            <p class="section-description">Automatic API bidding on active auctions. Available in both Raid Leader and Raider modes — keep an opendkp.com tab open while enabled.</p>
-            <div class="setting-row" id="autoBidEnableRow">
-                <label for="autoBidEnabled">Enable automatic bidding via API:</label>
-                <input type="checkbox" id="autoBidEnabled">
+        <!-- ========== RAIDER (always visible) ========== -->
+        <section class="settings-region settings-region--raider" id="raiderSettingsRegion" aria-label="Raider settings">
+            <div class="settings-region-label">Raider</div>
+
+            <div class="setting-group" id="autoBidGroup">
+                <h3>Bidding</h3>
+                <p class="section-description">Automatic API bidding on active auctions. Available in both Raid Leader and Raider modes — keep an opendkp.com tab open while enabled.</p>
+                <div class="setting-row" id="autoBidEnableRow">
+                    <label for="autoBidEnabled">Enable automatic bidding via API:</label>
+                    <input type="checkbox" id="autoBidEnabled">
+                </div>
+                <div id="autoBidDetails" style="display:none;">
+                    <div id="autoBidRaiderApiBlock">
+                        <p class="description">Sign in with your OpenDKP account (same as the website). Credentials are stored locally and shared with Raid Leader API tools if you switch modes.</p>
+                        <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                            <label for="autoBidClientSlug"><strong>Guild subdomain</strong></label>
+                            <input type="text" id="autoBidClientSlug" placeholder="YOURGUILD" autocomplete="off" style="max-width: 320px; width: 100%; padding: 8px;" pattern="[a-z0-9]([a-z0-9-]*[a-z0-9])?">
+                        </div>
+                        <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                            <label for="autoBidCognitoUser">OpenDKP username</label>
+                            <input type="text" id="autoBidCognitoUser" autocomplete="username" style="max-width: 320px; width: 100%; padding: 8px;">
+                        </div>
+                        <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                            <label for="autoBidCognitoPassword">Password</label>
+                            <input type="password" id="autoBidCognitoPassword" autocomplete="current-password" style="max-width: 320px; width: 100%; padding: 8px;">
+                        </div>
+                        <div class="setting-row" style="margin-top: 10px; flex-wrap: wrap; gap: 10px;">
+                            <button type="button" id="autoBidSignIn">Sign in to API</button>
+                            <button type="button" id="autoBidSignOut">Sign out</button>
+                            <span id="autoBidTokenStatus" class="description" style="margin-left: 0;"></span>
+                        </div>
+                    </div>
+                    <p class="description" id="autoBidLeaderApiNote" style="display:none;">
+                        Uses guild subdomain and API sign-in from <strong>OpenDKP Raids</strong> in the Raid Leader section below.
+                    </p>
+                    <div class="setting-row" style="margin-top: 12px; flex-wrap: wrap; gap: 12px; align-items: center;">
+                        <label for="autoBidIncrement">Bid increment (DKP):</label>
+                        <input type="number" id="autoBidIncrement" min="1" step="1" value="10" style="width: 72px; padding: 6px;">
+                        <label for="autoBidPollIntervalSec" style="margin-left: 8px;">Poll every (sec):</label>
+                        <input type="number" id="autoBidPollIntervalSec" min="5" step="1" value="15" style="width: 72px; padding: 6px;">
+                    </div>
+                    <div class="setting-row" style="margin-top: 10px; flex-wrap: wrap; gap: 10px; align-items: center;">
+                        <button type="button" class="test-button" id="autoBidRefreshCharacters">Refresh my characters</button>
+                        <span id="autoBidCharStatus" class="description"></span>
+                    </div>
+                    <div id="autoBidRulesWrap" class="auto-bid-rules-wrap">
+                        <div id="autoBidRulesList" class="auto-bid-rules-list"></div>
+                    </div>
+                    <div class="setting-row" style="margin-top: 10px;">
+                        <button type="button" class="test-button" id="autoBidAddRule">Add item rule</button>
+                    </div>
+                    <div class="description" id="autoBidDesc">
+                        While an opendkp.com tab is open, polls active auctions and bids in increments until you are in a winning slot (top bid for single items, top N for quantity N), your max DKP for that item is reached, or you run out of DKP. If a full increment would overshoot your max, it bids the remaining amount up to that max (e.g. leader at 380, increment 50, max 400 → bids 400). When a matching auction has 30 seconds or less remaining, polling speeds up to every 2 seconds. Character rank comes from Refresh characters. Rank max bids come from Bidding Tool → Bid Rules (select each rank once; values merge into a local cache and are included in Backup &amp; Restore). When your character is called as the winner for a matching item, that rule is automatically disabled (re-enable the checkbox to bid on the same item again).
+                    </div>
+                </div>
+                <div class="setting-row" id="smartBiddingRow" style="margin-top: 16px;">
+                    <label for="smartBidding">Smart Bidding Mode:</label>
+                    <input type="checkbox" id="smartBidding">
+                </div>
+                <div class="description" id="smartBiddingDescription">
+                    Only alerts when you win an auction (detects your characters from the header). Automatically enabled for Raider profile.
+                </div>
             </div>
-            <div id="autoBidDetails" style="display:none;">
-                <div id="autoBidRaiderApiBlock">
-                    <p class="description">Sign in with your OpenDKP account (same as the website). Credentials are stored locally and shared with Raid Leader API tools if you switch modes.</p>
-                    <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
-                        <label for="autoBidClientSlug"><strong>Guild subdomain</strong></label>
-                        <input type="text" id="autoBidClientSlug" placeholder="YOURGUILD" autocomplete="off" style="max-width: 320px; width: 100%; padding: 8px;" pattern="[a-z0-9]([a-z0-9-]*[a-z0-9])?">
-                    </div>
-                    <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
-                        <label for="autoBidCognitoUser">OpenDKP username</label>
-                        <input type="text" id="autoBidCognitoUser" autocomplete="username" style="max-width: 320px; width: 100%; padding: 8px;">
-                    </div>
-                    <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
-                        <label for="autoBidCognitoPassword">Password</label>
-                        <input type="password" id="autoBidCognitoPassword" autocomplete="current-password" style="max-width: 320px; width: 100%; padding: 8px;">
-                    </div>
-                    <div class="setting-row" style="margin-top: 10px; flex-wrap: wrap; gap: 10px;">
-                        <button type="button" id="autoBidSignIn">Sign in to API</button>
-                        <button type="button" id="autoBidSignOut">Sign out</button>
-                        <span id="autoBidTokenStatus" class="description" style="margin-left: 0;"></span>
+
+            <div class="setting-group" id="alertsSoundsGroup">
+                <h3>Alerts &amp; Sounds</h3>
+
+                <h4>Notification sound</h4>
+                <div class="setting-row">
+                    <label for="volume">Sound Volume:</label>
+                    <div style="display: flex; align-items: center;">
+                        <input type="range" id="volume" min="0" max="100" value="70">
+                        <span class="volume-display" id="volumeDisplay">70%</span>
+                        <button class="test-button" id="testSound">Test</button>
                     </div>
                 </div>
-                <p class="description" id="autoBidLeaderApiNote" style="display:none;">
-                    Uses guild subdomain and API sign-in from <strong>OpenDKP API (raids)</strong> below.
+                <div class="setting-row">
+                    <label for="soundType">Notification Sound:</label>
+                    <select id="soundType">
+                    </select>
+                </div>
+                <div class="description">
+                    Choose your preferred notification sound. Custom sounds require uploading an audio file.
+                </div>
+
+                <h4>Custom sounds</h4>
+                <div id="customSoundManager" class="preview-section" style="background:#f8f9fa;">
+                    <div class="setting-row">
+                        <label for="customSoundFile">Upload Audio File:</label>
+                        <input type="file" id="customSoundFile" accept="audio/*" style="margin-left: 15px;">
+                    </div>
+                    <div class="setting-row">
+                        <label for="customSoundName">Sound Name:</label>
+                        <input type="text" id="customSoundName" placeholder="My Custom Sound" style="margin-left: 15px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; width: 200px;">
+                    </div>
+                    <div class="setting-row">
+                        <button class="test-button" id="testCustomSound" disabled>Test Custom</button>
+                        <button class="test-button" id="saveCustomSound" disabled style="background: #27ae60;">Save Custom</button>
+                    </div>
+                    <div class="description">
+                        Upload MP3, WAV, or OGG files. Maximum 3 custom sounds. Suggested size ≤ 100 KB each for quick notifications. Files are stored locally in your browser.
+                    </div>
+                    <div id="customSoundList" style="display:flex; flex-direction:column; gap:8px;"></div>
+                    <div id="customSoundHint" class="description" style="margin-top:8px;"></div>
+                </div>
+
+                <h4>Text-to-Speech</h4>
+                <div class="setting-row">
+                    <label for="enableTTS">Enable Text-to-Speech:</label>
+                    <input type="checkbox" id="enableTTS">
+                </div>
+                <div class="setting-row" id="ttsSettings" style="display: none;">
+                    <label for="voice">Voice:</label>
+                    <select id="voice" style="margin-left: 15px;">
+                    </select>
+                </div>
+                <div class="setting-row" id="ttsSpeedSettings" style="display: none;">
+                    <label for="voiceSpeed">Voice Speed:</label>
+                    <div style="display: flex; align-items: center;">
+                        <input type="range" id="voiceSpeed" min="0.5" max="2.5" step="0.1" value="1" style="margin-left: 15px;">
+                        <span class="speed-display" id="speedDisplay">1.0x</span>
+                        <button class="test-button" id="testVoice">Test Voice</button>
+                    </div>
+                </div>
+                <div class="setting-row" id="ttsAdvancedSettings" style="display: none;">
+                    <label for="enableAdvancedTTS">Advanced TTS:</label>
+                    <input type="checkbox" id="enableAdvancedTTS">
+                </div>
+                <div class="setting-row" id="ttsTemplateSettings" style="display: none;">
+                    <label for="ttsTemplate">Custom Message Template:</label>
+                    <div style="margin-top: 10px;">
+                        <textarea id="ttsTemplate" rows="4" cols="50" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-family: monospace; font-size: 12px;" placeholder="Enter custom TTS message template..."></textarea>
+                    </div>
+                    <div style="margin-top: 5px; font-size: 11px; color: #666;">
+                        <strong>Available variables:</strong><br>
+                        <code>{winner}</code> - Winner name<br>
+                        <code>{bidAmount}</code> - Bid amount<br>
+                        <code>{itemName}</code> - Item name<br>
+                        <code>{winners}</code> - Comma-separated winners list<br>
+                        <code>{isRollOff}</code> - true/false<br>
+                        <code>{multipleWinners}</code> - true/false
+                    </div>
+                    <div style="margin-top: 10px;">
+                        <button class="test-button" id="testCustomTemplate">Test Custom Template</button>
+                        <button class="test-button" id="resetTemplate" style="background: #e74c3c;">Reset to Default</button>
+                    </div>
+                </div>
+                <div class="description">
+                    Text-to-speech announces auction completions after the sound plays. Requires browser permission.
+                </div>
+
+                <h4 id="announceHeading" style="display:none;">Read New Auctions</h4>
+                <div class="setting-row" id="announceRow" style="display:none;">
+                    <label for="announceAuctions">Read new auctions with TTS:</label>
+                    <input type="checkbox" id="announceAuctions">
+                </div>
+                <div class="setting-row" id="announceWindow" style="display:none;">
+                    <label for="announceStart">Active Between:</label>
+                    <input type="time" id="announceStart" value="19:00" style="margin-left:15px;">
+                    <label for="announceEnd" style="margin-left:20px;">and</label>
+                    <input type="time" id="announceEnd" value="23:59" style="margin-left:5px;">
+                </div>
+                <div class="setting-row setting-row-days" id="announceDaysRow" style="display:none; flex-wrap:nowrap; gap:6px; align-items:center;">
+                    <span style="font-weight:bold; flex-shrink:0;">On days:</span>
+                    <label class="day-label" style="display:flex; align-items:center; gap:3px; white-space:nowrap;"><input type="checkbox" id="announceDay0" value="0"> Sun</label>
+                    <label class="day-label" style="display:flex; align-items:center; gap:3px; white-space:nowrap;"><input type="checkbox" id="announceDay1" value="1"> Mon</label>
+                    <label class="day-label" style="display:flex; align-items:center; gap:3px; white-space:nowrap;"><input type="checkbox" id="announceDay2" value="2"> Tue</label>
+                    <label class="day-label" style="display:flex; align-items:center; gap:3px; white-space:nowrap;"><input type="checkbox" id="announceDay3" value="3"> Wed</label>
+                    <label class="day-label" style="display:flex; align-items:center; gap:3px; white-space:nowrap;"><input type="checkbox" id="announceDay4" value="4"> Thu</label>
+                    <label class="day-label" style="display:flex; align-items:center; gap:3px; white-space:nowrap;"><input type="checkbox" id="announceDay5" value="5"> Fri</label>
+                    <label class="day-label" style="display:flex; align-items:center; gap:3px; white-space:nowrap;"><input type="checkbox" id="announceDay6" value="6"> Sat</label>
+                </div>
+                <div class="description" id="announceDesc">
+                    Speaks "New auction: Item Name" when a new auction appears. Uses your TTS voice and speed settings. Respects Quiet Hours.
+                </div>
+
+                <h4 id="watchlistHeading">Item Watchlist Alarm</h4>
+                <div class="setting-row" id="watchlistRow">
+                    <label for="watchlistAlarmEnabled">Alert when watched items are posted:</label>
+                    <input type="checkbox" id="watchlistAlarmEnabled">
+                </div>
+                <div class="setting-row" id="watchlistItemsRow" style="display:none; flex-direction:column; align-items:flex-start; gap:8px;">
+                    <label for="watchlistItems" style="font-weight:bold;">Items to watch (one per line):</label>
+                    <textarea id="watchlistItems" rows="6" cols="50" style="width:100%; max-width:480px; padding:8px; border:1px solid #ddd; border-radius:4px; font-family:monospace; font-size:12px; resize:vertical;" placeholder="Yelinak's Talisman&#10;Essence Emerald&#10;Ring of the Ancients"></textarea>
+                    <button class="test-button" id="testWatchlistAlarm">Test Alarm</button>
+                </div>
+                <div class="description" id="watchlistDesc">
+                    When a watched item is posted for bid: plays alarm.mp3 for 5 seconds, flashes the OpenDKP page red once per second (5 times), and speaks the item name aloud every second. Works for both Raider and Raid Leader modes. Ignores Quiet Hours. <strong>Test Alarm</strong> runs the full effect on an open opendkp.com tab; otherwise plays audio/TTS here only.
+                </div>
+
+                <h4>Quiet hours</h4>
+                <div class="setting-row">
+                    <label for="quietHours">Quiet Hours Mode:</label>
+                    <input type="checkbox" id="quietHours">
+                </div>
+                <div class="setting-row" id="quietHoursSettings" style="display: none;">
+                    <label for="quietStart">Quiet Hours Start:</label>
+                    <input type="time" id="quietStart" value="22:00" style="margin-left: 15px;">
+                    <label for="quietEnd" style="margin-left: 20px;">End:</label>
+                    <input type="time" id="quietEnd" value="08:00" style="margin-left: 5px;">
+                </div>
+                <div class="description">
+                    Quiet Hours disables sound notifications during the selected time range.
+                </div>
+
+                <h4>Visual &amp; detection</h4>
+                <div class="setting-row">
+                    <label for="flashScreen">Screen Flash Effect:</label>
+                    <input type="checkbox" id="flashScreen" checked>
+                </div>
+                <div class="setting-row">
+                    <label for="browserNotifications">Browser Notifications:</label>
+                    <input type="checkbox" id="browserNotifications" checked>
+                </div>
+                <div class="description">
+                    Visual alerts help ensure you don't miss timer completions. Use the Sound Volume / TTS <strong>Test</strong> buttons above to check audio. Winner and roll-off alerts are verified on a live opendkp.com auction (ties at rank caps like 400 or 1000 are detected on the page, not from Settings).
+                </div>
+            </div>
+
+        </section>
+
+        <!-- ========== RAID LEADER ========== -->
+        <section class="settings-region settings-region--raidleader" id="raidLeaderSettingsRegion" aria-label="Raid Leader settings">
+            <div class="settings-region-label">Raid Leader</div>
+
+            <div class="setting-group" id="openDkpApiGroup">
+                <h3>OpenDKP Raids</h3>
+                <p class="section-description">Raid Leader mode only. Connect to the OpenDKP HTTP API using your guild subdomain (from <code>https://YOURGUILD.opendkp.com</code> → enter <code>YOURGUILD</code>).</p>
+
+                <h4>Account</h4>
+                <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                    <label for="opendkpClientSlug"><strong>Guild subdomain</strong></label>
+                    <input type="text" id="opendkpClientSlug" placeholder="YOURGUILD" autocomplete="off" style="max-width: 320px; width: 100%; padding: 8px;" pattern="[a-z0-9]([a-z0-9-]*[a-z0-9])?">
+                    <span class="description">Lowercase letters, numbers, hyphens only. Never shared between users—stored only in your extension settings.</span>
+                </div>
+                <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                    <label for="opendkpCognitoUser">OpenDKP username</label>
+                    <input type="text" id="opendkpCognitoUser" autocomplete="username" style="max-width: 320px; width: 100%; padding: 8px;">
+                </div>
+                <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                    <label for="opendkpCognitoPassword">Password</label>
+                    <input type="password" id="opendkpCognitoPassword" autocomplete="current-password" style="max-width: 320px; width: 100%; padding: 8px;">
+                    <span class="description">Saved in extension local storage only (not synced). Used for API sign-in.</span>
+                </div>
+                <p class="description" style="margin-top: 8px;">
+                    <strong>Not the website login.</strong> This calls AWS Cognito (same flow as the Postman collection) and stores <strong>API tokens</strong> locally so the extension can manage raids on your guild. Sign-in refreshes raids and pools when a guild subdomain is set. Roster download is optional (see Load roster under raid log upload).
                 </p>
-                <div class="setting-row" style="margin-top: 12px; flex-wrap: wrap; gap: 12px; align-items: center;">
-                    <label for="autoBidIncrement">Bid increment (DKP):</label>
-                    <input type="number" id="autoBidIncrement" min="1" step="1" value="10" style="width: 72px; padding: 6px;">
-                    <label for="autoBidPollIntervalSec" style="margin-left: 8px;">Poll every (sec):</label>
-                    <input type="number" id="autoBidPollIntervalSec" min="5" step="1" value="15" style="width: 72px; padding: 6px;">
+                <div class="setting-row" style="margin-top: 10px; flex-wrap: wrap; gap: 10px;">
+                    <button type="button" id="opendkpSignIn">Sign in to API</button>
+                    <button type="button" id="opendkpSignOut">Sign out</button>
+                    <button type="button" id="opendkpRefreshToken">Refresh session</button>
+                    <span id="opendkpTokenStatus" class="description" style="margin-left: 0;"></span>
                 </div>
-                <div class="setting-row" style="margin-top: 10px; flex-wrap: wrap; gap: 10px; align-items: center;">
-                    <button type="button" class="test-button" id="autoBidRefreshCharacters">Refresh my characters</button>
-                    <span id="autoBidCharStatus" class="description"></span>
+
+                <h4>Raids</h4>
+                <div class="setting-row" style="flex-wrap: wrap; gap: 10px; align-items: center;">
+                    <label for="opendkpRaidListCount">Recent raids to show</label>
+                    <input type="number" id="opendkpRaidListCount" min="1" max="5" step="1" value="1" style="padding: 8px; max-width: 72px;">
+                    <span class="description">Use 1 to show only the most recent raid in Settings and the popup.</span>
                 </div>
-                <div id="autoBidRulesWrap" class="auto-bid-rules-wrap">
-                    <div id="autoBidRulesList" class="auto-bid-rules-list"></div>
+                <div class="setting-row" style="margin-top: 4px;">
+                    <label style="display:flex; align-items:flex-start; gap:8px; max-width: 640px;">
+                        <input type="checkbox" id="opendkpBiddingToolRaidLock" checked>
+                        <span><strong>Keep Bidding Tool on current raid</strong> — When enabled, the extension selects the most recent raid on the Bidding Tool page whenever it is empty or out of date. Turn off to manually pick an older raid.</span>
+                    </label>
+                </div>
+                <div class="setting-row" style="flex-wrap: wrap; gap: 10px;">
+                    <button type="button" id="opendkpFetchRaids">Refresh raid list (last 1)</button>
+                </div>
+                <ul id="opendkpRaidList" style="margin: 10px 0; padding-left: 20px;"></ul>
+                <div id="opendkpCurrentRaid" class="description" style="margin: 10px 0; white-space: pre-wrap;"></div>
+                <div class="setting-row" style="flex-wrap: wrap; gap: 10px; align-items: center;">
+                    <label for="opendkpCreateRaidName">New raid name</label>
+                    <input type="text" id="opendkpCreateRaidName" style="padding: 8px; max-width: 240px;">
+                </div>
+                <div class="setting-row" style="flex-wrap: wrap; gap: 10px; align-items: center;">
+                    <label for="opendkpPoolSelect">Pool</label>
+                    <select id="opendkpPoolSelect" style="margin-left: 0; min-width: 200px;"><option value="">— Load pools first —</option></select>
+                    <span class="description">Saved locally after first load. Classic is the default unless you pick another and click Save settings.</span>
+                </div>
+                <div class="setting-row" style="flex-wrap: wrap; gap: 10px; align-items: center;">
+                    <label for="opendkpAttendance">Attendance default</label>
+                    <select id="opendkpAttendance" style="margin-left: 0; min-width: 100px;">
+                        <option value="0">No</option>
+                        <option value="1">Yes</option>
+                    </select>
+                    <span class="description">OpenDKP attendance flag for new raids (No = 0, Yes = 1).</span>
+                </div>
+                <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
+                    <label><strong>New raid — initial ticks</strong></label>
+                    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                        <button type="button" id="opendkpAddRaidTickDef" class="btn btn-primary">Add raidtick</button>
+                    </div>
+                    <div id="opendkpRaidTickDefsList" style="display:flex; flex-direction:column; gap:10px; margin-top:8px; width:100%;"></div>
+                    <span class="description">Name and DKP value for each tick created on a new raid. Saved automatically (up to 10).</span>
                 </div>
                 <div class="setting-row" style="margin-top: 10px;">
-                    <button type="button" class="test-button" id="autoBidAddRule">Add item rule</button>
+                    <button type="button" id="opendkpFetchPools">Refresh pools</button>
+                    <button type="button" id="opendkpCreateRaid">Create raid (confirm)</button>
                 </div>
-                <div class="description" id="autoBidDesc">
-                    While an opendkp.com tab is open, polls active auctions and bids in increments until you are in a winning slot (top bid for single items, top N for quantity N), your max DKP for that item is reached, or you run out of DKP. If a full increment would overshoot your max, it bids the remaining amount up to that max (e.g. leader at 380, increment 50, max 400 → bids 400). When a matching auction has 30 seconds or less remaining, polling speeds up to every 2 seconds. Character rank is loaded from OpenDKP when you refresh characters. Rank bid limits (e.g. Raid Alt max 400) are read from the site Bid Rules panel and enforced in settings and auto-bid. When your character is called as the winner for a matching item, that rule is automatically disabled (re-enable the checkbox to bid on the same item again).
-                </div>
-            </div>
-        </div>
 
-        <div class="setting-group" id="appearanceGroup">
-            <h3>🎨 Appearance</h3>
-            <p class="section-description">Choose light or dark theme for the extension (settings and popup).</p>
-            <div class="setting-row" style="justify-content:flex-start; gap:10px;">
-                <label for="theme">Theme:</label>
-                <select id="theme" style="margin-left:0;">
-                    <option value="system">System (follow OS)</option>
-                    <option value="light">Light</option>
-                    <option value="dark">Dark</option>
-                </select>
-            </div>
-        </div>
-
-        <div class="setting-group" id="openDkpApiGroup">
-            <h3>🔗 OpenDKP API (raids)</h3>
-            <p class="section-description">Raid Leader mode only. Connect to the OpenDKP HTTP API using your guild subdomain (from <code>https://YOURGUILD.opendkp.com</code> → enter <code>YOURGUILD</code>).</p>
-            <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
-                <label for="opendkpClientSlug"><strong>Guild subdomain</strong></label>
-                <input type="text" id="opendkpClientSlug" placeholder="YOURGUILD" autocomplete="off" style="max-width: 320px; width: 100%; padding: 8px;" pattern="[a-z0-9]([a-z0-9-]*[a-z0-9])?">
-                <span class="description">Lowercase letters, numbers, hyphens only. Never shared between users—stored only in your extension settings.</span>
-            </div>
-            <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
-                <label for="opendkpCognitoUser">OpenDKP username</label>
-                <input type="text" id="opendkpCognitoUser" autocomplete="username" style="max-width: 320px; width: 100%; padding: 8px;">
-            </div>
-            <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
-                <label for="opendkpCognitoPassword">Password</label>
-                <input type="password" id="opendkpCognitoPassword" autocomplete="current-password" style="max-width: 320px; width: 100%; padding: 8px;">
-                <span class="description">Saved in extension local storage only (not synced). Used for API sign-in.</span>
-            </div>
-            <p class="description" style="margin-top: 8px;">
-                <strong>Not the website login.</strong> This calls AWS Cognito (same flow as the Postman collection) and stores <strong>API tokens</strong> locally so the extension can manage raids on your guild. Sign-in refreshes raids and pools when a guild subdomain is set. Roster download is optional (see Load roster under raid log upload).
-            </p>
-            <div class="setting-row" style="margin-top: 10px; flex-wrap: wrap; gap: 10px;">
-                <button type="button" id="opendkpSignIn">Sign in to API</button>
-                <button type="button" id="opendkpSignOut">Sign out</button>
-                <button type="button" id="opendkpRefreshToken">Refresh session</button>
-                <span id="opendkpTokenStatus" class="description" style="margin-left: 0;"></span>
-            </div>
-            <div class="setting-row" style="margin-top: 8px;">
-                <button type="button" class="test-button" id="opendkpProbeTokens">Probe ID vs access token (diagnostics)</button>
-            </div>
-            <hr style="margin: 20px 0; border: none; border-top: 1px solid #e0e0e0;">
-            <h4 style="margin: 0 0 10px 0;">Raids</h4>
-            <div class="setting-row" style="flex-wrap: wrap; gap: 10px;">
-                <button type="button" id="opendkpFetchRaids">Refresh raid list (last 3)</button>
-            </div>
-            <ul id="opendkpRaidList" style="margin: 10px 0; padding-left: 20px;"></ul>
-            <div id="opendkpCurrentRaid" class="description" style="margin: 10px 0; white-space: pre-wrap;"></div>
-            <div class="setting-row" style="flex-wrap: wrap; gap: 10px; align-items: center;">
-                <label for="opendkpCreateRaidName">New raid name</label>
-                <input type="text" id="opendkpCreateRaidName" style="padding: 8px; max-width: 240px;">
-            </div>
-            <div class="setting-row" style="flex-wrap: wrap; gap: 10px; align-items: center;">
-                <label for="opendkpPoolSelect">Pool</label>
-                <select id="opendkpPoolSelect" style="margin-left: 0; min-width: 200px;"><option value="">— Load pools first —</option></select>
-                <span class="description">Saved locally after first load. Classic is the default unless you pick another and click Save settings.</span>
-            </div>
-            <div class="setting-row" style="flex-wrap: wrap; gap: 10px; align-items: center;">
-                <label for="opendkpAttendance">Attendance default</label>
-                <select id="opendkpAttendance" style="margin-left: 0; min-width: 100px;">
-                    <option value="0">No</option>
-                    <option value="1">Yes</option>
-                </select>
-                <span class="description">OpenDKP attendance flag for new raids (No = 0, Yes = 1).</span>
-            </div>
-            <div class="setting-row" style="flex-direction: column; align-items: flex-start; gap: 8px;">
-                <label><strong>New raid — initial ticks</strong></label>
-                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-                    <button type="button" id="opendkpAddRaidTickDef" class="btn btn-primary">Add raidtick</button>
-                </div>
-                <div id="opendkpRaidTickDefsList" style="display:flex; flex-direction:column; gap:10px; margin-top:8px; width:100%;"></div>
-                <span class="description">Name and DKP value for each tick created on a new raid. Saved automatically (up to 10).</span>
-            </div>
-            <div class="setting-row" style="margin-top: 10px;">
-                <button type="button" id="opendkpFetchPools">Refresh pools</button>
-                <button type="button" id="opendkpCreateRaid">Create raid (confirm)</button>
-            </div>
-            <hr style="margin: 20px 0; border: none; border-top: 1px solid #e0e0e0;">
-            <div class="setting-row" id="opendkpRaidtickUploadToggleRow">
-                <label style="display:flex; align-items:center; gap:8px;">
-                    <input type="checkbox" id="opendkpRaidtickUploadEnabled" disabled> Enable raid log upload (popup queue and manual apply)
-                </label>
-            </div>
-            <p class="description" id="opendkpRaidtickUploadToggleDesc">When off, tick log upload controls are hidden in the extension popup.</p>
-            <div id="opendkpRaidtickUploadBlock">
-            <h4 style="margin: 0 0 10px 0;">RaidTick file → tick (manual)</h4>
-            <p class="description">Stage one or more <code>RaidTick-*.txt</code> files on the <strong>current</strong> raid. Select <strong>Target tick</strong>, browse that hour’s file, then preview or apply.</p>
-            <div class="setting-row" style="flex-wrap: wrap; gap: 10px; align-items: center;">
-                <label for="opendkpRaidtickTickSelect">Target tick</label>
-                <select id="opendkpRaidtickTickSelect" style="margin-left: 0; min-width: 220px;"><option value="">— Load current raid —</option></select>
-            </div>
-            <div class="setting-row" style="flex-wrap: wrap; gap: 10px; align-items: center;">
-                <input type="file" id="opendkpRaidtickFile" accept=".txt,text/plain">
-                <span id="opendkpRaidtickFileLabel"></span>
-            </div>
-            <pre id="opendkpRaidtickPreview" class="opendkp-raidtick-preview"></pre>
-            <p id="opendkpRaidtickStageStatus" class="description"></p>
-            <div class="setting-row" style="margin-top: 10px; flex-wrap: wrap; gap: 10px;">
-                <button type="button" id="opendkpRaidtickApply">Apply all staged ticks (confirm)</button>
-                <button type="button" class="test-button" id="opendkpRaidtickLoadRosterMap" title="Optional. OpenDKP creates new characters on upload; load roster only if you want a local name cache.">Load roster (optional)</button>
-                <button type="button" class="test-button" id="opendkpRaidtickPreviewPost">Preview POST body</button>
-                <button type="button" class="test-button" id="opendkpRaidtickClearStage">Clear staged files</button>
-            </div>
-            <p class="description">Stage one or more <code>RaidTick-*.txt</code> files per hour on the <strong>current</strong> raid, preview the POST body, then apply. Names not yet on OpenDKP are created by the API (same as the website). Unstaged ticks are sent empty. Payload uses <code>RaidId</code>, <code>Pool.PoolId</code>, and <code>Ticks[].Characters</code>.</p>
-            </div>
-
-            <h4 style="margin: 16px 0 8px 0;">Loot queue defaults</h4>
-            <p class="description">Applied when you click <strong>Queue</strong> on parsed loot (Create Auction API).</p>
-            <div class="setting-row">
-                <label for="opendkpAuctionPayStrategy">Pay Strategy</label>
-                <select id="opendkpAuctionPayStrategy" style="margin-left: 0; min-width: 240px;">
-                    <option value="exact">Exact</option>
-                    <option value="second_plus_one">2nd + 1 (Non-Equal Pay)</option>
-                    <option value="second_plus_one_equal">2nd + 1 (Equal Pay)</option>
-                </select>
-            </div>
-            <div class="setting-row">
-                <label for="opendkpAuctionDuration">Auction duration (minutes)</label>
-                <input type="number" id="opendkpAuctionDuration" min="1" max="120" step="1" value="2" style="width: 80px; padding: 6px;">
-            </div>
-
-            <h4 style="margin: 16px 0 8px 0;">Loot monitor exceptions</h4>
-            <p class="description">Items matching these rules are ignored — never captured, listed, or queued. One rule per line. End a line with <code>:</code> for a prefix (e.g. <code>Spell:</code>). Otherwise the full item name must match exactly (case-insensitive).</p>
-            <div class="setting-row" style="align-items: flex-start; flex-direction: column; gap: 8px;">
-                <textarea id="eqLogLootExceptions" rows="5" spellcheck="false" placeholder="Spell:&#10;A Glowing Orb of Luclinite" style="width: 100%; max-width: 480px; font-family: Consolas, 'Courier New', monospace; font-size: 12px; padding: 8px; resize: vertical;"></textarea>
-                <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-                    <button type="button" id="openEqLogExceptionsWindow" class="btn btn-secondary">Open exceptions editor</button>
-                    <span id="eqLogLootExceptionsSummary" class="description" style="margin: 0;"></span>
-                </div>
-            </div>
-        </div>
-
-        <div class="setting-group" id="raidTickGroup">
-            <h3>📁 RaidTick Reminders</h3>
-            <p class="section-description">Search for RaidTick .txt files in your TAKP folder and copies the contents to your clipboard for easy OpenDKP import.</p>
-            <div class="setting-description">
-                In game, type <code>/outputfile raidlist</code> to generate a RaidTick <code>.txt</code> file with your current raid. 
-                <br>
-                <span style="color:#888;">(Requires <a href="https://github.com/CoastalRedwood/Zeal/releases" target="_blank" rel="noopener" style="color:#1976d2; text-decoration:underline;">Zeal</a>.)</span>
-            </div>
-            <br>
-            
-            <!-- Chrome: Use file copy tool (same as Firefox, but opens picker directly) -->
-            <div id="ffRaidTickAlt" style="display: none;">
-                <!-- Chrome: Opens file picker directly, copies to clipboard -->
-                <div class="setting-row">
-                    <button id="ffCopyFromFile" class="btn btn-primary" title="Pick a RaidTick .txt file and copy it to the clipboard">Copy RaidTick from file</button>
-                </div>
-                <div class="description">Opens a file picker to select a RaidTick .txt file and copies its contents to your clipboard.</div>
-            </div>
-            
-            <!-- Firefox: Use pop-out window (different implementation) -->
-            <div id="ffRaidTickWindow" style="display: none;">
-                <!-- Firefox: Opens a small window that auto-closes after copying -->
-                <div class="setting-row">
-                    <button id="ffCopyFromFileWindow" class="btn btn-primary" title="Open a small window to pick a RaidTick .txt and copy it to the clipboard">Copy RaidTick from file</button>
-                </div>
-                <div class="description">The helper window automatically closes after copying.</div>
-            </div>
-            
-            <input type="file" id="folderInput" multiple webkitdirectory style="display: none;">
-
-            <!-- Bundled: reminder schedule (visible for Raid Leader only) -->
-            <div id="raidTickReminders" style="display:none; margin-top:12px;">
-                <div class="setting-row" style="justify-content:flex-start; gap:10px;">
-                    <button id="addReminder" class="btn btn-primary">Add Reminder</button>
-                    <label style="margin-left:10px; display:flex; align-items:center; gap:6px;">
-                        <input type="checkbox" id="reminderFlash"> Screen Flash
-                    </label>
-                    <label style="margin-left:10px; display:flex; align-items:center; gap:6px;">
-                        <input type="checkbox" id="reminderNotifications"> Browser Notifications
+                <div class="setting-row" id="opendkpRaidtickUploadToggleRow">
+                    <label style="display:flex; align-items:center; gap:8px;">
+                        <input type="checkbox" id="opendkpRaidtickUploadEnabled" disabled> Enable raid log upload (popup queue and manual apply)
                     </label>
                 </div>
-                <div class="setting-row setting-row-days" style="margin-top:12px; flex-wrap:wrap; gap:8px; align-items:center;">
-                    <span style="font-weight:bold; flex-shrink:0;">Enabled on:</span>
-                    <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay0" value="0"> Sun</label>
-                    <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay1" value="1"> Mon</label>
-                    <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay2" value="2"> Tue</label>
-                    <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay3" value="3"> Wed</label>
-                    <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay4" value="4"> Thu</label>
-                    <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay5" value="5"> Fri</label>
-                    <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay6" value="6"> Sat</label>
+                <p class="description" id="opendkpRaidtickUploadToggleDesc">When off, tick log upload controls are hidden in the extension popup.</p>
+                <div id="opendkpRaidtickUploadBlock">
+                    <h4>RaidTick file → tick (manual)</h4>
+                    <p class="description">Stage one or more <code>RaidTick-*.txt</code> files on the <strong>current</strong> raid. Select <strong>Target tick</strong>, browse that hour’s file, then apply. In the extension popup, you can add or remove attendees from <strong>queued</strong> ticks before upload; once uploaded, the popup shows a read-only list and further edits must be done on the OpenDKP website.</p>
+                    <div class="setting-row" style="flex-wrap: wrap; gap: 10px; align-items: center;">
+                        <label for="opendkpRaidtickTickSelect">Target tick</label>
+                        <select id="opendkpRaidtickTickSelect" style="margin-left: 0; min-width: 220px;"><option value="">— Load current raid —</option></select>
+                    </div>
+                    <div class="setting-row" style="flex-wrap: wrap; gap: 10px; align-items: center;">
+                        <input type="file" id="opendkpRaidtickFile" accept=".txt,text/plain">
+                        <span id="opendkpRaidtickFileLabel"></span>
+                    </div>
+                    <pre id="opendkpRaidtickPreview" class="opendkp-raidtick-preview"></pre>
+                    <p id="opendkpRaidtickStageStatus" class="description"></p>
+                    <div class="setting-row" style="margin-top: 10px; flex-wrap: nowrap; gap: 10px; align-items: center;">
+                        <button type="button" id="opendkpRaidtickApply">Apply all staged ticks (confirm)</button>
+                        <button type="button" class="test-button" id="opendkpRaidtickLoadRosterMap" title="Optional. OpenDKP creates new characters on upload; load roster only if you want a local name cache.">Load roster (optional)</button>
+                        <button type="button" class="test-button" id="opendkpRaidtickClearStage">Clear staged files</button>
+                    </div>
+                    <p class="description">Stage one or more <code>RaidTick-*.txt</code> files per hour on the <strong>current</strong> raid, then apply. Names not yet on OpenDKP are created by the API (same as the website). Unstaged ticks are sent empty. After upload, tick rosters are locked in the popup (view-only); edit them on OpenDKP if needed.</p>
                 </div>
-                <div class="setting-row" style="margin-top:10px;">
-                    <label style="display:flex; align-items:center; gap:6px;">
-                        <input type="checkbox" id="onlyNotifyOnOpenDKP" checked>
-                        Only show reminders when OpenDKP (or exception) is open
-                    </label>
-                </div>
-                <div class="setting-row" style="margin-top:6px; flex-direction:column; align-items:flex-start;">
-                    <label for="domainExceptionList" style="font-weight:bold;">Domain exceptions (one URL or host per line):</label>
-                    <textarea id="domainExceptionList" rows="2" placeholder="e.g. https://other-raid-tool.com" style="width:100%; max-width:400px; margin-top:4px; resize:vertical;"></textarea>
-                    <span class="description" style="display:block; margin-top:4px;">Sites listed here will also receive reminders when they're open. Leave empty to only allow opendkp.com.</span>
-                </div>
-                <div id="remindersList" style="display:flex; flex-direction:column; gap:10px; margin-top:10px;"></div>
-                <div class="description">Up to 5 reminders. Each reminder triggers every 5 minutes between Start and End times on selected days. TTS reads your message if enabled.</div>
-            </div>
-        </div>
-        
-        <div class="setting-group" id="ffLootExplain" style="display:none;">
-            <h3>⚔️ Loot Parser</h3>
-            <p class="section-description">
-                Open the <strong>Loot Monitor</strong> window, choose your EQ log, and leave the window open.
-                On Chrome, use the system file picker so the monitor gets a <strong>live log link</strong> (it can keep reading while EverQuest is running).
-                On Firefox, snapshot mode is used — re-choose the log if new loot does not appear after you post.
-                The monitor checks every few seconds and pushes new loot lines into the popup automatically.
-            </p>
-             <div class="setting-description">
-                In game, put your identifier at the start or end of the loot message (Zeal Link Loot works either way). The parser will detect log lines containing your identifier and push the items to the popup.
-            </div>
-            <br>
-            <div class="setting-row">
-                <button id="ffOpenLootMonitor" class="btn btn-primary">Open Loot Monitor</button>
-            </div>
-            <div class="description">Close the monitor window to stop; reopen it to resume. Nothing is uploaded—all processing stays local.</div>
-        </div>
 
-        
-
-        
-
-        <div class="setting-group">
-            <h3>🔊 Audio Settings</h3>
-            
-            <div class="setting-row">
-                <label for="volume">Sound Volume:</label>
-                <div style="display: flex; align-items: center;">
-                    <input type="range" id="volume" min="0" max="100" value="70">
-                    <span class="volume-display" id="volumeDisplay">70%</span>
-                    <button class="test-button" id="testSound">Test</button>
-                </div>
-            </div>
-            
-            <div class="setting-row">
-                <label for="soundType">Notification Sound:</label>
-                <select id="soundType">
-                </select>
-            </div>
-            
-            <div class="description">
-                Choose your preferred notification sound. Custom sounds require uploading an audio file.
-            </div>
-            
-            <h4 style="margin:14px 0 8px 0;">🗣️ Text-to-Speech</h4>
-            <div class="setting-row">
-                <label for="enableTTS">Enable Text-to-Speech:</label>
-                <input type="checkbox" id="enableTTS">
-            </div>
-            
-            <div class="setting-row" id="ttsSettings" style="display: none;">
-                <label for="voice">Voice:</label>
-                <select id="voice" style="margin-left: 15px;">
-                </select>
-            </div>
-            
-            <div class="setting-row" id="ttsSpeedSettings" style="display: none;">
-                <label for="voiceSpeed">Voice Speed:</label>
-                <div style="display: flex; align-items: center;">
-                    <input type="range" id="voiceSpeed" min="0.5" max="2.5" step="0.1" value="1" style="margin-left: 15px;">
-                    <span class="speed-display" id="speedDisplay">1.0x</span>
-                    <button class="test-button" id="testVoice">Test Voice</button>
-                </div>
-            </div>
-            
-            <div class="setting-row" id="ttsAdvancedSettings" style="display: none;">
-                <label for="enableAdvancedTTS">Advanced TTS:</label>
-                <input type="checkbox" id="enableAdvancedTTS">
-            </div>
-            
-            <div class="setting-row" id="ttsTemplateSettings" style="display: none;">
-                <label for="ttsTemplate">Custom Message Template:</label>
-                <div style="margin-top: 10px;">
-                    <textarea id="ttsTemplate" rows="4" cols="50" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-family: monospace; font-size: 12px;" placeholder="Enter custom TTS message template..."></textarea>
-                </div>
-                <div style="margin-top: 5px; font-size: 11px; color: #666;">
-                    <strong>Available variables:</strong><br>
-                    <code>{winner}</code> - Winner name<br>
-                    <code>{bidAmount}</code> - Bid amount<br>
-                    <code>{itemName}</code> - Item name<br>
-                    <code>{winners}</code> - Comma-separated winners list<br>
-                    <code>{isRollOff}</code> - true/false<br>
-                    <code>{multipleWinners}</code> - true/false
-                </div>
-                <div style="margin-top: 10px;">
-                    <button class="test-button" id="testCustomTemplate">Test Custom Template</button>
-                    <button class="test-button" id="resetTemplate" style="background: #e74c3c;">Reset to Default</button>
-                </div>
-            </div>
-
-            <!-- TTS feature description -->
-            <div class="description">
-                Text-to-speech announces auction completions after the sound plays. Requires browser permission.
-            </div>
-
-            <!-- Auction Readout (under TTS) -->
-            <h4 id="announceHeading" style="margin:14px 0 8px 0; display:none;">📢 Read New Auctions</h4>
-            <div class="setting-row" id="announceRow" style="display:none;">
-                <label for="announceAuctions">Read new auctions with TTS:</label>
-                <input type="checkbox" id="announceAuctions">
-            </div>
-            <div class="setting-row" id="announceWindow" style="display:none;">
-                <label for="announceStart">Active Between:</label>
-                <input type="time" id="announceStart" value="19:00" style="margin-left:15px;">
-                <label for="announceEnd" style="margin-left:20px;">and</label>
-                <input type="time" id="announceEnd" value="23:59" style="margin-left:5px;">
-            </div>
-            <div class="setting-row setting-row-days" id="announceDaysRow" style="display:none; flex-wrap:wrap; gap:8px; align-items:center;">
-                <span style="font-weight:bold; flex-shrink:0;">Only on days:</span>
-                <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="announceDay0" value="0"> Sun</label>
-                <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="announceDay1" value="1"> Mon</label>
-                <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="announceDay2" value="2"> Tue</label>
-                <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="announceDay3" value="3"> Wed</label>
-                <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="announceDay4" value="4"> Thu</label>
-                <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="announceDay5" value="5"> Fri</label>
-                <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="announceDay6" value="6"> Sat</label>
-            </div>
-            <div class="description" id="announceDesc">
-                Speaks "New auction: Item Name" when a new auction appears. Uses your TTS voice and speed settings. Respects Quiet Hours.
-            </div>
-
-            <!-- Item Watchlist Alarm -->
-            <h4 id="watchlistHeading" style="margin:14px 0 8px 0;">🔔 Item Watchlist Alarm</h4>
-            <div class="setting-row" id="watchlistRow">
-                <label for="watchlistAlarmEnabled">Alert when watched items are posted:</label>
-                <input type="checkbox" id="watchlistAlarmEnabled">
-            </div>
-            <div class="setting-row" id="watchlistItemsRow" style="display:none; flex-direction:column; align-items:flex-start; gap:8px;">
-                <label for="watchlistItems" style="font-weight:bold;">Items to watch (one per line):</label>
-                <textarea id="watchlistItems" rows="6" cols="50" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px; font-family:monospace; font-size:12px;" placeholder="Yelinak's Talisman&#10;Essence Emerald&#10;Ring of the Ancients"></textarea>
-                <button class="test-button" id="testWatchlistAlarm">Test Alarm</button>
-            </div>
-            <div class="description" id="watchlistDesc">
-                When a watched item is posted for bid: plays alarm.mp3 for 5 seconds, flashes the OpenDKP page red once per second (5 times), and speaks the item name aloud every second. Works for both Raider and Raid Leader modes. Ignores Quiet Hours. <strong>Test Alarm</strong> runs the full effect on an open opendkp.com tab; otherwise plays audio/TTS here only.
-            </div>
-
-            
-            <br>
-        </div>
-        
-        <div class="setting-group">
-            <h3>🗂️ Custom Sound Manager</h3>
-            <div id="customSoundManager" class="preview-section" style="background:#f8f9fa;">
-                <!-- Upload controls -->
+                <h4>Loot queue defaults</h4>
+                <p class="description">Applied when you click <strong>Queue</strong> on parsed loot (Create Auction API).</p>
                 <div class="setting-row">
-                    <label for="customSoundFile">Upload Audio File:</label>
-                    <input type="file" id="customSoundFile" accept="audio/*" style="margin-left: 15px;">
+                    <label for="opendkpAuctionPayStrategy">Pay Strategy</label>
+                    <select id="opendkpAuctionPayStrategy" style="margin-left: 0; min-width: 240px;">
+                        <option value="exact">Exact</option>
+                        <option value="second_plus_one">2nd + 1 (Non-Equal Pay)</option>
+                        <option value="second_plus_one_equal">2nd + 1 (Equal Pay)</option>
+                    </select>
                 </div>
                 <div class="setting-row">
-                    <label for="customSoundName">Sound Name:</label>
-                    <input type="text" id="customSoundName" placeholder="My Custom Sound" style="margin-left: 15px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; width: 200px;">
+                    <label for="opendkpAuctionDuration">Auction duration (minutes)</label>
+                    <input type="number" id="opendkpAuctionDuration" min="1" max="120" step="1" value="2" style="width: 80px; padding: 6px;">
                 </div>
-                <div class="setting-row">
-                    <button class="test-button" id="testCustomSound" disabled>Test Custom</button>
-                    <button class="test-button" id="saveCustomSound" disabled style="background: #27ae60;">Save Custom</button>
+
+                <h4>Loot monitor</h4>
+                <div id="ffLootExplain">
+                    <p class="section-description">
+                        Open the <strong>Loot Monitor</strong> window, choose your EQ log, and leave the window open.
+                        On Chrome, use the system file picker so the monitor gets a <strong>live log link</strong> (it can keep reading while EverQuest is running).
+                        On Firefox, snapshot mode is used — re-choose the log if new loot does not appear after you post.
+                        The monitor checks every few seconds and pushes new loot lines into the popup automatically.
+                    </p>
+                    <div class="setting-description">
+                        In game, put your identifier at the start or end of the loot message (Zeal Link Loot works either way). The parser will detect log lines containing your identifier and push the items to the popup.
+                    </div>
+                    <div class="setting-row" style="margin-top: 10px;">
+                        <button id="ffOpenLootMonitor" class="btn btn-primary">Open Loot Monitor</button>
+                    </div>
+                    <div class="description">Close the monitor window to stop; reopen it to resume. Nothing is uploaded—all processing stays local.</div>
                 </div>
-                <div class="description">
-                    Upload MP3, WAV, or OGG files. Maximum 3 custom sounds. Suggested size ≤ 100 KB each for quick notifications. Files are stored locally in your browser.
-                </div>
-                
-                <!-- Saved list and actions -->
-                <div id="customSoundList" style="display:flex; flex-direction:column; gap:8px;"></div>
-                <div id="customSoundHint" class="description" style="margin-top:8px;">
-                    
+                <h4>Loot monitor exceptions</h4>
+                <p class="description">Items matching these rules are ignored — never captured, listed, or queued. One rule per line. End a line with <code>:</code> for a prefix (e.g. <code>Spell:</code>). Otherwise the full item name must match exactly (case-insensitive).</p>
+                <div class="setting-row" style="align-items: flex-start; flex-direction: column; gap: 8px;">
+                    <textarea id="eqLogLootExceptions" rows="5" spellcheck="false" placeholder="Spell:&#10;A Glowing Orb of Luclinite" style="width: 100%; max-width: 480px; font-family: Consolas, 'Courier New', monospace; font-size: 12px; padding: 8px; resize: vertical;"></textarea>
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                        <button type="button" id="restoreEqLogExceptionsDefaults" class="btn btn-secondary">Restore defaults</button>
+                        <span id="eqLogLootExceptionsSummary" class="description" style="margin: 0;"></span>
+                    </div>
                 </div>
             </div>
-        </div>
-        
-        <div class="setting-group">
-            <h3>🧠 Smart Notifications</h3>
-            
-            <div class="setting-row">
-                <label for="smartBidding">Smart Bidding Mode:</label>
-                <input type="checkbox" id="smartBidding">
+
+            <div class="setting-group" id="raidTickGroup">
+                <h3>Reminders</h3>
+                <p class="section-description">Timed reminders for raid leaders (screen flash, browser notifications, TTS). Shown only in Raid Leader mode.</p>
+
+                <div id="raidTickReminders" style="display:block; margin-top:4px;">
+                    <div class="setting-row" style="justify-content:flex-start; gap:10px; align-items:center;">
+                        <label style="display:flex; align-items:center; gap:6px; font-weight:600;">
+                            <input type="checkbox" id="remindersEnabled" checked>
+                            Reminders enabled
+                        </label>
+                    </div>
+                    <div class="description" style="margin-top:4px;">Turn off to silence all timed reminders without deleting your schedules.</div>
+                    <div class="setting-row" style="justify-content:flex-start; gap:10px; margin-top:10px;">
+                        <button id="addReminder" class="btn btn-primary">Add Reminder</button>
+                        <label style="margin-left:10px; display:flex; align-items:center; gap:6px;">
+                            <input type="checkbox" id="reminderFlash"> Screen Flash
+                        </label>
+                        <label style="margin-left:10px; display:flex; align-items:center; gap:6px;">
+                            <input type="checkbox" id="reminderNotifications"> Browser Notifications
+                        </label>
+                    </div>
+                    <div class="setting-row setting-row-days" style="margin-top:12px; flex-wrap:wrap; gap:8px; align-items:center;">
+                        <span style="font-weight:bold; flex-shrink:0;">Enabled on:</span>
+                        <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay0" value="0"> Sun</label>
+                        <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay1" value="1"> Mon</label>
+                        <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay2" value="2"> Tue</label>
+                        <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay3" value="3"> Wed</label>
+                        <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay4" value="4"> Thu</label>
+                        <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay5" value="5"> Fri</label>
+                        <label class="day-label" style="display:flex; align-items:center; gap:4px; white-space:nowrap;"><input type="checkbox" id="reminderDay6" value="6"> Sat</label>
+                    </div>
+                    <div id="remindersList" style="display:flex; flex-direction:column; gap:10px; margin-top:10px;"></div>
+                    <div class="description">Up to 5 reminders. Each reminder triggers every 5 minutes between Start and End times on selected days. TTS reads your message if enabled.</div>
+                </div>
+
+                <div id="raidLeaderOnlySettings" style="margin-top: 14px;">
+                    <div class="setting-row">
+                        <label for="raidLeaderNotification">Browser Notification Reminder:</label>
+                        <input type="checkbox" id="raidLeaderNotification" checked>
+                    </div>
+                    <div class="description">
+                        Reminds you to upload raid logs when you leave opendkp. Raid Leader mode only.
+                    </div>
+                </div>
+
+                <details class="clipboard-raidtick-helper">
+                    <summary style="cursor:pointer; font-weight:600; color:#555;">Clipboard RaidTick helper</summary>
+                    <p class="section-description" style="margin-top:10px;">Copy a RaidTick <code>.txt</code> file to the clipboard for easy OpenDKP import.</p>
+                    <div class="setting-description">
+                        In game, type <code>/outputfile raidlist</code> to generate a RaidTick <code>.txt</code> file with your current raid.
+                        <br>
+                        <span style="color:#888;">(Requires <a href="https://github.com/CoastalRedwood/Zeal/releases" target="_blank" rel="noopener" style="color:#1976d2; text-decoration:underline;">Zeal</a>.)</span>
+                    </div>
+                    <div id="ffRaidTickAlt" style="display: none; margin-top: 10px;">
+                        <div class="setting-row">
+                            <button id="ffCopyFromFile" class="btn btn-primary" title="Pick a RaidTick .txt file and copy it to the clipboard">Copy RaidTick from file</button>
+                        </div>
+                        <div class="description">Opens a file picker to select a RaidTick .txt file and copies its contents to your clipboard.</div>
+                    </div>
+                    <div id="ffRaidTickWindow" style="display: none; margin-top: 10px;">
+                        <div class="setting-row">
+                            <button id="ffCopyFromFileWindow" class="btn btn-primary" title="Open a small window to pick a RaidTick .txt and copy it to the clipboard">Copy RaidTick from file</button>
+                        </div>
+                        <div class="description">The helper window automatically closes after copying.</div>
+                    </div>
+                    <input type="file" id="folderInput" multiple webkitdirectory style="display: none;">
+                </details>
             </div>
+        </section>
+
+        <button class="save-button" id="saveSettings">Save Settings</button>
+
+        <div class="setting-group" id="backupGroup">
+            <h3>Backup &amp; Restore</h3>
             <div class="description">
-                Only alerts when you win an auction (detects your characters from the header). Automatically enabled for Raider profile.
-            </div>
-            <br>
-            <div class="setting-row">
-                <label for="quietHours">Quiet Hours Mode:</label>
-                <input type="checkbox" id="quietHours">
-            </div>
-            
-            <div class="setting-row" id="quietHoursSettings" style="display: none;">
-                <label for="quietStart">Quiet Hours Start:</label>
-                <input type="time" id="quietStart" value="22:00" style="margin-left: 15px;">
-                <label for="quietEnd" style="margin-left: 20px;">End:</label>
-                <input type="time" id="quietEnd" value="08:00" style="margin-left: 5px;">
-            </div>
-            
-            <div class="description">
-                Smart mode only alerts for auctions you're bidding on. Quiet Hours disables sound notifications during the selected time range.
-            </div>
-            <br>
-            <!-- Raid Leader Only Settings -->
-            <div id="raidLeaderOnlySettings" style="display: none;">
-                <div class="setting-row">
-                    <label for="raidLeaderNotification">Browser Notification Reminder:</label>
-                    <input type="checkbox" id="raidLeaderNotification" checked>
-                </div>
-                
-                <div class="description">
-                    Reminds you to upload raid logs when you leave opendkp. Raid Leader mode only.
-                </div>
-            </div>
-        </div>
-        
-        <div class="setting-group">
-            <h3>👁️ Visual Settings</h3>
-            
-            <div class="setting-row">
-                <label for="flashScreen">Screen Flash Effect:</label>
-                <input type="checkbox" id="flashScreen" checked>
-            </div>
-            
-            <div class="setting-row">
-                <label for="browserNotifications">Browser Notifications:</label>
-                <input type="checkbox" id="browserNotifications" checked>
-            </div>
-            
-            <div class="description">
-                Visual alerts help ensure you don't miss timer completions. Can be disabled globally.
-            </div>
-        </div>
-        
-        <div class="setting-group">
-            <h3>⚙️ Advanced Settings</h3>
-            
-            <div class="setting-row">
-                <label for="checkInterval">Check Interval (ms):</label>
-                <select id="checkInterval">
-                    <option value="50">50ms (Very Fast)</option>
-                    <option value="100" selected>100ms (Default)</option>
-                    <option value="200">200ms (Slower)</option>
-                    <option value="500">500ms (Slow)</option>
-                </select>
-            </div>
-            
-            <div class="description">
-                Adjust how often the extension checks for timer changes. Faster is more responsive; slower uses less CPU.
-            </div>
-            <br>
-        </div>
-        
-        <div class="setting-group">
-            <h3>🎯 Notification Preview</h3>
-            <div class="setting-row">
-                <span>Test different notification types to see how they'll appear:</span>
-            </div>
-            <div class="preview-buttons">
-                <button class="test-button" id="testSingleWinner">Test Single Winner</button>
-                <button class="test-button" id="testRollOff">Test Roll-off</button>
-                <button class="test-button" id="testMultiWinner">Test Multiple Winners</button>
-            </div>
-            
-            <div class="preview-buttons" style="margin-top: 15px;">
-                <button class="test-button" id="notificationPermission">Check Notification Status</button>
-            </div>
-            
-            <div id="notificationStatus" style="margin-top: 15px; padding: 10px; background: #f0f0f0; border-radius: 4px; display: none; font-family: monospace; font-size: 12px;">
-                <pre id="statusContent" style="margin: 0;"></pre>
-            </div>
-        </div>
-        
-        <button class="save-button" id="saveSettings">💾 Save Settings</button>
-        
-        <div class="setting-group">
-            <h3>📦 Backup &amp; Restore</h3>
-            <div class="description">
-                Export all settings to a file — reminders, RaidTick, OpenDKP API (guild, username, roster/pools cache, tick definitions, auction defaults), <strong>item watchlist</strong>, EQ log rules, and custom sounds. Watchlist and API fields auto-save as you type. Download a backup before reloading or updating the extension. Restore after reinstalling or when testing new versions.
+                Export all settings to a file — reminders, RaidTick, OpenDKP API (guild, username, roster/pools cache, tick definitions, auction defaults), <strong>item watchlist</strong>, <strong>rank bid limits</strong> (from Bidding Tool Bid Rules), EQ log rules/events, and custom sounds. EQ log <em>file handles</em> cannot travel in JSON (browser security)—re-select the log in Loot Monitor after restore on a new profile. Watchlist and API fields auto-save as you type. Download a backup before reloading or updating the extension. Restore after reinstalling or when testing new versions.
             </div>
             <div class="setting-row" style="flex-wrap: wrap; gap: 10px;">
                 <button type="button" class="test-button" id="exportBackup">Download backup</button>
@@ -1461,11 +1505,10 @@
                 </div>
             </div>
         </div>
-        
-        <!-- Footer -->
+
         <div class="footer">
             <div class="footer-content">
-                <span class="footer-text">OpenDKP Helper v2.3.10</span>
+                <span class="footer-text">OpenDKP Helper v2.5.0</span>
                 <span class="footer-separator">•</span>
                 <a href="https://github.com/LordDemonos/opendkp-helper" target="_blank" rel="noopener" class="footer-link">GitHub</a>
                 <span class="footer-separator">•</span>
@@ -1473,6 +1516,9 @@
             </div>
         </div>
     </div>
+
+    <button type="button" id="scrollFab" aria-label="Scroll to bottom" title="Scroll to bottom">↓</button>
+
 
     <script src="lib/eqlog-parse.js"></script>
     <script src="options.js"></script>

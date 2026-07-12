@@ -50,6 +50,7 @@
     await loadScript('lib/raidtick-parse.js');
     await loadScript('lib/loot-queue.js');
     await loadScript('lib/raidtick-queue.js');
+    await loadScript('lib/raid-context.js');
     await loadScript('lib/popup-api-session.js');
     const popupSrc = isFirefoxBrowser() ? 'popup-firefox.js' : 'popup.js';
     await loadScript(popupSrc);

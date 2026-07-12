@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versioning follows the **same semver** as `manifest.json` (single version for Firefox and Chrome packages).
 
+## [2.5.0] - 2026-07-12
+
+### Added
+
+- **Bidding Tool raid lock** — Optionally auto-selects the most recent OpenDKP raid on the Bidding Tool page so loot queues land on tonight’s raid.
+- **Popup RaidTick queue panels** — Expand a tick slot to review, add, remove, or replace attendee names before uploading.
+- **Settings information architecture** — Sticky Mode & Appearance bar, Raider / Raid Leader regions, section TOC, and scroll FAB.
+- **Loot exceptions in Settings** — Spell-line and item skip list lives under OpenDKP Raids (separate exceptions page removed).
+
+### Changed
+
+- **README** — Rewritten for current features with fresh screenshots (demo data only).
+- **Reminders** — Master enable switch for RaidTick reminders.
+- Documentation and packaging alignment for the 2.5.0 release train.
+
+### Fixed
+
+- Carries forward loot-tag end-of-message parsing, auto-bid urgent polling / all-in bids, and RaidTick upload / reminder reliability from the 2.3.x line.
+
 ## [2.3.10] - 2026-07-09
 
 ### Fixed

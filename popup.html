@@ -565,6 +565,176 @@
       cursor: not-allowed;
     }
 
+    .api-raidtick-slot-btn.api-raidtick-slot-expanded {
+      outline: 2px solid #1976d2;
+      outline-offset: 1px;
+    }
+
+    body.dark-mode .api-raidtick-slot-btn.api-raidtick-slot-expanded {
+      outline-color: #64b5f6;
+    }
+
+    .api-raidtick-slot-panel {
+      width: 100%;
+      margin-top: 6px;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      background: #fafafa;
+      box-sizing: border-box;
+    }
+
+    .api-raidtick-panel-heading {
+      font-size: 11px;
+      font-weight: 600;
+      color: #424242;
+      margin-bottom: 6px;
+    }
+
+    .api-raidtick-panel-lock-note {
+      margin: 0 0 6px 0;
+      font-size: 10px;
+      color: #1565c0;
+      font-style: italic;
+    }
+
+    .api-raidtick-panel-list {
+      list-style: none;
+      margin: 0;
+      padding: 0 6px 0 0;
+      max-height: 120px;
+      overflow-y: auto;
+      scrollbar-gutter: stable;
+    }
+
+    .api-raidtick-panel-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 4px;
+      padding: 2px 0;
+      font-size: 11px;
+      border-bottom: 1px solid #eee;
+    }
+
+    .api-raidtick-panel-row:last-child {
+      border-bottom: none;
+    }
+
+    .api-raidtick-panel-name {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .api-raidtick-panel-remove {
+      flex: 0 0 16px;
+      width: 16px;
+      height: 16px;
+      padding: 0;
+      border: 1px solid #c62828;
+      border-radius: 3px;
+      background: #ffebee;
+      color: #c62828;
+      font-size: 11px;
+      line-height: 14px;
+      text-align: center;
+      cursor: pointer;
+      box-sizing: border-box;
+    }
+
+    .api-raidtick-panel-remove:hover {
+      background: #ffcdd2;
+    }
+
+    .api-raidtick-panel-footer {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+      align-items: center;
+    }
+
+    .api-raidtick-panel-add-toggle,
+    .api-raidtick-panel-replace {
+      padding: 4px 8px;
+      font-size: 10px;
+      border: 1px solid #bbb;
+      border-radius: 4px;
+      background: #fff;
+      cursor: pointer;
+    }
+
+    .api-raidtick-panel-add-row {
+      display: flex;
+      gap: 4px;
+      width: 100%;
+      align-items: center;
+    }
+
+    .api-raidtick-panel-add-input {
+      flex: 1 1 auto;
+      min-width: 0;
+      padding: 4px 6px;
+      font-size: 11px;
+      border: 1px solid #bbb;
+      border-radius: 4px;
+    }
+
+    .api-raidtick-panel-add-confirm {
+      padding: 4px 8px;
+      font-size: 10px;
+      border: 1px solid #2e7d32;
+      border-radius: 4px;
+      background: #e8f5e9;
+      color: #2e7d32;
+      cursor: pointer;
+    }
+
+    body.dark-mode .api-raidtick-slot-panel {
+      background: #2d2d2d;
+      border-color: #555;
+    }
+
+    body.dark-mode .api-raidtick-panel-heading {
+      color: #e0e0e0;
+    }
+
+    body.dark-mode .api-raidtick-panel-lock-note {
+      color: #90caf9;
+    }
+
+    body.dark-mode .api-raidtick-panel-row {
+      border-bottom-color: #444;
+    }
+
+    body.dark-mode .api-raidtick-panel-remove {
+      background: #3d2020;
+      border-color: #ef5350;
+      color: #ef9a9a;
+    }
+
+    body.dark-mode .api-raidtick-panel-add-toggle,
+    body.dark-mode .api-raidtick-panel-replace {
+      background: #3d3d3d;
+      border-color: #666;
+      color: #e0e0e0;
+    }
+
+    body.dark-mode .api-raidtick-panel-add-input {
+      background: #1e1e1e;
+      border-color: #666;
+      color: #e0e0e0;
+    }
+
+    body.dark-mode .api-raidtick-panel-add-confirm {
+      background: #1b3d1f;
+      border-color: #66bb6a;
+      color: #a5d6a7;
+    }
+
     .eq-log-header-actions {
       display: flex;
       gap: 6px;
@@ -871,6 +1041,7 @@
       <div id="apiRaidtickSlotButtons" class="api-raidtick-slots"></div>
       <button type="button" id="apiRaidtickUploadBtn" class="icon-btn api-session-btn api-raidtick-upload" title="Upload all queued tick logs to OpenDKP" disabled>⬆️</button>
     </div>
+    <div id="apiRaidtickSlotPanel" class="api-raidtick-slot-panel" hidden></div>
     <div id="apiSessionHint" class="api-session-hint"></div>
   </div>
   

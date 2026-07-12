@@ -2,7 +2,7 @@
 // This ensures the browser API is available
 
 try {
-  importScripts('lib/opendkp-api.js', 'lib/auto-bid.js');
+  importScripts('lib/opendkp-api.js', 'lib/raid-context.js', 'lib/auto-bid.js');
 } catch (_) {
   /* Firefox loads lib scripts via manifest background.scripts */
 }
@@ -219,58 +219,6 @@ console.log('🔵 Background script executing at:', new Date().toISOString());
     return s<=e ? (cur>=s && cur<=e) : (cur>=s || cur<=e);
   }
 
-  /** Return true if url is an allowed origin for reminders (OpenDKP, extension options, or user exception). */
-  function isAllowedOrigin(url, exceptionList) {
-    if (!url || typeof url !== 'string') return false;
-    try {
-      const u = new URL(url);
-      const host = u.hostname.toLowerCase();
-      if (host === 'opendkp.com' || host.endsWith('.opendkp.com')) return true;
-      if (u.protocol === 'chrome-extension:' || u.protocol === 'moz-extension:') return true;
-      const list = Array.isArray(exceptionList) ? exceptionList : [];
-      for (const ex of list) {
-        const s = String(ex).trim().toLowerCase();
-        if (!s) continue;
-        if (url.toLowerCase().startsWith(s)) return true;
-        try {
-          const exUrl = new URL(s.indexOf('://') >= 0 ? s : 'https://' + s);
-          if (exUrl.hostname === host) return true;
-        } catch (_) {
-          if (host === s || host.endsWith('.' + s)) return true;
-        }
-      }
-      return false;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  /** Resolve to true if we should fire reminders (user has an allowed tab open). Resolves to false to skip. */
-  async function shouldFireReminderGivenScope() {
-    const onlyOnOpenDKP = cached.reminderPrefs && cached.reminderPrefs.onlyNotifyOnOpenDKP !== false;
-    if (!onlyOnOpenDKP) {
-      try { console.log('[ODKP Reminder] Scope check: onlyNotifyOnOpenDKP is false, allowing reminders'); } catch(_) {}
-      return true;
-    }
-    if (!api.tabs || !api.tabs.query) {
-      try { console.log('[ODKP Reminder] Scope check: no tabs API, allowing reminders'); } catch(_) {}
-      return true;
-    }
-    try {
-      const tabs = await api.tabs.query({});
-      const exceptions = (cached.reminderPrefs && cached.reminderPrefs.domainExceptionList) || [];
-      const allowedTab = tabs.find(t => t.url && isAllowedOrigin(t.url, exceptions));
-      const hasAllowed = !!allowedTab;
-      try {
-        console.log('[ODKP Reminder] Scope check: onlyNotifyOnOpenDKP=true, tabCount=', tabs.length, 'exceptions=', exceptions.length, 'hasAllowed=', hasAllowed, allowedTab ? 'matchedUrl=' + (allowedTab.url || '').substring(0, 60) : '');
-      } catch(_) {}
-      return hasAllowed;
-    } catch (e) {
-      try { console.warn('[ODKP Reminder] shouldFireReminderGivenScope error', e); } catch(_) {}
-      return true;
-    }
-  }
-
   // Calculate when the next reminder should fire after acknowledging current one
   function calculateNextReminderTime(acknowledgedRemId) {
     const now = new Date();
@@ -442,6 +390,12 @@ console.log('🔵 Background script executing at:', new Date().toISOString());
       return; // only raid leader
     }
     
+    // Master switch — schedules stay saved when off
+    if (cached.reminderPrefs && cached.reminderPrefs.remindersEnabled === false) {
+      try { console.log('[ODKP Reminder] ⏭️ Skipping - reminders master switch is off'); } catch(_) {}
+      return;
+    }
+
     // Check if reminders are enabled
     const enabledReminders = (cached.reminders || []).filter(r => r && r.enabled);
     console.log('[ODKP Reminder] 🔍 Reminder filtering check:', {
@@ -491,11 +445,6 @@ console.log('🔵 Background script executing at:', new Date().toISOString());
     try {
       console.log('[ODKP Reminder] ✅ At 5-min boundary', currentBoundary, '- checking', enabledReminders.length, 'reminder(s)');
     } catch(_) {}
-
-    if (!(await shouldFireReminderGivenScope())) {
-      try { console.log('[ODKP Reminder] ⏭️ Skipping - no OpenDKP or exception tab open (onlyNotifyOnOpenDKP)'); } catch(_) {}
-      return;
-    }
     
     (cached.reminders||[]).forEach(rem => {
       if (!rem || !rem.enabled) {
@@ -917,6 +866,17 @@ console.log('🔵 Background script executing at:', new Date().toISOString());
     }
     // Acknowledge from reminder window
     (api.runtime && api.runtime.onMessage) && api.runtime.onMessage.addListener(async (msg, sender, sendResponse)=>{
+      // Firefox: this listener runs first — must handle resolveLatestRaid here or
+      // sendMessage resolves to literal `false` before later listeners run.
+      if (msg && msg.type === 'resolveLatestRaid') {
+        var fetchFn =
+          (typeof self !== 'undefined' && self.OpenDkpFetchLatestRaid) ||
+          (typeof globalThis !== 'undefined' && globalThis.OpenDkpFetchLatestRaid);
+        if (typeof fetchFn === 'function') {
+          return fetchFn();
+        }
+        return { ok: false, error: 'Raid resolver not loaded' };
+      }
       if (msg && msg.type === 'ackReminder') {
         const { id, ts } = msg;
         try { console.log('[ODKP Reminder] Received acknowledgment for', id, 'at', new Date(ts || Date.now()).toLocaleTimeString()); } catch(_) {}
@@ -1053,6 +1013,123 @@ console.log('🔵 Background script executing at:', new Date().toISOString());
 // Auto-bid API runner (background context)
 (function () {
   var api = typeof browser !== 'undefined' ? browser : chrome;
+
+  function coerceRaids(body) {
+    if (Array.isArray(body)) return body;
+    if (!body || typeof body !== 'object') return [];
+    if (Array.isArray(body.Models)) return body.Models;
+    if (Array.isArray(body.Raids)) return body.Raids;
+    return [];
+  }
+
+  function buildApiConfigFromSlug(slug) {
+    var s = String(slug || '')
+      .trim()
+      .toLowerCase();
+    return {
+      apiHost: 'api.opendkp.com',
+      clientSlug: s,
+      cognitoClientId: OPEN_DKP_COGNITO_CLIENT_ID
+    };
+  }
+
+  function storageSyncGet(keys) {
+    return new Promise(function (resolve) {
+      if (!api.storage || !api.storage.sync) {
+        resolve({});
+        return;
+      }
+      try {
+        var maybePromise = api.storage.sync.get(keys);
+        if (maybePromise && typeof maybePromise.then === 'function') {
+          maybePromise.then(function (r) {
+            resolve(r || {});
+          }).catch(function () {
+            resolve({});
+          });
+          return;
+        }
+      } catch (_) {}
+      api.storage.sync.get(keys, function (r) {
+        resolve(r || {});
+      });
+    });
+  }
+
+  function fetchLatestRaid() {
+    return storageSyncGet(['opendkpClientSlug']).then(function (data) {
+      var slug = data && data.opendkpClientSlug;
+      if (!slug) {
+        return { ok: false, error: 'No guild subdomain configured' };
+      }
+      if (typeof OpenDkpApi === 'undefined' || !OpenDkpApi.getRaids) {
+        return { ok: false, error: 'API module not loaded' };
+      }
+      var cfg = buildApiConfigFromSlug(slug);
+      return OpenDkpApi.getRaids(cfg, { count: 1 })
+        .then(function (body) {
+          var raids = coerceRaids(body);
+          if (!raids.length) {
+            return { ok: false, error: 'No raids returned' };
+          }
+          var raid = raids[0];
+          var raidId = raid.Id != null ? raid.Id : raid.RaidId;
+          var raidName = raid.Name || '';
+          if (!OpenDkpApi.getRaid) {
+            return {
+              ok: true,
+              raidId: Number(raidId),
+              raidName: raidName,
+              summary: { name: raidName, ticks: [] }
+            };
+          }
+          return OpenDkpApi.getRaid(cfg, raidId)
+            .then(function (full) {
+              var ticks = (full.Ticks || []).map(function (t) {
+                return {
+                  id: t.Id != null ? t.Id : t.TickId,
+                  description: t.Description,
+                  value: t.Value
+                };
+              });
+              return {
+                ok: true,
+                raidId: Number(raidId),
+                raidName: full.Name || raidName,
+                summary: { name: full.Name || raidName, ticks: ticks }
+              };
+            })
+            .catch(function () {
+              return {
+                ok: true,
+                raidId: Number(raidId),
+                raidName: raidName,
+                summary: { name: raidName, ticks: [] }
+              };
+            });
+        })
+        .catch(function (err) {
+          return {
+            ok: false,
+            error: err && err.message ? err.message : String(err)
+          };
+        });
+    });
+  }
+
+  function resolveLatestRaidFromBackground(sendResponse) {
+    fetchLatestRaid().then(function (payload) {
+      if (sendResponse) sendResponse(payload);
+    });
+  }
+
+  if (typeof self !== 'undefined') {
+    self.OpenDkpFetchLatestRaid = fetchLatestRaid;
+    self.OpenDkpResolveLatestRaid = resolveLatestRaidFromBackground;
+  } else if (typeof globalThis !== 'undefined') {
+    globalThis.OpenDkpFetchLatestRaid = fetchLatestRaid;
+    globalThis.OpenDkpResolveLatestRaid = resolveLatestRaidFromBackground;
+  }
 
   function runAutoBidFromBackground(sendResponse) {
     if (typeof AutoBid === 'undefined' || !AutoBid.runAutoBidTick) {

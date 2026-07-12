@@ -35,6 +35,7 @@
     ENABLE_ADVANCED_TTS: false,
     TTS_TEMPLATE: 'Auction Finished. {winner} for {bidAmount} DKP on {itemName}',
     RAID_LEADER_NOTIFICATION: true,
+    BIDDING_TOOL_RAID_LOCK: true,
     // Auction readout defaults (Issue #2: day-of-week filter)
     ANNOUNCE_NEW_AUCTIONS: false,
     ANNOUNCE_START: '19:00',
@@ -72,6 +73,8 @@
   let autoBidUrgentMode = false;
   const AUTO_BID_URGENT_POLL_SEC = 2;
   let rankBidLimitsSyncIntervalId = null;
+  let rankBidLimitsObserver = null;
+  let rankBidLimitsDebounceTimer = null;
   
   // Audio element for playing chime
   let audioElement = null;
@@ -481,7 +484,8 @@
   }
 
   /**
-   * Scrape Bid Rules from the OpenDKP page and cache rank min/max for the extension.
+   * Scrape Bid Rules from the OpenDKP Bidding Tool and merge rank min/max into local cache.
+   * Bid Rules only show the currently selected rank, so each selection is merged in.
    */
   function syncRankBidLimitsFromPage() {
     try {
@@ -500,12 +504,35 @@
     }
   }
 
+  function scheduleRankBidLimitsSync() {
+    if (rankBidLimitsDebounceTimer) clearTimeout(rankBidLimitsDebounceTimer);
+    rankBidLimitsDebounceTimer = setTimeout(function () {
+      rankBidLimitsDebounceTimer = null;
+      syncRankBidLimitsFromPage();
+    }, 400);
+  }
+
   function setupRankBidLimitsSync() {
     syncRankBidLimitsFromPage();
     if (rankBidLimitsSyncIntervalId) {
       clearInterval(rankBidLimitsSyncIntervalId);
     }
-    rankBidLimitsSyncIntervalId = setInterval(syncRankBidLimitsFromPage, 60000);
+    // Backup poll — Bid Rules often appear only after character/rank selection on Bidding Tool
+    rankBidLimitsSyncIntervalId = setInterval(syncRankBidLimitsFromPage, 15000);
+    if (!rankBidLimitsObserver && document.body) {
+      try {
+        rankBidLimitsObserver = new MutationObserver(function () {
+          scheduleRankBidLimitsSync();
+        });
+        rankBidLimitsObserver.observe(document.body, {
+          childList: true,
+          subtree: true,
+          characterData: true
+        });
+      } catch (e) {
+        log('Rank bid limits observer failed:', e);
+      }
+    }
   }
 
   /**
@@ -516,6 +543,9 @@
       volume: 70,
       soundProfile: 'raidleader', // Default to raid leader
       soundType: 'bell', // Default to bell for raid leader
+      // Canonical keys written by options; plural aliases kept for older backups
+      raidleaderSound: 'bell',
+      raiderSound: 'chime',
       raidLeaderSounds: 'bell',
       raiderSounds: 'chime',
       profileVolume: false,
@@ -545,7 +575,8 @@
       flashScreen: true,
       browserNotifications: true,
       consoleLogs: true,
-      checkInterval: 100
+      checkInterval: 100,
+      opendkpBiddingToolRaidLock: true
     }).then(function(storedSettings) {
       // Handle case where storedSettings might be undefined due to storage API issues
       if (!storedSettings) {
@@ -566,13 +597,17 @@
       
       settings = {
         ...CONFIG,
-        CHECK_INTERVAL: storedSettings.checkInterval || CONFIG.CHECK_INTERVAL,
+        CHECK_INTERVAL: CONFIG.CHECK_INTERVAL,
         FLASH_SCREEN: storedSettings.flashScreen !== undefined ? storedSettings.flashScreen : CONFIG.FLASH_SCREEN,
         VOLUME: (storedSettings.volume !== undefined && storedSettings.volume !== null ? storedSettings.volume : 70) / 100,
         SOUND_TYPE: storedSettings.soundType || CONFIG.SOUND_TYPE,
         SOUND_PROFILE: storedSettings.soundProfile || CONFIG.SOUND_PROFILE,
-        RAID_LEADER_SOUNDS: storedSettings.raidLeaderSounds || 'bell',
-        RAIDER_SOUNDS: storedSettings.raiderSounds || 'chime',
+        RAID_LEADER_SOUNDS: storedSettings.raidleaderSound
+          || storedSettings.raidLeaderSounds
+          || 'bell',
+        RAIDER_SOUNDS: storedSettings.raiderSound
+          || storedSettings.raiderSounds
+          || 'chime',
         PROFILE_VOLUME: storedSettings.profileVolume || false,
         RAID_LEADER_NOTIFICATION: storedSettings.raidLeaderNotification !== undefined ? storedSettings.raidLeaderNotification : CONFIG.RAID_LEADER_NOTIFICATION,
         CUSTOM_SOUNDS: storedSettings.customSounds || {},
@@ -600,6 +635,8 @@
       settings.WATCHLIST_ITEMS = typeof storedSettings.watchlistItems === 'string'
         ? storedSettings.watchlistItems
         : CONFIG.WATCHLIST_ITEMS;
+      settings.BIDDING_TOOL_RAID_LOCK =
+        storedSettings.opendkpBiddingToolRaidLock !== false;
       settings.AUTO_BID_ENABLED = storedSettings.autoBidEnabled === true;
       var pollSec = parseInt(String(storedSettings.autoBidPollIntervalSec != null ? storedSettings.autoBidPollIntervalSec : 15), 10);
       settings.AUTO_BID_POLL_SEC = Number.isNaN(pollSec) || pollSec < 5 ? 15 : pollSec;
@@ -618,6 +655,9 @@
       // Update audio volume if element exists
       if (audioElement) {
         audioElement.volume = settings.VOLUME;
+      }
+      if (typeof BiddingToolRaid !== 'undefined' && BiddingToolRaid.reconfigure) {
+        BiddingToolRaid.reconfigure();
       }
       settingsLoaded = true;
     }).catch(function(error) {
@@ -792,26 +832,21 @@
       raiderSounds: settings.RAIDER_SOUNDS,
       soundType: settings.SOUND_TYPE
     });
-    
-    // If a specific sound type was selected, always prefer it
-    if (settings.SOUND_TYPE) {
-      log('Using explicitly selected sound type:', settings.SOUND_TYPE);
-      return settings.SOUND_TYPE;
-    }
-    
+
+    // Prefer the sound saved for the active profile so popup/mode toggles apply.
     if (settings.SOUND_PROFILE === 'raidleader') {
-      const sound = settings.RAID_LEADER_SOUNDS || CONFIG.SOUND_TYPE;
+      const sound = settings.RAID_LEADER_SOUNDS || settings.SOUND_TYPE || CONFIG.SOUND_TYPE;
       log('Using raid leader profile sound:', sound);
       return sound;
     }
-    
+
     if (settings.SOUND_PROFILE === 'raider') {
-      const sound = settings.RAIDER_SOUNDS || CONFIG.SOUND_TYPE;
+      const sound = settings.RAIDER_SOUNDS || settings.SOUND_TYPE || CONFIG.SOUND_TYPE;
       log('Using raider profile sound:', sound);
       return sound;
     }
-    
-    const fallback = CONFIG.SOUND_TYPE;
+
+    const fallback = settings.SOUND_TYPE || CONFIG.SOUND_TYPE;
     log('Using fallback sound:', fallback);
     return fallback;
   }
@@ -1946,6 +1981,13 @@
           
           // Setup raid leader notification reminder
           setupRaidLeaderNotification();
+
+          if (typeof BiddingToolRaid !== 'undefined' && BiddingToolRaid.init) {
+            BiddingToolRaid.init({
+              getSettings: function () { return settings; },
+              log: log
+            });
+          }
     
   // Listen for settings updates
   api.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -1970,6 +2012,10 @@
       
       // Re-extract character names in case user switched characters
       extractUserCharacterNames();
+
+      if (typeof BiddingToolRaid !== 'undefined' && BiddingToolRaid.reconfigure) {
+        BiddingToolRaid.reconfigure();
+      }
       
       // Send response for settings update (synchronous)
       if (sendResponse) {
