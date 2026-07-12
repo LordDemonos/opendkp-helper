@@ -99,9 +99,14 @@ Export / import settings (optional credentials). Useful when moving machines.
 
 ## Installation
 
-### From GitHub Releases (recommended)
+### From browser stores (recommended)
 
-Download the latest release from [GitHub Releases](https://github.com/LordDemonos/opendkp-helper/releases).
+- **[Chrome Web Store](https://chromewebstore.google.com/detail/opendkp-helper/bfojhganekfilpiigejiombkkeaclifi)** — Chrome and Chromium-based browsers (including Edge via Chrome Web Store).
+- **[Firefox Add-ons (AMO)](https://addons.mozilla.org/en-US/firefox/addon/opendkp-helper/)** — Firefox.
+
+### From GitHub Releases
+
+Download the latest release from [GitHub Releases](https://github.com/LordDemonos/opendkp-helper/releases) if you prefer a manual / sideload install.
 
 **Chrome or Edge**
 
@@ -115,11 +120,6 @@ Download the latest release from [GitHub Releases](https://github.com/LordDemono
 2. Open `about:debugging` → **This Firefox** → **Load Temporary Add-on** → choose the ZIP.
 
 Use the ZIP built for your browser. Do not load the repository root as an unpacked extension.
-
-### From browser stores
-
-- **Chrome Web Store** — upload the Chrome ZIP from a release (manual or CI artifact).
-- **Firefox Add-ons (AMO)** — [addons.mozilla.org](https://addons.mozilla.org/) when published.
 
 ---
 
@@ -170,7 +170,7 @@ npm run package:release # → dist/opendkp-helper-{browser}-X.X.X.zip + SHA256SU
 
 Optional: `npm run test:chrome` (Puppeteer smoke). README screenshots: `npm run build:chrome` then `node scripts/capture-readme-screenshots.js`.
 
-Publishing a GitHub Release with tag `vX.Y.Z` matching `manifest.json` runs CI packaging. Chrome Web Store upload is separate (manual or the publish workflow when secrets are configured).
+Publishing a GitHub Release with tag `vX.Y.Z` matching `manifest.json` runs CI packaging. Store listings are updated manually from the release ZIPs when needed.
 
 ---
 
