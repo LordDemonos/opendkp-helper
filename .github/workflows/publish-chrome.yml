@@ -1,5 +1,8 @@
 name: Publish to Chrome Web Store
 
+# Builds the Chrome ZIP and uploads it as a workflow artifact for manual Web Store upload.
+# Does not call the Chrome Web Store API (refresh tokens expire; we publish manually).
+
 on:
   release:
     types: [published]
@@ -50,40 +53,8 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-      # Do not use uses: fregante/chrome-webstore-upload@* — that package is not a resolvable GitHub Action.
-      # Avoid secrets.* in job/if where disallowed; detect credentials in a step and gate on outputs.
-      - name: Detect Chrome Web Store credentials
-        id: chrome_creds
-        env:
-          CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
-          CHROME_CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
-          CHROME_CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
-          CHROME_REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
-        run: |
-          if [ -n "$CHROME_EXTENSION_ID" ] && [ -n "$CHROME_CLIENT_ID" ] && [ -n "$CHROME_CLIENT_SECRET" ] && [ -n "$CHROME_REFRESH_TOKEN" ]; then
-            echo "has_credentials=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_credentials=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Upload to Chrome Web Store
-        if: ${{ steps.chrome_creds.outputs.has_credentials == 'true' }}
-        env:
-          CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
-          CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
-          REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
-        run: |
-          npx --yes chrome-webstore-upload-cli@3.5.0 \
-            --source "dist/${ZIP_NAME}" \
-            --extension-id "${{ secrets.CHROME_EXTENSION_ID }}"
-
-      - name: Skip Chrome Web Store upload (credentials incomplete)
-        if: ${{ steps.chrome_creds.outputs.has_credentials != 'true' }}
-        run: |
-          echo "::notice::Chrome Web Store API secrets incomplete — skipped upload. Artifact contains the ZIP for manual upload."
-          echo "Required secrets: CHROME_EXTENSION_ID, CHROME_CLIENT_ID, CHROME_CLIENT_SECRET, CHROME_REFRESH_TOKEN"
-
       - name: Output package info
         run: |
-          echo "Chrome package artifact: chrome-webstore-package"
-          echo "See https://developer.chrome.com/docs/webstore/using-api"
+          echo "Chrome package artifact: chrome-webstore-package (${ZIP_NAME})"
+          echo "Download the artifact and upload manually in the Chrome Web Store developer dashboard."
+          echo "API auto-upload is disabled (manual publish)."
