@@ -400,6 +400,19 @@
 
   function buildCompletionSignature(ctx) {
     const item = (ctx?.itemName || '').toLowerCase().trim();
+    if (ctx && ctx.isRollOff) {
+      const bid = ctx.rollOffBid || ctx.bidAmount || 0;
+      const parts = (ctx.rollOffWinners || [])
+        .map(function (w) {
+          return String((w && w.winner) || w || '')
+            .toLowerCase()
+            .trim();
+        })
+        .filter(Boolean)
+        .sort()
+        .join(',');
+      return 'rolloff|' + item + '|' + bid + '|' + parts;
+    }
     const winner = (ctx?.winner || '').toLowerCase().trim();
     const bid = ctx?.bidAmount || 0;
     return `${item}|${winner}|${bid}`;
@@ -429,6 +442,8 @@
   
   // User's character names for smart bidding mode
   let userCharacterNames = [];
+  let bidParticipationIntervalId = null;
+  const BID_PARTICIPATION_POLL_MS = 5000;
 
   // ===========================================================================
   // AUDIO NOTIFICATION SYSTEM
@@ -447,6 +462,211 @@
     }
     if (!settings.AUTO_BID_ENABLED) return;
     scheduleAutoBidPoll(settings.AUTO_BID_POLL_SEC || 15);
+  }
+
+  function setupBidParticipationPolling() {
+    if (bidParticipationIntervalId) {
+      clearInterval(bidParticipationIntervalId);
+      bidParticipationIntervalId = null;
+    }
+    if (settings.ITEM_PRICE_HISTORY_ENABLED === false) return;
+    scanAndWriteBidParticipation();
+    bidParticipationIntervalId = setInterval(scanAndWriteBidParticipation, BID_PARTICIPATION_POLL_MS);
+  }
+
+  function clientSlugFromHostname() {
+    try {
+      if (typeof OpenDkpRankBidLimits !== 'undefined' && OpenDkpRankBidLimits.clientSlugFromHostname) {
+        return OpenDkpRankBidLimits.clientSlugFromHostname(window.location.hostname) || '';
+      }
+    } catch (_) {}
+    var host = String(window.location.hostname || '').toLowerCase();
+    var m = host.match(/^([a-z0-9-]+)\.opendkp\.com$/i);
+    return m ? m[1] : '';
+  }
+
+  function loadCachedCharacterNames() {
+    return new Promise(function (resolve) {
+      try {
+        api.storage.local.get(['autoBidCharactersCache'], function (r) {
+          var names = [];
+          var cache = r && r.autoBidCharactersCache;
+          if (cache && Array.isArray(cache.characters)) {
+            cache.characters.forEach(function (c) {
+              if (c && c.name) names.push(String(c.name).trim());
+            });
+          }
+          resolve(names);
+        });
+      } catch (_) {
+        resolve([]);
+      }
+    });
+  }
+
+  function isParticipatingCharacter(name, nameSet) {
+    if (!name) return false;
+    var lower = String(name).toLowerCase();
+    return nameSet.some(function (n) {
+      return String(n).toLowerCase() === lower;
+    });
+  }
+
+  function escapeRegExp(value) {
+    return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  /**
+   * Bidding Tool headers often include "Winner - Bid ItemName".
+   * Strip character / bid prefixes so history lookup uses the real item name.
+   */
+  function sanitizeAuctionItemName(raw, characterNames) {
+    var name = String(raw || '').replace(/\s+/g, ' ').trim();
+    if (!name) return '';
+    name = name.replace(/\s*x\s*\d+\s*$/i, '').trim();
+
+    (characterNames || []).forEach(function (charName) {
+      var c = String(charName || '').trim();
+      if (!c || c.length < 2) return;
+      var re = new RegExp('^' + escapeRegExp(c) + '\\s*-\\s*', 'i');
+      if (re.test(name)) {
+        name = name.replace(re, '').trim();
+      }
+    });
+
+    // "Someone - 10 Zlandicar's Heart" → "Zlandicar's Heart"
+    var afterBid = name.match(/^.+?\s*-\s*\d+\s+(.+)$/);
+    if (afterBid && afterBid[1]) {
+      name = afterBid[1].trim();
+    }
+
+    // "10 Zlandicar's Heart" / "10-Zlandicar's Heart"
+    var bidPrefix = name.match(/^\d+[\s-]+(.+)$/);
+    if (bidPrefix && bidPrefix[1]) {
+      name = bidPrefix[1].trim();
+    }
+
+    return name;
+  }
+
+  function extractItemNameFromAuctionHeader(container) {
+    if (!container) return '';
+    // Prefer Magelo / item links — their text is the clean item name
+    var link = container.querySelector('a[href*="/items/"], a[rel*="eq:item"], a[rel^="eq:item"]');
+    if (link && link.textContent) {
+      return String(link.textContent || '').replace(/\s+/g, ' ').trim();
+    }
+    var text = (container.textContent || '').replace(/\s+/g, ' ').trim();
+    if (!text) return '';
+    text = text.replace(/\s*x\s*\d+\s*$/i, '').trim();
+    var lines = text.split(/\s{2,}|\n/).map(function (l) {
+      return l.trim();
+    }).filter(Boolean);
+    return lines[0] || text.slice(0, 120);
+  }
+
+  function resolveCleanItemName(header, tabPanel, characterNames) {
+    var scopes = [header, tabPanel].filter(Boolean);
+    for (var i = 0; i < scopes.length; i++) {
+      var link = scopes[i].querySelector(
+        'a[href*="/items/"], a[rel*="eq:item"], a[rel^="eq:item"]'
+      );
+      if (link && link.textContent && String(link.textContent).trim()) {
+        return sanitizeAuctionItemName(String(link.textContent).trim(), characterNames);
+      }
+    }
+    return sanitizeAuctionItemName(extractItemNameFromAuctionHeader(header), characterNames);
+  }
+
+  /**
+   * Scan active Bidding Tool bid tables for the user's characters.
+   */
+  function scanAndWriteBidParticipation() {
+    if (typeof BidParticipation === 'undefined' || !BidParticipation.writeParticipation) return;
+    if (settings.ITEM_PRICE_HISTORY_ENABLED === false) return;
+
+    extractUserCharacterNames();
+    loadCachedCharacterNames().then(function (cachedNames) {
+      var nameSet = [];
+      var seen = {};
+      userCharacterNames.concat(cachedNames).forEach(function (n) {
+        var key = String(n || '').toLowerCase();
+        if (!key || seen[key]) return;
+        seen[key] = true;
+        nameSet.push(n);
+      });
+      if (!nameSet.length) return;
+
+      var items = [];
+      var headers = document.querySelectorAll(
+        '[id*="header_action"], .p-tabview-nav-link, a[role="tab"]'
+      );
+      var seenItems = {};
+
+      headers.forEach(function (header) {
+        var tabPanel = resolveTabPanelForAuction(header);
+        var itemName = resolveCleanItemName(header, tabPanel, nameSet);
+        if (!itemName || itemName.length < 2) return;
+        // Skip chrome / nav labels
+        if (/^(bidding|auctions|results|details|raid|summary)$/i.test(itemName)) return;
+
+        var table =
+          (tabPanel && tabPanel.querySelector('table.p-datatable-table, table')) ||
+          findBidsTableForItem(itemName);
+
+        var mine = [];
+        if (table) {
+          var rows = extractWinnersFromBidsTable(table, null);
+          mine = rows.filter(function (row) {
+            return isParticipatingCharacter(row.winner, nameSet);
+          });
+        }
+
+        // Fallback: auction card shows "Xanax - 20" above the item — treat as participation
+        if (!mine.length) {
+          var headerText = ((header && header.textContent) || '').replace(/\s+/g, ' ').trim();
+          var panelText = ((tabPanel && tabPanel.textContent) || '').slice(0, 400).replace(/\s+/g, ' ');
+          var blob = headerText + ' ' + panelText;
+          nameSet.forEach(function (charName) {
+            if (!charName) return;
+            var re = new RegExp(
+              '(?:^|\\s)' + escapeRegExp(charName) + '\\s*-\\s*(\\d+)\\b',
+              'i'
+            );
+            var m = blob.match(re);
+            if (m) {
+              mine.push({ winner: charName, bid: parseInt(m[1], 10) });
+            }
+          });
+        }
+
+        if (!mine.length) return;
+
+        var key = itemName.toLowerCase();
+        if (seenItems[key]) return;
+        seenItems[key] = true;
+
+        var best = mine[0];
+        mine.forEach(function (row) {
+          if ((row.bid || 0) > (best.bid || 0)) best = row;
+        });
+
+        items.push({
+          itemName: itemName,
+          characterName: best.winner,
+          myHighBid: best.bid != null && !Number.isNaN(best.bid) ? best.bid : undefined,
+          source: 'manual-dom'
+        });
+      });
+
+      BidParticipation.writeParticipation({
+        clientSlug: clientSlugFromHostname(),
+        items: items,
+        replaceSource: 'manual-dom'
+      }).catch(function (e) {
+        log('Bid participation write failed:', e);
+      });
+    });
   }
 
   function scheduleAutoBidPoll(pollSec) {
@@ -566,6 +786,7 @@
       autoBidPollIntervalSec: 15,
       autoBidPriority: 1,
       autoBidRules: [],
+      itemPriceHistoryEnabled: true,
       enableTTS: false,
       voice: '',
       voiceSpeed: 1.0,
@@ -640,8 +861,10 @@
       settings.AUTO_BID_ENABLED = storedSettings.autoBidEnabled === true;
       var pollSec = parseInt(String(storedSettings.autoBidPollIntervalSec != null ? storedSettings.autoBidPollIntervalSec : 15), 10);
       settings.AUTO_BID_POLL_SEC = Number.isNaN(pollSec) || pollSec < 5 ? 15 : pollSec;
+      settings.ITEM_PRICE_HISTORY_ENABLED = storedSettings.itemPriceHistoryEnabled !== false;
       
       setupAutoBidPolling();
+      setupBidParticipationPolling();
       setupRankBidLimitsSync();
       
       // Automatically enable smart bidding for raider profile
@@ -1507,18 +1730,12 @@
         return false;
       }
       
-      // Suppress duplicates across DOM reloads using a completion signature
-      // BUT: Only if we've already alerted for this exact timer element
-      // If this is a fresh timer (we haven't seen it before), allow it
+      // Suppress duplicates across DOM reloads using a completion signature.
+      // Same item/winner/bid within the window = same auction end (timer nodes often recreate).
       const sig = buildCompletionSignature(context);
-      const wasRecentlyCompleted = isRecentlyCompleted(sig);
-      const hasBeenAlertedForThisTimer = alertedTimers.has(timerElement);
-      
-      // Only suppress if BOTH conditions are true:
-      // 1. This signature was recently completed
-      // 2. We've already alerted for this specific timer element
-      if (wasRecentlyCompleted && hasBeenAlertedForThisTimer) {
-        log('Completion duplicate suppressed (signature + timer both seen):', sig);
+      if (isRecentlyCompleted(sig)) {
+        log('Completion duplicate suppressed (signature recently seen):', sig);
+        alertedTimers.add(timerElement);
         return false;
       }
       
@@ -2003,6 +2220,7 @@
         checkAllTimers();
       }, settings.CHECK_INTERVAL);
       setupAutoBidPolling();
+      setupBidParticipationPolling();
       setupRankBidLimitsSync();
       
       // Update audio volume
@@ -2177,28 +2395,40 @@
       showNotification(context);
     },
     testRollOff: () => {
-      const context = {
+      let context = {
         itemName: 'Epic Sword',
         quantity: 1,
-        rollOffWinners: [
+        bidAmount: 1000
+      };
+      context = applyWinnersToContext(
+        context,
+        [
           { winner: 'Player1', bid: 1000 },
           { winner: 'Player2', bid: 1000 },
           { winner: 'Player3', bid: 1000 }
         ],
-        rollOffBid: 1000
-      };
+        1000,
+        1,
+        1000
+      );
       showNotification(context);
     },
     testMultiWinner: () => {
-      const context = {
+      let context = {
         itemName: 'Rare Potion',
         quantity: 2,
-        rollOffWinners: [
+        bidAmount: 500
+      };
+      context = applyWinnersToContext(
+        context,
+        [
           { winner: 'Player1', bid: 500 },
           { winner: 'Player2', bid: 500 }
         ],
-        bidAmount: 500
-      };
+        500,
+        2,
+        500
+      );
       showNotification(context);
     },
     testNoBid: () => {
@@ -2226,6 +2456,49 @@
     return -1;
   }
 
+  function normalizeBidValue(raw) {
+    if (raw == null || raw === '') return null;
+    const n = typeof raw === 'number' ? raw : parseInt(String(raw).trim(), 10);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  /**
+   * Parse "Item Name x N" from Bidding Tool tab/panel text.
+   * Handles prefixes like "Xanathema - 400 | Zlandicar's Heart x 1".
+   */
+  function parseItemNameAndQuantity(rawText) {
+    const text = String(rawText || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!text) return { itemName: null, quantity: null };
+
+    let match =
+      text.match(/\|\s*([^|]+?)\s+x\s+(\d+)\s*$/i) ||
+      text.match(/^(.+?)\s+x\s+(\d+)\s*$/i) ||
+      text.match(/([^|]+?)\s+x\s+(\d+)/i);
+
+    if (!match) {
+      return { itemName: text, quantity: null };
+    }
+
+    let itemName = match[1].trim();
+    const quantity = parseInt(match[2], 10);
+
+    // Strip "Winner - Bid" prefixes if the pipe form wasn't used
+    const winnerBidPrefix = itemName.match(/^(.+?)\s+-\s+(\d+)\s+(.+)$/);
+    if (winnerBidPrefix) {
+      itemName = winnerBidPrefix[3].trim();
+    }
+
+    const bidOnlyPrefix = itemName.match(/^\d+[\s-]+(.+)$/);
+    if (bidOnlyPrefix) itemName = bidOnlyPrefix[1].trim();
+
+    return {
+      itemName: itemName || null,
+      quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : null
+    };
+  }
+
   /**
    * @param {HTMLTableElement|null|undefined} table
    * @param {number|null|undefined} defaultBid
@@ -2237,6 +2510,8 @@
 
     const nameCol = getTableColumnIndex(table, /^name$/i);
     const valueCol = getTableColumnIndex(table, /^value$/i);
+    const priorityCol = getTableColumnIndex(table, /^priority$/i);
+    const hashCol = getTableColumnIndex(table, /^#$/);
     const rows = table.querySelectorAll('tbody tr, tr');
 
     for (const row of rows) {
@@ -2257,36 +2532,39 @@
 
       if (valueCol >= 0 && valueCol < cells.length) {
         const bidInput = cells[valueCol].querySelector('input[type="number"]');
-        if (bidInput && bidInput.value) {
-          rowBid = parseInt(bidInput.value, 10);
+        if (bidInput && bidInput.value !== '') {
+          rowBid = normalizeBidValue(bidInput.value);
         } else {
-          const cellText = cells[valueCol].textContent.trim();
-          const bidMatch = cellText.match(/^(\d+)$/);
-          if (bidMatch) rowBid = parseInt(bidMatch[1], 10);
+          rowBid = normalizeBidValue(cells[valueCol].textContent.trim());
         }
-      } else {
+      }
+
+      // Prefer the highest number-input in the row (Value), never row # / Priority
+      if (rowBid == null) {
+        const inputs = row.querySelectorAll('input[type="number"]');
+        let best = null;
+        for (let i = 0; i < inputs.length; i++) {
+          const n = normalizeBidValue(inputs[i].value);
+          if (n == null) continue;
+          if (best == null || n > best) best = n;
+        }
+        rowBid = best;
+      }
+
+      if (rowBid == null) {
         for (let i = 0; i < cells.length; i++) {
-          const bidInput = cells[i].querySelector('input[type="number"]');
-          if (bidInput && bidInput.value) {
-            const bidValue = parseInt(bidInput.value, 10);
-            if (!isNaN(bidValue) && bidValue >= 0) {
-              rowBid = bidValue;
-              break;
-            }
-          }
-          const cellText = cells[i].textContent.trim();
-          if (/^\d+$/.test(cellText)) {
-            const n = parseInt(cellText, 10);
-            if (!isNaN(n) && n >= 0) {
-              rowBid = n;
-              break;
-            }
-          }
+          if (i === nameCol || i === priorityCol || i === hashCol) continue;
+          const n = normalizeBidValue(cells[i].textContent.trim());
+          // Skip tiny index-like values when a clearer bid exists elsewhere
+          if (n == null) continue;
+          if (i === 0 && n > 0 && n < 50 && cells.length > 3) continue;
+          rowBid = n;
+          break;
         }
       }
 
       if (!name || name.match(/^\d+$/) || name.length < 2) continue;
-      if (!rowBid && defaultBid) rowBid = defaultBid;
+      if (rowBid == null && defaultBid) rowBid = normalizeBidValue(defaultBid);
       if (rowBid == null || isNaN(rowBid)) continue;
 
       const existing = winnersMap.get(name);
@@ -2352,44 +2630,269 @@
     return null;
   }
 
-  function computeActualWinnersFromBidders(rollOffWinners, bidAmount, quantity, isRollOff) {
-    let actualWinners = [];
-    if (isRollOff) {
-      actualWinners = rollOffWinners.slice();
-    } else if (rollOffWinners.length > 0 && bidAmount) {
-      if (quantity && quantity > 1) {
-        const sortedBidders = rollOffWinners.slice().sort(function (a, b) {
-          return (b.bid || 0) - (a.bid || 0);
-        });
-        actualWinners = sortedBidders.slice(0, quantity);
-      } else {
-        const highestBid = Math.max.apply(null, rollOffWinners.map(function (w) {
-          return w.bid || 0;
-        }));
-        actualWinners = rollOffWinners.filter(function (w) {
-          return w.bid === highestBid;
-        });
-        if (actualWinners.length > 1 && (!quantity || quantity === 1)) {
-          actualWinners = [actualWinners[0]];
-        }
+  /**
+   * Resolve roll-off vs multi-win vs single-win from the bidder list.
+   * Roll-off = more people tied at the highest bid than there are items (no winners yet).
+   */
+  function resolveAuctionOutcome(bidders, rollOffBid, quantity, bidAmount, fallbackWinner) {
+    const list = (Array.isArray(bidders) ? bidders : [])
+      .filter(Boolean)
+      .map(function (w) {
+        return {
+          winner: w.winner || w,
+          bid: normalizeBidValue(w.bid)
+        };
+      })
+      .filter(function (w) {
+        return w.winner;
+      });
+    const qtyRaw = normalizeBidValue(quantity);
+    const qty = qtyRaw && qtyRaw > 0 ? qtyRaw : 1;
+    const normalizedFallbackBid = normalizeBidValue(bidAmount);
+    let tiedBid = normalizeBidValue(rollOffBid);
+
+    if (list.length > qty) {
+      const highestBid = Math.max.apply(
+        null,
+        list.map(function (w) {
+          return w.bid != null ? w.bid : 0;
+        })
+      );
+      const tiedAtHigh = list.filter(function (w) {
+        return w.bid === highestBid;
+      });
+      if (tiedAtHigh.length > qty) {
+        return {
+          isRollOff: true,
+          rollOffBid: highestBid,
+          rollOffWinners: tiedAtHigh,
+          actualWinners: [],
+          multipleWinners: false,
+          winner: null,
+          bidAmount: highestBid
+        };
       }
     }
-    return actualWinners;
+
+    if (
+      list.length > 1 &&
+      tiedBid !== null &&
+      list.length > qty &&
+      list.every(function (w) {
+        return w.bid === tiedBid;
+      })
+    ) {
+      return {
+        isRollOff: true,
+        rollOffBid: tiedBid,
+        rollOffWinners: list,
+        actualWinners: [],
+        multipleWinners: false,
+        winner: null,
+        bidAmount: tiedBid
+      };
+    }
+
+    let actualWinners = [];
+    if (
+      list.length > 0 &&
+      (normalizedFallbackBid != null ||
+        list.some(function (w) {
+          return w.bid != null;
+        }))
+    ) {
+      if (qty > 1) {
+        const sortedBidders = list.slice().sort(function (a, b) {
+          return (b.bid || 0) - (a.bid || 0);
+        });
+        actualWinners = sortedBidders.slice(0, qty);
+        const high = actualWinners[0] ? actualWinners[0].bid : null;
+        const tiedForSlots = list.filter(function (w) {
+          return w.bid === high;
+        });
+        if (high != null && tiedForSlots.length > qty) {
+          return {
+            isRollOff: true,
+            rollOffBid: high,
+            rollOffWinners: tiedForSlots,
+            actualWinners: [],
+            multipleWinners: false,
+            winner: null,
+            bidAmount: high
+          };
+        }
+      } else {
+        const highestBid = Math.max.apply(
+          null,
+          list.map(function (w) {
+            return w.bid || 0;
+          })
+        );
+        actualWinners = list.filter(function (w) {
+          return w.bid === highestBid;
+        });
+        if (actualWinners.length > 1) {
+          return {
+            isRollOff: true,
+            rollOffBid: highestBid,
+            rollOffWinners: actualWinners,
+            actualWinners: [],
+            multipleWinners: false,
+            winner: null,
+            bidAmount: highestBid
+          };
+        }
+      }
+    } else if (fallbackWinner) {
+      actualWinners = [{ winner: fallbackWinner, bid: normalizedFallbackBid }];
+    }
+
+    const winnerEntry = actualWinners[0] || null;
+    return {
+      isRollOff: false,
+      rollOffBid: tiedBid,
+      rollOffWinners: list,
+      actualWinners: actualWinners,
+      multipleWinners: actualWinners.length > 1,
+      winner: winnerEntry ? winnerEntry.winner : fallbackWinner || null,
+      bidAmount: winnerEntry && winnerEntry.bid != null ? winnerEntry.bid : normalizedFallbackBid
+    };
   }
 
   function applyWinnersToContext(context, rollOffWinners, rollOffBid, quantity, bidAmount) {
-    const isRollOff =
-      rollOffWinners.length > 1 && rollOffBid !== null && rollOffWinners.length > (quantity || 1);
-    const actualWinners = computeActualWinnersFromBidders(rollOffWinners, bidAmount, quantity, isRollOff);
-    context.rollOffWinners = rollOffWinners.length > 0 ? rollOffWinners : undefined;
-    context.rollOffBid = rollOffBid;
-    context.isRollOff = isRollOff;
-    context.actualWinners = actualWinners.length > 0 ? actualWinners : undefined;
-    context.multipleWinners = actualWinners.length > 1;
-    if (actualWinners.length > 0 && actualWinners[0].winner) {
-      context.winner = actualWinners[0].winner;
-      if (actualWinners[0].bid != null) context.bidAmount = actualWinners[0].bid;
+    const outcome = resolveAuctionOutcome(
+      rollOffWinners,
+      rollOffBid,
+      quantity != null ? quantity : context.quantity,
+      bidAmount != null ? bidAmount : context.bidAmount,
+      context.winner
+    );
+    context.rollOffWinners =
+      outcome.rollOffWinners && outcome.rollOffWinners.length > 0
+        ? outcome.rollOffWinners
+        : undefined;
+    context.rollOffBid = outcome.rollOffBid;
+    context.isRollOff = outcome.isRollOff;
+    context.actualWinners =
+      outcome.actualWinners && outcome.actualWinners.length > 0
+        ? outcome.actualWinners
+        : undefined;
+    // Roll-offs are not multi-wins — there is no winner until the roll resolves
+    context.multipleWinners = !outcome.isRollOff && outcome.multipleWinners;
+    if (outcome.isRollOff) {
+      context.winner = undefined;
+      if (outcome.bidAmount != null) context.bidAmount = outcome.bidAmount;
+    } else if (outcome.winner) {
+      context.winner = outcome.winner;
+      if (outcome.bidAmount != null) context.bidAmount = outcome.bidAmount;
     }
+    return context;
+  }
+
+  /**
+   * Last-chance correction before TTS/notification: re-parse qty from labels and
+   * never announce "multiple winners" when a same-bid tie exceeds item count.
+   */
+  function reinforceContextForAnnouncement(context) {
+    if (!context || context.noBid) return context;
+
+    let qty = normalizeBidValue(context.quantity);
+    if (!qty || qty < 1) qty = 1;
+
+    try {
+      const labels = document.querySelectorAll(
+        'a[id*="_header_action"], .p-tabview-nav-link[aria-selected="true"], [role="tab"][aria-selected="true"]'
+      );
+      for (let i = 0; i < labels.length; i++) {
+        const parsed = parseItemNameAndQuantity(labels[i].textContent);
+        if (!parsed.itemName || parsed.quantity == null) continue;
+        const ctxName = String(context.itemName || '')
+          .replace(/\s*x\s*\d+$/i, '')
+          .trim()
+          .toLowerCase();
+        const labelName = parsed.itemName
+          .replace(/\s*x\s*\d+$/i, '')
+          .trim()
+          .toLowerCase();
+        if (
+          !ctxName ||
+          labelName === ctxName ||
+          labelName.indexOf(ctxName) !== -1 ||
+          ctxName.indexOf(labelName) !== -1
+        ) {
+          qty = parsed.quantity;
+          context.quantity = qty;
+          if (parsed.itemName) context.itemName = parsed.itemName;
+          break;
+        }
+      }
+    } catch (_) {}
+
+    // Same-bid ties: if the active tab label clearly says x 1, never treat as multi-win
+    try {
+      const activeTab =
+        document.querySelector(
+          'a[id*="_header_action"][aria-selected="true"], .p-tabview-nav-link[aria-selected="true"], [role="tab"][aria-selected="true"]'
+        ) || null;
+      if (activeTab) {
+        const activeParsed = parseItemNameAndQuantity(activeTab.textContent);
+        if (activeParsed.quantity === 1) {
+          qty = 1;
+          context.quantity = 1;
+          if (activeParsed.itemName) {
+            const ctxName = String(context.itemName || '')
+              .replace(/\s*x\s*\d+$/i, '')
+              .trim()
+              .toLowerCase();
+            const labelName = activeParsed.itemName
+              .replace(/\s*x\s*\d+$/i, '')
+              .trim()
+              .toLowerCase();
+            if (!ctxName || labelName.indexOf(ctxName) !== -1 || ctxName.indexOf(labelName) !== -1) {
+              context.itemName = activeParsed.itemName;
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    const pool = [].concat(context.rollOffWinners || []).concat(context.actualWinners || []);
+    const byName = new Map();
+    pool.forEach(function (w) {
+      if (!w) return;
+      const name = String(w.winner || w).trim();
+      const bid = normalizeBidValue(w.bid != null ? w.bid : context.bidAmount);
+      if (!name) return;
+      const key = name.toLowerCase();
+      const prev = byName.get(key);
+      if (!prev || (bid != null && bid > (prev.bid || 0))) {
+        byName.set(key, { winner: name, bid: bid });
+      }
+    });
+    const bidders = Array.from(byName.values());
+    if (bidders.length > 1) {
+      applyWinnersToContext(context, bidders, context.rollOffBid, qty, context.bidAmount);
+    }
+
+    // Absolute TTS guard: single-item auctions cannot have multiple winners
+    if ((context.quantity || 1) <= 1 && context.multipleWinners) {
+      context.multipleWinners = false;
+      if (context.actualWinners && context.actualWinners.length > 1) {
+        context.isRollOff = true;
+        context.rollOffWinners = context.actualWinners;
+        context.rollOffBid = normalizeBidValue(context.actualWinners[0].bid);
+        context.actualWinners = undefined;
+        context.winner = undefined;
+      }
+    }
+
+    log('TTS reinforce:', {
+      itemName: context.itemName,
+      quantity: context.quantity,
+      isRollOff: context.isRollOff,
+      multipleWinners: context.multipleWinners,
+      bidders: bidders
+    });
     return context;
   }
 
@@ -2512,54 +3015,27 @@
         }
       }
       
-      // Find item name and quantity
-      const itemDivs = auctionContainer.querySelectorAll('div');
+      // Find item name and quantity — prefer full tab text (handles "Winner - Bid | Item x N")
       let itemName = null;
       let quantity = null;
-      
-      for (const div of itemDivs) {
-        const text = div.textContent.trim();
-        // Look for pattern like "item name x 1" or just "item name"
-        const itemMatch = text.match(/^(.+?)\s*x\s*(\d+)$/);
-        if (itemMatch) {
-          let extractedName = itemMatch[1].trim();
-          // CRITICAL: Remove leading bid amounts from item name (e.g., "150 Yelinak's Talisman" -> "Yelinak's Talisman")
-          // Pattern: starts with digits followed by space(s) or dash, then the actual item name
-          // Also handle cases like "10Dagger" (no space) or "10  Dagger" (multiple spaces)
-          const bidPrefixMatch = extractedName.match(/^\d+[\s-]+(.+)$/);
-          if (bidPrefixMatch) {
-            extractedName = bidPrefixMatch[1].trim();
-            log(`Removed bid amount prefix from item name: "${itemMatch[1]}" -> "${extractedName}"`);
-          } else {
-            // Also try pattern without space (e.g., "10Dagger" -> "Dagger")
-            const noSpaceMatch = extractedName.match(/^\d+(.+)$/);
-            if (noSpaceMatch && noSpaceMatch[1].length > 0) {
-              extractedName = noSpaceMatch[1].trim();
-              log(`Removed bid amount prefix (no space) from item name: "${itemMatch[1]}" -> "${extractedName}"`);
+      const fromTab = parseItemNameAndQuantity(auctionContainer.textContent);
+      if (fromTab.itemName && fromTab.quantity != null) {
+        itemName = fromTab.itemName;
+        quantity = fromTab.quantity;
+        log('Parsed item/qty from tab text:', itemName, 'x', quantity);
+      } else {
+        const itemDivs = auctionContainer.querySelectorAll('div');
+        for (const div of itemDivs) {
+          const parsed = parseItemNameAndQuantity(div.textContent);
+          if (parsed.itemName && parsed.quantity != null) {
+            // Prefer the shortest matching label (leaf nodes over ancestors)
+            if (!itemName || parsed.itemName.length < itemName.length) {
+              itemName = parsed.itemName;
+              quantity = parsed.quantity;
             }
           }
-          itemName = extractedName;
-          quantity = parseInt(itemMatch[2]);
-          break;
-        } else if (text && !text.includes('-') && !text.includes('x') && text.length > 3) {
-          // Fallback: if it looks like an item name (no dashes, no x, reasonable length)
-          // Also clean bid amounts from fallback
-          let fallbackName = text;
-          const bidPrefixMatch = fallbackName.match(/^\d+[\s-]+(.+)$/);
-          if (bidPrefixMatch) {
-            fallbackName = bidPrefixMatch[1].trim();
-            log(`Removed bid amount prefix from fallback item name: "${text}" -> "${fallbackName}"`);
-          } else {
-            // Also try pattern without space (e.g., "10Dagger" -> "Dagger")
-            const noSpaceMatch = fallbackName.match(/^\d+(.+)$/);
-            if (noSpaceMatch && noSpaceMatch[1].length > 0) {
-              fallbackName = noSpaceMatch[1].trim();
-              log(`Removed bid amount prefix (no space) from fallback item name: "${text}" -> "${fallbackName}"`);
-            }
-          }
-          itemName = fallbackName;
-          quantity = 1; // Default quantity
         }
+        if (!quantity) quantity = 1;
       }
       
       // CRITICAL: Always check for roll-offs, not just when quantity > 1
@@ -2611,17 +3087,19 @@
           bidsTable = findBidsTableForItem(itemName);
         }
 
-        if (bidsTable && (bidAmount > 0 || (quantity && quantity > 1))) {
+        if (bidsTable) {
             const extracted = extractWinnersFromBidsTable(bidsTable, bidAmount);
             
             if (extracted.length > 1) {
               // CRITICAL: Only consider it a roll-off if ALL winners have the SAME bid amount
               // Check if all extracted winners have the same bid
-              const allSameBid = extracted.every(w => w.bid === extracted[0].bid && w.bid !== null);
-              if (allSameBid && extracted[0].bid > 0) {
+              const allSameBid = extracted.every(function (w) {
+                return normalizeBidValue(w.bid) === normalizeBidValue(extracted[0].bid) && w.bid != null;
+              });
+              if (allSameBid && normalizeBidValue(extracted[0].bid) > 0) {
                 // Multiple people with same bid = roll-off
                 rollOffWinners = extracted;
-                rollOffBid = extracted[0].bid;
+                rollOffBid = normalizeBidValue(extracted[0].bid);
                 log('Found roll-off from tab panel table (multiple winners with same bid):', rollOffWinners);
               } else {
                 // Multiple winners but different bids - not a roll-off, just multiple bidders
@@ -2705,11 +3183,13 @@
               
               if (extracted.length > 1) {
                 // CRITICAL: Only consider it a roll-off if ALL winners have the SAME bid amount
-                const allSameBid = extracted.every(w => w.bid === extracted[0].bid && w.bid !== null);
-                if (allSameBid && extracted[0].bid > 0) {
+                const allSameBid = extracted.every(function (w) {
+                  return normalizeBidValue(w.bid) === normalizeBidValue(extracted[0].bid) && w.bid != null;
+                });
+                if (allSameBid && normalizeBidValue(extracted[0].bid) > 0) {
                   // Multiple people with same bid = roll-off
                   rollOffWinners = extracted;
-                  rollOffBid = extracted[0].bid;
+                  rollOffBid = normalizeBidValue(extracted[0].bid);
                   log('Found roll-off from auction table (multiple winners with same bid):', rollOffWinners);
                   break;
                 } else {
@@ -2823,48 +3303,7 @@
       
       // Check if no one bid (bid amount is 0 or null)
       const noBid = !bidAmount || bidAmount === 0;
-      
-      // Determine if this is a roll-off (multiple people with same bid AND more people than items)
-      // Roll-off only happens when participants > quantity (e.g., 2 people bid 1000 on 1 item)
-      // If quantity >= participants, they all win (e.g., 2 people bid 1000 on 2 items = both win)
-      const isRollOff = rollOffWinners.length > 1 && rollOffBid !== null && rollOffWinners.length > (quantity || 1);
-      
-      // CRITICAL: Determine if there are actually multiple WINNERS (not just multiple bidders)
-      // Multiple winners only occur when:
-      // 1. It's a roll-off (multiple people with same bid, more people than items), OR
-      // 2. Multiple people won in a multi-item auction (top N bidders where N = quantity)
-      // For single-item auctions with one clear winner, there's only ONE winner, not multiple
-      let actualWinners = [];
-      if (isRollOff) {
-        // Roll-off: all people with the same highest bid are winners (but need roll-off)
-        actualWinners = rollOffWinners;
-      } else if (rollOffWinners.length > 0 && bidAmount) {
-        // For multi-item auctions: select top N bidders (where N = quantity)
-        // Sort all bidders by bid amount (descending) and take top N
-        if (quantity && quantity > 1 && rollOffWinners.length > 0) {
-          // Multi-item auction: sort by bid descending and take top N
-          const sortedBidders = [...rollOffWinners].sort((a, b) => (b.bid || 0) - (a.bid || 0));
-          actualWinners = sortedBidders.slice(0, quantity);
-          log(`Multi-item auction (quantity=${quantity}): Selected top ${actualWinners.length} bidders:`, actualWinners.map(w => `${w.winner} (${w.bid})`).join(', '));
-        } else {
-          // Single-item auction: only the highest bidder wins
-          const highestBid = Math.max(...rollOffWinners.map(w => w.bid || 0));
-          actualWinners = rollOffWinners.filter(w => w.bid === highestBid);
-          
-          // If multiple people have the same highest bid but only 1 item, it's a roll-off
-          if (actualWinners.length > 1 && (!quantity || quantity === 1)) {
-            // Multiple people with same bid but only 1 item = roll-off (should have been caught above)
-            // This shouldn't happen if roll-off detection is working, but handle it
-            actualWinners = [actualWinners[0]]; // Only first one wins until roll-off
-          }
-        }
-      } else if (winner) {
-        // We have a winner from tab-offset but no roll-off winners found
-        actualWinners = [{ winner: winner, bid: bidAmount }];
-      }
-      
-      const multipleWinners = actualWinners.length > 1;
-      
+
       let context = {
         winner: winner,
         bidAmount: bidAmount,
@@ -2873,13 +3312,9 @@
         timerWidth: getWidthPercent(timerElement),
         rawWinnerText: winnerText,
         noBid: noBid,
-        isTableStructure: false,
-        rollOffWinners: rollOffWinners.length > 0 ? rollOffWinners : undefined,
-        rollOffBid: rollOffBid,
-        isRollOff: isRollOff,
-        multipleWinners: multipleWinners, // Only true if there are actually multiple winners
-        actualWinners: actualWinners.length > 0 ? actualWinners : undefined // Store actual winners for TTS
+        isTableStructure: false
       };
+      context = applyWinnersToContext(context, rollOffWinners, rollOffBid, quantity, bidAmount);
       // Sanitize: item name should not include winner name prefixes like "Winner - Item"
       if (context.itemName && context.winner) {
         const w = context.winner.trim().toLowerCase();
@@ -2888,27 +3323,31 @@
           context.itemName = n.substring(n.indexOf('-') + 1).trim();
         }
       }
-      
+
       // Enhanced logging for roll-off detection debugging
       log('=== ROLL-OFF DETECTION DEBUG ===');
       log('Winner text:', winnerText);
-      log('Extracted winner:', winner);
-      log('Bid amount:', bidAmount);
+      log('Extracted winner:', context.winner);
+      log('Bid amount:', context.bidAmount);
       log('Quantity:', quantity);
-      log('All bidders found:', rollOffWinners);
-      log('Actual winners (highest bid):', actualWinners);
-      log('Roll-off bid:', rollOffBid);
-      log('Is roll-off?', isRollOff);
-      log('Multiple winners?', multipleWinners, `(${actualWinners.length} actual winner(s) out of ${rollOffWinners.length} bidder(s))`);
+      log('All bidders found:', context.rollOffWinners);
+      log('Actual winners (highest bid):', context.actualWinners);
+      log('Roll-off bid:', context.rollOffBid);
+      log('Is roll-off?', context.isRollOff);
+      log(
+        'Multiple winners?',
+        context.multipleWinners,
+        `(${(context.actualWinners || []).length} actual winner(s) out of ${(context.rollOffWinners || []).length} bidder(s))`
+      );
       log('Final context:', context);
-      
+
       // Capture DOM snapshot when roll-off is detected OR when multiple actual winners are found
-      if (isRollOff || multipleWinners) {
-        const reason = isRollOff ? 'roll-off-detected' : 'multiple-winners-detected';
+      if (context.isRollOff || context.multipleWinners) {
+        const reason = context.isRollOff ? 'roll-off-detected' : 'multiple-winners-detected';
         log('Capturing DOM snapshot for:', reason);
         captureDOMSnapshot(context, timerElement, reason);
       }
-      
+
       log('=== END ROLL-OFF DEBUG ===');
       return finalizeAuctionContext(context, timerElement);
       
@@ -2997,48 +3436,7 @@
       
       // Check if no one bid (bid amount is 0 or null)
       const noBid = !bidAmount || bidAmount === 0;
-      
-      // Determine if this is a roll-off (multiple people with same bid AND more people than items)
-      // Roll-off only happens when participants > quantity (e.g., 2 people bid 1000 on 1 item)
-      // If quantity >= participants, they all win (e.g., 2 people bid 1000 on 2 items = both win)
-      const isRollOff = rollOffWinners.length > 1 && rollOffBid !== null && rollOffWinners.length > (quantity || 1);
-      
-      // CRITICAL: Determine if there are actually multiple WINNERS (not just multiple bidders)
-      // Multiple winners only occur when:
-      // 1. It's a roll-off (multiple people with same bid, more people than items), OR
-      // 2. Multiple people won in a multi-item auction (top N bidders where N = quantity)
-      // For single-item auctions with one clear winner, there's only ONE winner, not multiple
-      let actualWinners = [];
-      if (isRollOff) {
-        // Roll-off: all people with the same highest bid are winners (but need roll-off)
-        actualWinners = rollOffWinners;
-      } else if (rollOffWinners.length > 0 && bidAmount) {
-        // For multi-item auctions: select top N bidders (where N = quantity)
-        // Sort all bidders by bid amount (descending) and take top N
-        if (quantity && quantity > 1 && rollOffWinners.length > 0) {
-          // Multi-item auction: sort by bid descending and take top N
-          const sortedBidders = [...rollOffWinners].sort((a, b) => (b.bid || 0) - (a.bid || 0));
-          actualWinners = sortedBidders.slice(0, quantity);
-          log(`Multi-item auction (quantity=${quantity}): Selected top ${actualWinners.length} bidders:`, actualWinners.map(w => `${w.winner} (${w.bid})`).join(', '));
-        } else {
-          // Single-item auction: only the highest bidder wins
-          const highestBid = Math.max(...rollOffWinners.map(w => w.bid || 0));
-          actualWinners = rollOffWinners.filter(w => w.bid === highestBid);
-          
-          // If multiple people have the same highest bid but only 1 item, it's a roll-off
-          if (actualWinners.length > 1 && (!quantity || quantity === 1)) {
-            // Multiple people with same bid but only 1 item = roll-off (should have been caught above)
-            // This shouldn't happen if roll-off detection is working, but handle it
-            actualWinners = [actualWinners[0]]; // Only first one wins until roll-off
-          }
-        }
-      } else if (winner) {
-        // We have a winner from table but no roll-off winners found
-        actualWinners = [{ winner: winner, bid: bidAmount }];
-      }
-      
-      const multipleWinners = actualWinners.length > 1;
-      
+
       let context = {
         winner: winner,
         bidAmount: bidAmount,
@@ -3047,34 +3445,34 @@
         timerWidth: getWidthPercent(timerElement),
         rowNumber: rowNumber,
         timestamp: timestampCell?.textContent?.trim(),
-        rollOffWinners: rollOffWinners,
-        rollOffBid: rollOffBid,
         noBid: noBid,
-        isTableStructure: true,
-        isRollOff: isRollOff,
-        multipleWinners: multipleWinners, // Only true if there are actually multiple winners
-        actualWinners: actualWinners.length > 0 ? actualWinners : undefined // Store actual winners for TTS
+        isTableStructure: true
       };
-      
+      context = applyWinnersToContext(context, rollOffWinners, rollOffBid, quantity, bidAmount);
+
       // Enhanced logging for roll-off detection debugging (table-based)
       log('=== ROLL-OFF DETECTION DEBUG (TABLE) ===');
-      log('Winner:', winner);
-      log('Bid amount:', bidAmount);
+      log('Winner:', context.winner);
+      log('Bid amount:', context.bidAmount);
       log('Quantity:', quantity);
-      log('All bidders found:', rollOffWinners);
-      log('Actual winners (highest bid):', actualWinners);
-      log('Roll-off bid:', rollOffBid);
-      log('Is roll-off?', isRollOff);
-      log('Multiple winners?', multipleWinners, `(${actualWinners.length} actual winner(s) out of ${rollOffWinners.length} bidder(s))`);
+      log('All bidders found:', context.rollOffWinners);
+      log('Actual winners (highest bid):', context.actualWinners);
+      log('Roll-off bid:', context.rollOffBid);
+      log('Is roll-off?', context.isRollOff);
+      log(
+        'Multiple winners?',
+        context.multipleWinners,
+        `(${(context.actualWinners || []).length} actual winner(s) out of ${(context.rollOffWinners || []).length} bidder(s))`
+      );
       log('Final context:', context);
-      
+
       // Capture DOM snapshot when roll-off is detected OR when multiple actual winners are found
-      if (isRollOff || multipleWinners) {
-        const reason = isRollOff ? 'roll-off-detected-table' : 'multiple-winners-detected-table';
+      if (context.isRollOff || context.multipleWinners) {
+        const reason = context.isRollOff ? 'roll-off-detected-table' : 'multiple-winners-detected-table';
         log('Capturing DOM snapshot for:', reason);
         captureDOMSnapshot(context, timerElement, reason);
       }
-      
+
       log('=== END ROLL-OFF DEBUG (TABLE) ===');
       // Sanitize stray winner prefixes in itemName
       if (context.itemName && context.winner) {
@@ -3084,7 +3482,7 @@
           context.itemName = n.substring(n.indexOf('-') + 1).trim();
         }
       }
-      
+
       log('Extracted table context:', context);
       return context;
       
@@ -3109,6 +3507,7 @@
     
     let message = '';
     // This is a safety net in case the context wasn't fully populated
+    reinforceContextForAnnouncement(context);
     if (context.multipleWinners && (!context.actualWinners || context.actualWinners.length === 0)) {
       log('TTS: multipleWinners is true but actualWinners is missing, reconstructing...');
       if (context.rollOffWinners && context.rollOffWinners.length > 0 && context.quantity && context.quantity > 1) {
@@ -3125,36 +3524,61 @@
     
     // Check if advanced TTS is enabled and use custom template
     if (settings.ENABLE_ADVANCED_TTS && settings.TTS_TEMPLATE) {
-      log('TTS: Advanced TTS enabled, context:', { multipleWinners: context.multipleWinners, actualWinners: context.actualWinners, winner: context.winner });
+      log('TTS: Advanced TTS enabled, context:', {
+        isRollOff: context.isRollOff,
+        multipleWinners: context.multipleWinners,
+        actualWinners: context.actualWinners,
+        winner: context.winner
+      });
       message = generateTTSMessage(settings.TTS_TEMPLATE, context);
       log('TTS: Using custom template, generated message:', message);
     } else {
-      log('TTS: Default TTS, context:', { multipleWinners: context.multipleWinners, actualWinners: context.actualWinners, winner: context.winner });
-      // Use default logic
-      // CRITICAL: Check multipleWinners FIRST (before roll-off) to ensure multi-item auctions are handled
-      if (context.multipleWinners && context.actualWinners && context.actualWinners.length > 1) {
+      log('TTS: Default TTS, context:', {
+        isRollOff: context.isRollOff,
+        multipleWinners: context.multipleWinners,
+        actualWinners: context.actualWinners,
+        winner: context.winner
+      });
+      // Roll-off first: tied high bids are not winners yet
+      if (context.isRollOff && context.rollOffWinners && context.rollOffWinners.length > 1) {
+        const participants = context.rollOffWinners.map(function (w) {
+          return w.winner || w;
+        }).join(', ');
+        message = `Roll-off for ${context.itemName}. Participants: ${participants}`;
+        log('TTS: Roll-off message:', message);
+      } else if (
+        context.multipleWinners &&
+        (context.quantity || 1) > 1 &&
+        context.actualWinners &&
+        context.actualWinners.length > 1
+      ) {
         // Multiple winners for multi-item auction
-        const winnersList = context.actualWinners.map(w => w.winner || w);
+        const winnersList = context.actualWinners.map(function (w) {
+          return w.winner || w;
+        });
         const winners = winnersList.join(', ');
         message = `Multiple winners for ${context.itemName}. Winners: ${winners}`;
         log('TTS: Multiple winners message (using actualWinners):', message);
-      } else if (context.isRollOff && context.rollOffWinners && context.rollOffWinners.length > 1) {
-        const participants = context.rollOffWinners.map(w => w.winner || w).join(', ');
-        message = `Roll-off for ${context.itemName}. Participants: ${participants}`;
       } else if (context.multipleWinners) {
         // Use actualWinners if available (most accurate), otherwise reconstruct from rollOffWinners
         let winnersList = [];
         if (context.actualWinners && context.actualWinners.length > 0) {
-          // Use the pre-calculated actual winners (most accurate)
-          winnersList = context.actualWinners.map(w => w.winner || w);
+          winnersList = context.actualWinners.map(function (w) {
+            return w.winner || w;
+          });
           log('TTS: Using actualWinners from context:', winnersList);
         } else if (context.rollOffWinners && context.rollOffWinners.length > 0 && context.quantity) {
-          // Fallback: Sort by bid descending and take top N
-          const sorted = [...context.rollOffWinners].sort((a, b) => (b.bid || 0) - (a.bid || 0));
-          winnersList = sorted.slice(0, context.quantity).map(w => w.winner || w);
+          const sorted = [...context.rollOffWinners].sort(function (a, b) {
+            return (b.bid || 0) - (a.bid || 0);
+          });
+          winnersList = sorted.slice(0, context.quantity).map(function (w) {
+            return w.winner || w;
+          });
           log('TTS: Reconstructed winners from rollOffWinners:', winnersList);
         } else if (context.rollOffWinners) {
-          winnersList = context.rollOffWinners.map(w => w.winner || w);
+          winnersList = context.rollOffWinners.map(function (w) {
+            return w.winner || w;
+          });
           log('TTS: Using all rollOffWinners:', winnersList);
         }
         const winners = winnersList.join(', ');
@@ -3237,23 +3661,49 @@
    * Generate TTS message from template
    */
   function generateTTSMessage(template, context) {
+    // Stock / winner-only templates still need a roll-off announcement when tied
+    if (context.isRollOff && context.rollOffWinners && context.rollOffWinners.length > 1) {
+      const participants = context.rollOffWinners
+        .map(function (w) {
+          return w.winner || w;
+        })
+        .join(', ');
+      const rollOffMessage = `Roll-off for ${context.itemName || 'Unknown Item'}. Participants: ${participants}`;
+      if (
+        !template ||
+        !/\{isRollOff\}|\{winners\}/i.test(template) ||
+        /Auction Finished\.\s*\{winner\}/i.test(template)
+      ) {
+        log('TTS Template: Using roll-off message instead of winner template:', rollOffMessage);
+        return rollOffMessage;
+      }
+    }
+
     let message = template;
-    
-    // Handle winners list FIRST - prioritize actualWinners if multiple winners
+
+    // Handle winners / participants list
     let winnersList = 'Unknown';
-    if (context.multipleWinners && context.actualWinners && context.actualWinners.length > 0) {
-      // Multiple winners: use actualWinners
-      winnersList = context.actualWinners.map(w => w.winner || w).join(', ');
+    if (context.isRollOff && context.rollOffWinners && context.rollOffWinners.length > 0) {
+      winnersList = context.rollOffWinners.map(function (w) {
+        return w.winner || w;
+      }).join(', ');
+    } else if (context.multipleWinners && context.actualWinners && context.actualWinners.length > 0) {
+      winnersList = context.actualWinners.map(function (w) {
+        return w.winner || w;
+      }).join(', ');
       log('TTS Template: Using actualWinners for multiple winners:', winnersList);
     } else if (context.rollOffWinners && context.rollOffWinners.length > 0) {
-      winnersList = context.rollOffWinners.map(w => w.winner || w).join(', ');
+      winnersList = context.rollOffWinners.map(function (w) {
+        return w.winner || w;
+      }).join(', ');
     } else if (context.winner) {
       winnersList = context.winner;
     }
-    
+
     // Replace variables
-    // If multiple winners, replace {winner} with winners list for better UX
-    if (context.multipleWinners && context.actualWinners && context.actualWinners.length > 1) {
+    if (context.isRollOff) {
+      message = message.replace(/\{winner\}/g, winnersList);
+    } else if (context.multipleWinners && context.actualWinners && context.actualWinners.length > 1) {
       message = message.replace(/\{winner\}/g, winnersList);
     } else {
       message = message.replace(/\{winner\}/g, context.winner || 'Unknown');
@@ -3261,12 +3711,16 @@
     message = message.replace(/\{bidAmount\}/g, context.bidAmount || '0');
     message = message.replace(/\{itemName\}/g, context.itemName || 'Unknown Item');
     message = message.replace(/\{winners\}/g, winnersList);
-    
+
     message = message.replace(/\{isRollOff\}/g, context.isRollOff ? 'true' : 'false');
     message = message.replace(/\{multipleWinners\}/g, context.multipleWinners ? 'true' : 'false');
-    
-    log('TTS Template: Generated message:', message, 'Context:', { multipleWinners: context.multipleWinners, actualWinners: context.actualWinners });
-    
+
+    log('TTS Template: Generated message:', message, 'Context:', {
+      isRollOff: context.isRollOff,
+      multipleWinners: context.multipleWinners,
+      actualWinners: context.actualWinners
+    });
+
     return message;
   }
 
@@ -3285,6 +3739,8 @@
       done();
       return;
     }
+
+    reinforceContextForAnnouncement(context);
     
     // Final cleanup: Remove any leading bid amounts from item name before showing notification
     // This is a safety net in case the item name wasn't cleaned during extraction

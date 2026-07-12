@@ -139,6 +139,7 @@ const DEFAULT_SETTINGS = {
   autoBidPollIntervalSec: 15,
   autoBidPriority: 1,
   autoBidRules: [],
+  itemPriceHistoryEnabled: true,
   disableVisuals: false,
   flashScreen: true,
   browserNotifications: true,
@@ -899,7 +900,8 @@ function applyCriticalSettingsMirror(target, mirror) {
     'autoBidEnabled',
     'autoBidIncrement',
     'autoBidPollIntervalSec',
-    'autoBidRules'
+    'autoBidRules',
+    'itemPriceHistoryEnabled'
   ];
   keys.forEach(function(key) {
     if (isEmptySettingValue(target[key]) && !isEmptySettingValue(mirror[key])) {
@@ -964,6 +966,7 @@ function collectCriticalSettingsFromUI() {
       return Number.isNaN(n) || n < 5 ? 15 : n;
     })(),
     autoBidRules: autoBidReadRulesFromUI(),
+    itemPriceHistoryEnabled: getChecked('itemPriceHistoryEnabled', currentSettings.itemPriceHistoryEnabled !== false),
     savedAt: Date.now()
   };
 }
@@ -1625,6 +1628,7 @@ function collectAutoBidSettingsFromUI() {
     autoBidPollIntervalSec: Number.isNaN(pollSec) || pollSec < 5 ? 15 : pollSec,
     autoBidPriority: currentSettings.autoBidPriority != null ? currentSettings.autoBidPriority : 1,
     autoBidRules: autoBidReadRulesFromUI(),
+    itemPriceHistoryEnabled: getChecked('itemPriceHistoryEnabled', currentSettings.itemPriceHistoryEnabled !== false),
     opendkpClientSlug: rawSlug === '' ? '' : normSlug || currentSettings.opendkpClientSlug || ''
   };
 }
@@ -1793,6 +1797,14 @@ function wireAutoBidUi() {
     enabledChk.addEventListener('change', function () {
       currentSettings.autoBidEnabled = this.checked;
       updateAutoBidDetailsVisibility();
+      persistAutoBidSettings({ silent: true });
+    });
+  }
+
+  const priceHistoryChk = document.getElementById('itemPriceHistoryEnabled');
+  if (priceHistoryChk) {
+    priceHistoryChk.addEventListener('change', function () {
+      currentSettings.itemPriceHistoryEnabled = this.checked;
       persistAutoBidSettings({ silent: true });
     });
   }
@@ -3138,6 +3150,10 @@ function applySettingsToUI() {
   updateWatchlistSettings();
   const autoBidEnabledEl = document.getElementById('autoBidEnabled');
   if (autoBidEnabledEl) autoBidEnabledEl.checked = !!currentSettings.autoBidEnabled;
+  const itemPriceHistoryEl = document.getElementById('itemPriceHistoryEnabled');
+  if (itemPriceHistoryEl) {
+    itemPriceHistoryEl.checked = currentSettings.itemPriceHistoryEnabled !== false;
+  }
   const autoBidIncrementEl = document.getElementById('autoBidIncrement');
   if (autoBidIncrementEl) {
     autoBidIncrementEl.value = String(currentSettings.autoBidIncrement != null ? currentSettings.autoBidIncrement : 10);
@@ -4864,6 +4880,7 @@ function saveSettings() {
       return Number.isNaN(n) || n < 5 ? 15 : n;
     })(),
     autoBidPriority: currentSettings.autoBidPriority != null ? currentSettings.autoBidPriority : 1,
+    itemPriceHistoryEnabled: getChecked('itemPriceHistoryEnabled', currentSettings.itemPriceHistoryEnabled !== false),
     autoBidRules: autoBidReadRulesFromUI(),
     disableVisuals: getChecked('disableVisuals', currentSettings.disableVisuals),
     raidLeaderNotification: getChecked('raidLeaderNotification', currentSettings.raidLeaderNotification),

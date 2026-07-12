@@ -2,7 +2,7 @@
 // This ensures the browser API is available
 
 try {
-  importScripts('lib/opendkp-api.js', 'lib/raid-context.js', 'lib/auto-bid.js');
+  importScripts('lib/opendkp-api.js', 'lib/raid-context.js', 'lib/bid-participation.js', 'lib/auto-bid.js');
 } catch (_) {
   /* Firefox loads lib scripts via manifest background.scripts */
 }

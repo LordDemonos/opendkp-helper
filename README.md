@@ -2,7 +2,7 @@
 
 Browser extension for [opendkp.com](https://opendkp.com): auction alerts, optional auto-bid, and raid-leader tools for RaidTick reminders, EQ loot monitoring, and OpenDKP API raids.
 
-Works in **Chrome**, **Edge**, and **Firefox**. Current version: **2.5.0**.
+Works in **Chrome**, **Edge**, and **Firefox**. Current version: **2.6.2**.
 
 ![Extension popup](assets/images/Popup.png)
 
@@ -14,6 +14,7 @@ OpenDKP Helper runs while you use opendkp.com. It can:
 
 - Alert when auction timers hit zero (sound, screen flash, desktop notification, or TTS).
 - Auto-bid on items you care about through the OpenDKP API (with guild rank bid limits).
+- While you are bidding, show **price history** in the popup (past wins, estimate, and a small chart) so you can avoid overspending DKP.
 - For **raiders**: notify only when *your* character wins an auction you joined.
 - For **raid leaders**: monitor EQ loot logs, queue items to bidding, manage tonight’s raid, and stage RaidTick uploads from the popup.
 
@@ -32,6 +33,10 @@ Pick **Raid Leader** or **Raider**, and light / dark / system theme. Settings us
 ### Bidding (auto-bid)
 
 Available in both profiles. Sign in once (raid leaders reuse OpenDKP Raids credentials). Add per-item rules: name match, max DKP, character, and rank. The extension polls active auctions, bids in your increment, accelerates to every **2 seconds** in the last 30 seconds, and can place an **all-in** bid up to your max when a full increment would overshoot. Rules turn off when you win that item. Rank bid limits sync from your guild’s Bid Rules on opendkp.com.
+
+**Price history** — When you are bidding on an item (manually or via auto-bid), open the extension popup to see past Bid Results wins for that item (full history), an estimated close price (median of the last 8 wins), a compact price chart, and a winner / amount / date list. Toggle under Settings → Bidding (on by default). Requires API sign-in.
+
+![Price history in popup](assets/images/PriceHistory.png)
 
 ![Bidding settings](assets/images/Bidding.png)
 
@@ -75,7 +80,7 @@ Scheduled RaidTick reminders (`/outputfile raidlist`) with a master on/off switc
 
 ### Popup — raid night controls
 
-Volume, status, API session refresh, raid picker, per-tick RaidTick queue (review names, then upload), and today’s Loot Parser with Copy / Queue / Post all.
+Volume, status, API session refresh, raid picker, per-tick RaidTick queue (review names, then upload), today's Loot Parser with Copy / Queue / Post all, and price history while you are bidding (see **Bidding** above).
 
 ![Popup RaidTick queue](assets/images/PopupRaidTick.png)
 

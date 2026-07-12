@@ -54,6 +54,7 @@ function demoSync() {
     autoBidIncrement: 10,
     autoBidPollIntervalSec: 15,
     autoBidPriority: 1,
+    itemPriceHistoryEnabled: true,
     autoBidRules: [
       {
         id: 'rule-demo-1',
@@ -152,7 +153,46 @@ function demoSync() {
   };
 }
 
+function demoPriceHistoryWins() {
+  const rows = [
+    ['07/12/2026', 'Bob', 395],
+    ['07/05/2026', 'Carol', 380],
+    ['06/28/2026', 'Alice', 410],
+    ['06/21/2026', 'Demochar', 365],
+    ['06/14/2026', 'Eve', 390],
+    ['06/07/2026', 'Frank', 375],
+    ['05/31/2026', 'Grace', 420],
+    ['05/24/2026', 'Henry', 360],
+    ['05/17/2026', 'Ivy', 385],
+    ['05/10/2026', 'Jack', 370]
+  ];
+  return rows.map((row, i) => {
+    const [date, winnerName, bidAmount] = row;
+    const parts = date.split('/');
+    const dateMs = Date.parse(`${parts[2]}-${parts[0]}-${parts[1]}T12:00:00Z`);
+    return {
+      itemName: 'Ring of the Ancients',
+      itemId: 88001,
+      auctionId: 8800 + i,
+      date,
+      dateMs: Number.isNaN(dateMs) ? Date.now() - i * 7 * 86400000 : dateMs,
+      winnerName,
+      bidAmount
+    };
+  });
+}
+
 function demoLocal() {
+  const priceWins = demoPriceHistoryWins();
+  const priceAmounts = priceWins.map((w) => w.bidAmount);
+  const sortedAmounts = priceAmounts.slice().sort((a, b) => a - b);
+  const mid = Math.floor(sortedAmounts.length / 2);
+  const median =
+    sortedAmounts.length % 2 === 0
+      ? Math.round((sortedAmounts[mid - 1] + sortedAmounts[mid]) / 2)
+      : sortedAmounts[mid];
+  const windowMedian = median;
+
   return {
     autoBidCharactersCache: {
       fetchedAt: Date.now(),
@@ -191,7 +231,36 @@ function demoLocal() {
     opendkpIdToken: 'demo.header.payload',
     opendkpAccessToken: 'demo.access.token',
     opendkpRefreshToken: 'demo.refresh.token',
-    opendkpTokenExpiresAtMs: Date.now() + 7 * 24 * 60 * 60 * 1000
+    opendkpTokenExpiresAtMs: Date.now() + 7 * 24 * 60 * 60 * 1000,
+    bidParticipationSnapshot: {
+      updatedAt: Date.now(),
+      clientSlug: 'demoguild',
+      items: [
+        {
+          itemName: 'Ring of the Ancients',
+          source: 'auto-bid',
+          auctionId: 5001,
+          itemId: 88001,
+          characterName: 'Demochar',
+          myHighBid: 320,
+          endTimestamp: new Date(Date.now() + 120000).toISOString()
+        }
+      ]
+    },
+    itemPriceHistoryCache: {
+      'demoguild|ring of the ancients': {
+        fetchedAt: Date.now(),
+        wins: priceWins,
+        stats: {
+          estimate: windowMedian,
+          last: priceWins[0].bidAmount,
+          median,
+          high: Math.max(...priceAmounts),
+          count: priceWins.length
+        },
+        meta: { strategy: 'auctions', includeAll: true, fromCache: false, lookupName: 'Ring of the Ancients' }
+      }
+    }
   };
 }
 
@@ -450,8 +519,15 @@ async function main() {
     await seedStorage(popup);
     await popup.reload({ waitUntil: 'networkidle0' });
     await wait(2000);
+    await popup.evaluate(async () => {
+      if (window.PopupItemPriceHistory && window.PopupItemPriceHistory.init) {
+        await window.PopupItemPriceHistory.init();
+      }
+    });
+    await wait(1200);
     await popup.screenshot({ path: path.join(OUT, 'Popup.png'), fullPage: true });
     console.log('[ok] Popup.png');
+    await shotClip(popup, ['#itemPriceHistorySection'], 'PriceHistory.png', 10);
     await shotEl(popup, '#eqLogSection', 'LootParser.png');
     await shotClip(popup, ['#apiSessionRow', '#apiRaidtickQueueRow', '#apiRaidtickSlotPanel'], 'PopupRaidTick.png', 8);
     await popup.close();

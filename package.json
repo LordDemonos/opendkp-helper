@@ -1,6 +1,6 @@
 {
   "name": "opendkp-helper",
-  "version": "2.5.0",
+  "version": "2.6.2",
   "private": true,
   "description": "OpenDKP Helper extension - test runner",
   "scripts": {

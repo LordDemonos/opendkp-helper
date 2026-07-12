@@ -1052,6 +1052,13 @@
                     <label for="autoBidEnabled">Enable automatic bidding via API:</label>
                     <input type="checkbox" id="autoBidEnabled">
                 </div>
+                <div class="setting-row" id="itemPriceHistoryRow">
+                    <label for="itemPriceHistoryEnabled">Show item price history in popup while bidding:</label>
+                    <input type="checkbox" id="itemPriceHistoryEnabled" checked>
+                </div>
+                <div class="description" id="itemPriceHistoryDescription">
+                    When one of your characters is bidding (auto-bid or Bidding Tool), the extension popup shows past wins for that item from Bid Results (Include All), with an estimated value and a small price chart. Requires API sign-in.
+                </div>
                 <div id="autoBidDetails" style="display:none;">
                     <div id="autoBidRaiderApiBlock">
                         <p class="description">Sign in with your OpenDKP account (same as the website). Credentials are stored locally and shared with Raid Leader API tools if you switch modes.</p>
@@ -1508,7 +1515,7 @@
 
         <div class="footer">
             <div class="footer-content">
-                <span class="footer-text">OpenDKP Helper v2.5.0</span>
+                <span class="footer-text">OpenDKP Helper v2.6.2</span>
                 <span class="footer-separator">•</span>
                 <a href="https://github.com/LordDemonos/opendkp-helper" target="_blank" rel="noopener" class="footer-link">GitHub</a>
                 <span class="footer-separator">•</span>

@@ -376,6 +376,9 @@ function initializePopup() {
       if (window.PopupApiSession) {
         PopupApiSession.init({ isRaidLeader: true });
       }
+      if (window.PopupItemPriceHistory) {
+        PopupItemPriceHistory.init();
+      }
       // Will initialize after settings are processed
       setTimeout(() => {
         initializeEQLogParser(settings);
@@ -386,6 +389,9 @@ function initializePopup() {
       }
       if (window.PopupApiSession) {
         PopupApiSession.init({ isRaidLeader: false });
+      }
+      if (window.PopupItemPriceHistory) {
+        PopupItemPriceHistory.init();
       }
     }
     

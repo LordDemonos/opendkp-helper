@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versioning follows the **same semver** as `manifest.json` (single version for Firefox and Chrome packages).
 
+## [2.6.2] - 2026-07-12
+
+### Added
+
+- **Item price history in popup** — While you are bidding (auto-bid or Bidding Tool), the popup shows past Bid Results wins for that item (Include All / full history), an estimated value (median of the last 8 wins), a compact SVG price chart, and a winner / amount / date list. Raiders and Raid Leaders; toggle under Settings → Bidding (on by default). Requires API sign-in.
+- **Bid participation tracking** — Content script watches the Bidding Tool for items you are bidding on and shares that snapshot with the popup so price history knows which item to load.
+
+### Fixed
+
+- **Roll-off auctions** — Auction completion detection handles roll-off winners so alerts and auto-bid rule disable behave correctly.
+
+### Changed
+
+- **README** — Documents price history with a new popup screenshot (`PriceHistory.png`, demo data only).
+
 ## [2.5.0] - 2026-07-12
 
 ### Added

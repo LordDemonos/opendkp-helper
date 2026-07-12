@@ -417,6 +417,9 @@ function initializePopup() {
       if (window.PopupApiSession) {
         PopupApiSession.init({ isRaidLeader: true });
       }
+      if (window.PopupItemPriceHistory) {
+        PopupItemPriceHistory.init();
+      }
       initializeEQLogParser(settings);
     } else {
       console.log('Hiding EQ Log section (not Raid Leader)');
@@ -426,6 +429,9 @@ function initializePopup() {
       }
       if (window.PopupApiSession) {
         PopupApiSession.init({ isRaidLeader: false });
+      }
+      if (window.PopupItemPriceHistory) {
+        PopupItemPriceHistory.init();
       }
     }
     

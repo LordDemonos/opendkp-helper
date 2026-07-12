@@ -47,11 +47,14 @@
     await loadScript('lib/eqlog-parse.js');
     await loadScript('lib/popup-notify.js');
     await loadScript('lib/opendkp-api.js');
+    await loadScript('lib/bid-participation.js');
+    await loadScript('lib/item-price-history.js');
     await loadScript('lib/raidtick-parse.js');
     await loadScript('lib/loot-queue.js');
     await loadScript('lib/raidtick-queue.js');
     await loadScript('lib/raid-context.js');
     await loadScript('lib/popup-api-session.js');
+    await loadScript('lib/popup-item-price-history.js');
     const popupSrc = isFirefoxBrowser() ? 'popup-firefox.js' : 'popup.js';
     await loadScript(popupSrc);
   }

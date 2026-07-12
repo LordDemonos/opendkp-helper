@@ -1001,6 +1001,155 @@
     body.dark-mode div[style*="font-size: 10px"] {
       color: #b0b0b0 !important;
     }
+
+    /* Item price history (bidding comps) */
+    .iph-section {
+      margin: 8px 0 4px;
+      padding: 8px 10px;
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      background: #f6f8fa;
+    }
+    .iph-section h3 {
+      margin: 0 0 6px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .iph-switcher {
+      margin-bottom: 6px;
+    }
+    .iph-switcher select {
+      width: 100%;
+      font-size: 12px;
+      padding: 4px 6px;
+    }
+    .iph-title {
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 4px;
+      word-break: break-word;
+    }
+    .iph-stats {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      margin-bottom: 6px;
+      font-size: 11px;
+    }
+    .iph-est {
+      font-weight: 700;
+      font-size: 13px;
+      color: #1a7f37;
+    }
+    .iph-stat-sec {
+      color: #57606a;
+    }
+    .iph-chart {
+      margin: 4px 0 8px;
+      min-height: 0;
+    }
+    .iph-chart-svg {
+      display: block;
+      max-width: 100%;
+    }
+    .iph-chart-line {
+      fill: none !important;
+      stroke: #8b9cb3;
+      stroke-width: 1.5;
+      stroke-linejoin: round;
+      stroke-linecap: round;
+    }
+    .iph-chart-dot {
+      stroke: none;
+    }
+    .iph-chart-dot--low {
+      fill: #1a7f37;
+    }
+    .iph-chart-dot--mid {
+      fill: #0969da;
+    }
+    .iph-chart-dot--high {
+      fill: #bf8700;
+    }
+    .iph-chart-guide {
+      stroke: #1a7f37;
+      stroke-width: 1;
+      stroke-dasharray: 4 3;
+      opacity: 0.85;
+    }
+    .iph-chart-axis {
+      font-size: 9px;
+      fill: #57606a;
+    }
+    .iph-list {
+      max-height: 140px;
+      overflow-y: auto;
+      font-size: 11px;
+      padding-right: 10px;
+      scrollbar-gutter: stable;
+    }
+    .iph-row {
+      display: grid;
+      grid-template-columns: 72px 1fr 44px;
+      gap: 6px;
+      padding: 3px 4px 3px 0;
+      border-bottom: 1px solid #eaeef2;
+    }
+    .iph-row:last-child {
+      border-bottom: none;
+    }
+    .iph-date { color: #57606a; }
+    .iph-winner { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .iph-amount { text-align: right; font-weight: 600; padding-right: 2px; }
+    .iph-empty {
+      color: #57606a;
+      font-size: 11px;
+      padding: 6px 0;
+    }
+    body.dark-mode .iph-section {
+      background: #1e2a38;
+      border-color: #355070;
+    }
+    body.dark-mode .iph-section h3,
+    body.dark-mode .iph-title {
+      color: #e8edf4;
+    }
+    body.dark-mode .iph-est { color: #3fb950; }
+    body.dark-mode .iph-stat-sec,
+    body.dark-mode .iph-date,
+    body.dark-mode .iph-empty,
+    body.dark-mode .iph-chart-axis {
+      color: #90a4b8;
+      fill: #90a4b8;
+    }
+    body.dark-mode .iph-row {
+      border-bottom-color: #355070;
+    }
+    body.dark-mode .iph-winner,
+    body.dark-mode .iph-amount {
+      color: #e8edf4;
+    }
+    body.dark-mode .iph-chart-line {
+      stroke: #6e7f96;
+      fill: none !important;
+    }
+    body.dark-mode .iph-chart-dot--low {
+      fill: #3fb950;
+    }
+    body.dark-mode .iph-chart-dot--mid {
+      fill: #58a6ff;
+    }
+    body.dark-mode .iph-chart-dot--high {
+      fill: #d4a72c;
+    }
+    body.dark-mode .iph-chart-guide {
+      stroke: #3fb950;
+    }
+    body.dark-mode .iph-switcher select {
+      background: #263548;
+      color: #e8edf4;
+      border-color: #355070;
+    }
   </style>
 </head>
 <body>
@@ -1044,7 +1193,18 @@
     <div id="apiRaidtickSlotPanel" class="api-raidtick-slot-panel" hidden></div>
     <div id="apiSessionHint" class="api-session-hint"></div>
   </div>
-  
+
+  <div id="itemPriceHistorySection" class="iph-section" style="display: none;">
+    <h3>Price history</h3>
+    <div id="itemPriceHistorySwitcher" class="iph-switcher" hidden>
+      <select id="itemPriceHistorySelect" title="Item you are bidding on"></select>
+    </div>
+    <div id="itemPriceHistoryTitle" class="iph-title"></div>
+    <div id="itemPriceHistoryStats" class="iph-stats"></div>
+    <div id="itemPriceHistoryChart" class="iph-chart" hidden></div>
+    <div id="itemPriceHistoryHint" class="api-session-hint"></div>
+    <div id="itemPriceHistoryList" class="iph-list"></div>
+  </div>
   
   <div id="eqLogSection" class="eq-log-section" style="display: none;">
     <div style="margin-bottom: 12px;">
