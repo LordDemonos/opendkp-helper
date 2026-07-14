@@ -524,6 +524,8 @@
     var name = String(raw || '').replace(/\s+/g, ' ').trim();
     if (!name) return '';
     name = name.replace(/\s*x\s*\d+\s*$/i, '').trim();
+    name = name.replace(/\s*[×xX]\s*\d+\s*$/i, '').trim();
+    name = name.replace(/\s*\(\d+\)\s*$/g, '').trim();
 
     (characterNames || []).forEach(function (charName) {
       var c = String(charName || '').trim();
@@ -546,6 +548,9 @@
       name = bidPrefix[1].trim();
     }
 
+    name = name.replace(/\s*x\s*\d+\s*$/i, '').trim();
+    name = name.replace(/\s*[×xX]\s*\d+\s*$/i, '').trim();
+    name = name.replace(/\s*\(\d+\)\s*$/g, '').trim();
     return name;
   }
 
@@ -554,11 +559,16 @@
     // Prefer Magelo / item links — their text is the clean item name
     var link = container.querySelector('a[href*="/items/"], a[rel*="eq:item"], a[rel^="eq:item"]');
     if (link && link.textContent) {
-      return String(link.textContent || '').replace(/\s+/g, ' ').trim();
+      return String(link.textContent || '')
+        .replace(/\s+/g, ' ')
+        .replace(/\s*\(\d+\)\s*$/g, '')
+        .replace(/\s*x\s*\d+\s*$/i, '')
+        .trim();
     }
     var text = (container.textContent || '').replace(/\s+/g, ' ').trim();
     if (!text) return '';
     text = text.replace(/\s*x\s*\d+\s*$/i, '').trim();
+    text = text.replace(/\s*\(\d+\)\s*$/g, '').trim();
     var lines = text.split(/\s{2,}|\n/).map(function (l) {
       return l.trim();
     }).filter(Boolean);

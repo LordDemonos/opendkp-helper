@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versioning follows the **same semver** as `manifest.json` (single version for Firefox and Chrome packages).
 
+## [2.6.3] - 2026-07-14
+
+### Added
+
+- **Price history Search…** — The popup price history panel stays available (not only while you are bidding). Choose **Search…** in the item dropdown for an empty field (same pattern as Create a raid) to look up any item’s Bid Results history. Autocomplete resolves the OpenDKP item name when possible.
+
+### Changed
+
+- **Active auction list** — Price history dropdown lists all active auctions (not only items you are bidding on); your characters are still tagged when detected.
+
+### Fixed
+
+- **Stack quantity in item names** — Trailing `(2)` / `x 2` / `×2` is stripped before price history lookup so multi-qty auctions match the bare item name.
+
 ## [2.6.2] - 2026-07-12
 
 ### Added
