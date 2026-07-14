@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versioning follows the **same semver** as `manifest.json` (single version for Firefox and Chrome packages).
 
+## [2.6.4] - 2026-07-14
+
+### Fixed
+
+- **Raid tick upload wiping loot costs** — End-of-night tick uploads re-posted raid `Items` with the wrong cost field (`DkpValue` instead of `Dkp`) and dropped `Notes`, which zeroed auction awards and cleared “Auto Assigned from Auctions …” notes. Items now round-trip `Dkp`, `Notes`, `ItemId`, `CharacterId`, and `GameItemId` correctly.
+
 ## [2.6.3] - 2026-07-14
 
 ### Added
