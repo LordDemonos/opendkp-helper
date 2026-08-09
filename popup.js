@@ -336,16 +336,10 @@ function initializePopup() {
         openLootMonitorBtn.style.display = 'inline-flex';
         openLootMonitorBtn.addEventListener('click', async function(){
           try {
-            const win = await api.windows.create({ 
-              url: api.runtime.getURL('eqlog-monitor.html'), 
-              type: 'popup', 
-              width: 520, 
-              height: 360 
-            });
-            await api.storage.sync.set({ 
-              eqLogMonitoring: true, 
-              eqLogMonitorWindowId: win.id 
-            });
+            const resp = await api.runtime.sendMessage({ type: 'openLootMonitor' });
+            if (resp && resp.ok === false) {
+              throw new Error(resp.error || 'Failed to open loot monitor');
+            }
           } catch (error) {
             console.error('Error opening loot monitor:', error);
             if (statusDiv && statusText) {

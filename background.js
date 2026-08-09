@@ -877,6 +877,15 @@ console.log('🔵 Background script executing at:', new Date().toISOString());
         }
         return { ok: false, error: 'Raid resolver not loaded' };
       }
+      if (msg && msg.type === 'getActiveAuctionsSnapshot') {
+        var snapFn =
+          (typeof self !== 'undefined' && self.OpenDkpFetchActiveAuctionsSnapshot) ||
+          (typeof globalThis !== 'undefined' && globalThis.OpenDkpFetchActiveAuctionsSnapshot);
+        if (typeof snapFn === 'function') {
+          return snapFn();
+        }
+        return { ok: false, error: 'Auction snapshot not loaded' };
+      }
       if (msg && msg.type === 'ackReminder') {
         const { id, ts } = msg;
         try { console.log('[ODKP Reminder] Received acknowledgment for', id, 'at', new Date(ts || Date.now()).toLocaleTimeString()); } catch(_) {}
@@ -1010,6 +1019,128 @@ console.log('🔵 Background script executing at:', new Date().toISOString());
   } catch(e) { console.warn('Reminder scheduler init failed', e); }
 })();
 
+// Loot Monitor window: open-or-focus singleton (popup / options entry points)
+(function () {
+  const api = typeof browser !== 'undefined' ? browser : chrome;
+
+  function getLootMonitorPageUrl() {
+    try {
+      return api.runtime.getURL('eqlog-monitor.html');
+    } catch (_) {
+      return 'eqlog-monitor.html';
+    }
+  }
+
+  function lootMonitorUrlMatches(url) {
+    return !!(url && typeof url === 'string' && url.includes('eqlog-monitor.html'));
+  }
+
+  /** Find open Loot Monitor popup windows/tabs (survives background restarts). */
+  async function findLootMonitorTargets() {
+    const targets = [];
+    const seen = new Set();
+    try {
+      if (api.windows && api.windows.getAll) {
+        const wins = await api.windows.getAll({ populate: true });
+        for (const win of wins) {
+          if (!win || win.id == null) continue;
+          for (const tab of (win.tabs || [])) {
+            if (tab && lootMonitorUrlMatches(tab.url)) {
+              const key = 'window:' + win.id;
+              if (!seen.has(key)) {
+                seen.add(key);
+                targets.push({ type: 'window', id: win.id, tabId: tab.id });
+              }
+              break;
+            }
+          }
+        }
+      }
+      if (api.tabs && api.tabs.query) {
+        let tabs = [];
+        try {
+          tabs = await api.tabs.query({ url: getLootMonitorPageUrl() });
+        } catch (_) {
+          try {
+            tabs = await api.tabs.query({ url: getLootMonitorPageUrl() + '*' });
+          } catch (__) {
+            tabs = [];
+          }
+        }
+        for (const tab of tabs) {
+          if (!tab || tab.id == null || !lootMonitorUrlMatches(tab.url)) continue;
+          const key = tab.windowId != null ? 'window:' + tab.windowId : 'tab:' + tab.id;
+          if (!seen.has(key)) {
+            seen.add(key);
+            if (tab.windowId != null) {
+              targets.push({ type: 'window', id: tab.windowId, tabId: tab.id });
+            } else {
+              targets.push({ type: 'tab', id: tab.id, tabId: tab.id });
+            }
+          }
+        }
+      }
+    } catch (e) {
+      try { console.warn('[ODKP LootMonitor] findLootMonitorTargets error', e); } catch (_) {}
+    }
+    return targets;
+  }
+
+  async function openOrFocusLootMonitor() {
+    const existing = await findLootMonitorTargets();
+    if (existing.length > 0) {
+      const target = existing[0];
+      try {
+        if (target.tabId != null && api.tabs && api.tabs.update) {
+          await api.tabs.update(target.tabId, { active: true });
+        }
+        if (target.type === 'window' && api.windows && api.windows.update) {
+          await api.windows.update(target.id, { focused: true });
+        }
+        const windowId = target.type === 'window' ? target.id : (target.id != null ? target.id : null);
+        await api.storage.sync.set({ eqLogMonitoring: true, eqLogMonitorWindowId: windowId });
+        return { ok: true, focused: true, windowId };
+      } catch (e) {
+        try { console.warn('[ODKP LootMonitor] focus existing failed, creating new', e); } catch (_) {}
+      }
+    }
+
+    if (!api.windows || !api.windows.create) {
+      return { ok: false, error: 'windows API not available' };
+    }
+    const win = await api.windows.create({
+      url: api.runtime.getURL('eqlog-monitor.html'),
+      type: 'popup',
+      width: 520,
+      height: 360
+    });
+    await api.storage.sync.set({
+      eqLogMonitoring: true,
+      eqLogMonitorWindowId: win && win.id != null ? win.id : null
+    });
+    return { ok: true, created: true, windowId: win && win.id != null ? win.id : null };
+  }
+
+  if (api.runtime && api.runtime.onMessage) {
+    api.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
+      if (!msg || msg.type !== 'openLootMonitor') return false;
+      openOrFocusLootMonitor()
+        .then(function (result) {
+          if (sendResponse) sendResponse(result || { ok: true });
+        })
+        .catch(function (err) {
+          if (sendResponse) {
+            sendResponse({
+              ok: false,
+              error: err && err.message ? err.message : String(err)
+            });
+          }
+        });
+      return true;
+    });
+  }
+})();
+
 // Auto-bid API runner (background context)
 (function () {
   var api = typeof browser !== 'undefined' ? browser : chrome;
@@ -1053,6 +1184,151 @@ console.log('🔵 Background script executing at:', new Date().toISOString());
       api.storage.sync.get(keys, function (r) {
         resolve(r || {});
       });
+    });
+  }
+
+  function readBidCharacterName(bid) {
+    if (!bid || typeof bid !== 'object') return '';
+    var name =
+      bid.CharacterName != null
+        ? bid.CharacterName
+        : bid.characterName != null
+          ? bid.characterName
+          : bid.Name != null
+            ? bid.Name
+            : bid.name != null
+              ? bid.name
+              : '';
+    return String(name || '').trim();
+  }
+
+  function coerceAuctionBids(auction) {
+    if (!auction || typeof auction !== 'object') return [];
+    var raw = auction.Bids || auction.bids || auction.BidList || [];
+    return Array.isArray(raw) ? raw : [];
+  }
+
+  function snapshotRowFromAuction(auction) {
+    if (!auction || typeof auction !== 'object') return null;
+    var auctionId = null;
+    var idRaw =
+      auction.AuctionId != null ? auction.AuctionId : auction.Id != null ? auction.Id : auction.id;
+    if (idRaw != null && idRaw !== '') {
+      var idN = parseInt(String(idRaw), 10);
+      if (!Number.isNaN(idN) && idN > 0) auctionId = idN;
+    }
+    var itemName = '';
+    if (auction.Item && auction.Item.Name) itemName = String(auction.Item.Name);
+    else if (auction.ItemName) itemName = String(auction.ItemName);
+    else if (auction.Name) itemName = String(auction.Name);
+    itemName = itemName.trim();
+    if (!itemName) return null;
+
+    var endMs =
+      typeof AutoBid !== 'undefined' && AutoBid.readAuctionEndMs
+        ? AutoBid.readAuctionEndMs(auction)
+        : null;
+    var qty =
+      typeof AutoBid !== 'undefined' && AutoBid.readAuctionQuantity
+        ? AutoBid.readAuctionQuantity(auction)
+        : 1;
+    var bids = coerceAuctionBids(auction);
+    var highBid = 0;
+    var highBidderName = '';
+    if (typeof AutoBid !== 'undefined' && AutoBid.analyzeBids) {
+      var analysis = AutoBid.analyzeBids(bids, -1, qty);
+      highBid = analysis && analysis.highBid != null ? analysis.highBid : 0;
+      if (analysis && analysis.leaderCharacterId != null) {
+        for (var i = 0; i < bids.length; i++) {
+          var bid = bids[i];
+          var cid = bid.CharacterId != null ? bid.CharacterId : bid.characterId;
+          if (String(cid) === String(analysis.leaderCharacterId)) {
+            highBidderName = readBidCharacterName(bid);
+            break;
+          }
+        }
+      }
+    } else {
+      bids.forEach(function (bid) {
+        var v = parseInt(
+          String(bid && bid.Value != null ? bid.Value : bid && bid.value != null ? bid.value : ''),
+          10
+        );
+        if (!Number.isNaN(v) && v > highBid) {
+          highBid = v;
+          highBidderName = readBidCharacterName(bid);
+        }
+      });
+    }
+
+    return {
+      auctionId: auctionId,
+      itemName: itemName,
+      endMs: endMs,
+      highBid: highBid,
+      highBidderName: highBidderName || undefined
+    };
+  }
+
+  function fetchActiveAuctionsSnapshot() {
+    return storageSyncGet(['opendkpClientSlug']).then(function (data) {
+      var slug = data && data.opendkpClientSlug;
+      if (!slug) {
+        return { ok: false, error: 'No guild subdomain configured' };
+      }
+      if (typeof OpenDkpApi === 'undefined' || !OpenDkpApi.getActiveAuctions) {
+        return { ok: false, error: 'API module not loaded' };
+      }
+      var cfg = buildApiConfigFromSlug(slug);
+      return OpenDkpApi.getActiveAuctions(cfg)
+        .then(function (body) {
+          var auctions =
+            typeof AutoBid !== 'undefined' && AutoBid.coerceArray
+              ? AutoBid.coerceArray(body)
+              : Array.isArray(body)
+                ? body
+                : body && Array.isArray(body.Auctions)
+                  ? body.Auctions
+                  : [];
+          if (!auctions.length) {
+            return { ok: true, auctions: [] };
+          }
+
+          var capped = auctions.slice(0, 8);
+          var chain = Promise.resolve([]);
+          capped.forEach(function (auction) {
+            chain = chain.then(function (acc) {
+              var idRaw =
+                auction.AuctionId != null
+                  ? auction.AuctionId
+                  : auction.Id != null
+                    ? auction.Id
+                    : auction.id;
+              var bids = coerceAuctionBids(auction);
+              var needsDetail = !bids.length && idRaw != null && OpenDkpApi.getAuction;
+              var load = needsDetail
+                ? OpenDkpApi.getAuction(cfg, idRaw).catch(function () {
+                    return auction;
+                  })
+                : Promise.resolve(auction);
+              return load.then(function (full) {
+                var row = snapshotRowFromAuction(full || auction);
+                if (row) acc.push(row);
+                return acc;
+              });
+            });
+          });
+
+          return chain.then(function (rows) {
+            return { ok: true, auctions: rows };
+          });
+        })
+        .catch(function (err) {
+          return {
+            ok: false,
+            error: err && err.message ? err.message : String(err)
+          };
+        });
     });
   }
 
@@ -1126,9 +1402,11 @@ console.log('🔵 Background script executing at:', new Date().toISOString());
   if (typeof self !== 'undefined') {
     self.OpenDkpFetchLatestRaid = fetchLatestRaid;
     self.OpenDkpResolveLatestRaid = resolveLatestRaidFromBackground;
+    self.OpenDkpFetchActiveAuctionsSnapshot = fetchActiveAuctionsSnapshot;
   } else if (typeof globalThis !== 'undefined') {
     globalThis.OpenDkpFetchLatestRaid = fetchLatestRaid;
     globalThis.OpenDkpResolveLatestRaid = resolveLatestRaidFromBackground;
+    globalThis.OpenDkpFetchActiveAuctionsSnapshot = fetchActiveAuctionsSnapshot;
   }
 
   function runAutoBidFromBackground(sendResponse) {

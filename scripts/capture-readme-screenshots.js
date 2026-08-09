@@ -81,6 +81,9 @@ function demoSync() {
     opendkpCognitoUsername: 'demouser',
     opendkpRaidListCount: 3,
     opendkpBiddingToolRaidLock: true,
+    opendkpRaidListAutoRefresh: true,
+    opendkpAutoReconnect: true,
+    opendkpStaleUiMode: 'warn-reload',
     opendkpCurrentRaidId: 9001,
     opendkpCurrentRaidSummaryJson: JSON.stringify({
       name: 'Wednesday VT',

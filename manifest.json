@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "OpenDKP Helper",
-  "version": "2.6.4",
+  "version": "2.7.0",
   "description": "OpenDKP auction alerts, RaidTick reminders, and loot queue for raid leaders. Works in Chrome and Firefox.",
   "permissions": [
     "activeTab",
@@ -29,6 +29,8 @@
         "lib/raid-context.js",
         "lib/bidding-tool-raid.js",
         "lib/bid-participation.js",
+        "lib/page-reload.js",
+        "lib/connection-health.js",
         "content.js"
       ],
       "run_at": "document_idle"

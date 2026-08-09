@@ -2,7 +2,7 @@
 
 Browser extension for [opendkp.com](https://opendkp.com): auction alerts, optional auto-bid, and raid-leader tools for RaidTick reminders, EQ loot monitoring, and OpenDKP API raids.
 
-Works in **Chrome**, **Edge**, and **Firefox**. Current version: **2.6.2**.
+Works in **Chrome**, **Edge**, and **Firefox**. Current version: **2.7.0**.
 
 ![Extension popup](assets/images/Popup.png)
 
@@ -14,7 +14,8 @@ OpenDKP Helper runs while you use opendkp.com. It can:
 
 - Alert when auction timers hit zero (sound, screen flash, desktop notification, or TTS).
 - Auto-bid on items you care about through the OpenDKP API (with guild rank bid limits).
-- While you are bidding, show **price history** in the popup (past wins, estimate, and a small chart) so you can avoid overspending DKP.
+- Show **price history** in the popup (past wins, estimate, and a small chart) so you can avoid overspending DKP — and toggle auto-bid for a matching item without opening Settings.
+- **Connection health** — auto-reconnect when OpenDKP’s websocket drops, warn (and optionally reload) if the Bidding Tool stops updating bids, and auto-refresh when a newly created raid is missing from the raid list.
 - For **raiders**: notify only when *your* character wins an auction you joined.
 - For **raid leaders**: monitor EQ loot logs, queue items to bidding, manage tonight’s raid, and stage RaidTick uploads from the popup.
 
@@ -34,7 +35,7 @@ Pick **Raid Leader** or **Raider**, and light / dark / system theme. Settings us
 
 Available in both profiles. Sign in once (raid leaders reuse OpenDKP Raids credentials). Add per-item rules: name match, max DKP, character, and rank. The extension polls active auctions, bids in your increment, accelerates to every **2 seconds** in the last 30 seconds, and can place an **all-in** bid up to your max when a full increment would overshoot. Rules turn off when you win that item. Rank bid limits sync from your guild’s Bid Rules on opendkp.com.
 
-**Price history** — When you are bidding on an item (manually or via auto-bid), open the extension popup to see past Bid Results wins for that item (full history), an estimated close price (median of the last 8 wins), a compact price chart, and a winner / amount / date list. Toggle under Settings → Bidding (on by default). Requires API sign-in.
+**Price history** — Open the extension popup to see past Bid Results wins for the selected item (full history), an estimated close price (median of the last 8 wins), a compact price chart, and a winner / amount / date list. Use **Search…** in the dropdown to look up any item. When the item matches an auto-bid rule, the header shows **Max auto-bid: N DKP** and an **Auto-bid: On/Off** toggle that enables or disables that rule and saves immediately (handy if you change your mind mid-auction). Panel toggle under Settings → Bidding (on by default). Requires API sign-in.
 
 ![Price history in popup](assets/images/PriceHistory.png)
 
@@ -62,13 +63,23 @@ Built-in bell, chime, ding, and optional Warcraft-style clips; up to three custo
 
 ![Smart Bidding (Raider)](assets/images/SmartRaider.png)
 
+### Connection health
+
+OpenDKP’s live Bidding Tool can drop its websocket (~every 2 hours) or stop updating while still looking fine — which is how people lose bids they thought they were winning. Settings → **Connection health** can:
+
+- **Auto-reconnect** when the “You've been disconnected!” dialog appears (clicks Reconnect, or reloads).
+- **Detect a stale auction UI** by comparing API auction state to what the page shows, then show a hard-to-miss red overlay. Default is **warn then auto-reload** (3 second countdown); you can switch to warn-only or off.
+- **Auto-refresh the Bidding Tool** when the latest raid (e.g. one you just created) is missing from the raid dropdown, instead of only asking you to refresh manually.
+
+Requires API sign-in for stale detection. Reloads are capped so they cannot loop.
+
 ### OpenDKP Raids (raid leader)
 
 Sign in with guild subdomain + OpenDKP login. Create or select tonight’s raid, set loot queue defaults, enable raid log upload controls in the popup, open the loot monitor, and maintain loot exceptions (spell lines / junk items) in Settings.
 
 ![OpenDKP Raids](assets/images/OpenDkpRaids.png)
 
-**Bidding Tool raid lock** — optionally keep the opendkp.com Bidding Tool on the most recent raid so queued loot lands on the right night.
+**Bidding Tool raid lock** — optionally keep the opendkp.com Bidding Tool on the most recent raid so queued loot lands on the right night. With auto-refresh enabled (default), the page reloads when that raid is not in the dropdown yet so the helper can select it.
 
 ### Reminders (raid leader)
 
@@ -80,7 +91,7 @@ Scheduled RaidTick reminders (`/outputfile raidlist`) with a master on/off switc
 
 ### Popup — raid night controls
 
-Volume, status, API session refresh, raid picker, per-tick RaidTick queue (review names, then upload), today's Loot Parser with Copy / Queue / Post all, and price history while you are bidding (see **Bidding** above).
+Volume, status, API session refresh, raid picker, per-tick RaidTick queue (review names, then upload), today's Loot Parser with Copy / Queue / Post all, and price history with optional auto-bid On/Off for matching rules (see **Bidding** above).
 
 ![Popup RaidTick queue](assets/images/PopupRaidTick.png)
 
@@ -88,7 +99,7 @@ Volume, status, API session refresh, raid picker, per-tick RaidTick queue (revie
 
 ### Loot Monitor (raid leader)
 
-Dedicated window for your EverQuest log: live handle on Chrome, snapshot mode on Firefox; loot tag at the **start or end** of the tell; auto-post to the current raid; today’s drops list.
+Dedicated window for your EverQuest log: live handle on Chrome, snapshot mode on Firefox; loot tag at the **start or end** of the tell; auto-post to the current raid; today’s drops list. Opening Loot Monitor again (popup or Settings) focuses the existing window instead of creating a second one.
 
 ![Loot Monitor](assets/images/LootMonitor.png)
 
@@ -134,7 +145,7 @@ Use the ZIP built for your browser. Do not load the repository root as an unpack
 2. Open **Settings** (toolbar icon → gear, or right-click → Options).
 3. Choose **Raider** or **Raid Leader**.
 4. Configure alerts (sound, TTS, quiet hours, watchlist).
-5. Optional **Bidding**: enable auto-bid, sign in, refresh characters, add item rules. Keep an opendkp.com tab open while auto-bid runs.
+5. Optional **Bidding**: enable auto-bid, sign in, refresh characters, add item rules. Keep an opendkp.com tab open while auto-bid runs. Use **Auto-bid: On/Off** in the popup Price history header to pause or resume a matching rule without opening Settings.
 6. **Raid leaders**: Settings → **OpenDKP Raids** → guild subdomain → Sign in → create/select raid. Open Loot Monitor from the popup; set your loot tag (e.g. `FG`). Use popup tick slots to stage RaidTick files when upload is enabled.
 7. Save and use your guild’s opendkp.com site during raid night.
 

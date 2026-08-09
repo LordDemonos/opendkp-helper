@@ -36,6 +36,9 @@
     TTS_TEMPLATE: 'Auction Finished. {winner} for {bidAmount} DKP on {itemName}',
     RAID_LEADER_NOTIFICATION: true,
     BIDDING_TOOL_RAID_LOCK: true,
+    AUTO_RECONNECT: true,
+    RAID_LIST_AUTO_REFRESH: true,
+    STALE_UI_MODE: 'warn-reload', // 'warn' | 'warn-reload' | 'off'
     // Auction readout defaults (Issue #2: day-of-week filter)
     ANNOUNCE_NEW_AUCTIONS: false,
     ANNOUNCE_START: '19:00',
@@ -807,7 +810,10 @@
       browserNotifications: true,
       consoleLogs: true,
       checkInterval: 100,
-      opendkpBiddingToolRaidLock: true
+      opendkpBiddingToolRaidLock: true,
+      opendkpAutoReconnect: true,
+      opendkpRaidListAutoRefresh: true,
+      opendkpStaleUiMode: 'warn-reload'
     }).then(function(storedSettings) {
       // Handle case where storedSettings might be undefined due to storage API issues
       if (!storedSettings) {
@@ -868,6 +874,13 @@
         : CONFIG.WATCHLIST_ITEMS;
       settings.BIDDING_TOOL_RAID_LOCK =
         storedSettings.opendkpBiddingToolRaidLock !== false;
+      settings.AUTO_RECONNECT = storedSettings.opendkpAutoReconnect !== false;
+      settings.RAID_LIST_AUTO_REFRESH = storedSettings.opendkpRaidListAutoRefresh !== false;
+      var staleMode = storedSettings.opendkpStaleUiMode;
+      settings.STALE_UI_MODE =
+        staleMode === 'off' || staleMode === 'warn-reload' || staleMode === 'warn'
+          ? staleMode
+          : CONFIG.STALE_UI_MODE;
       settings.AUTO_BID_ENABLED = storedSettings.autoBidEnabled === true;
       var pollSec = parseInt(String(storedSettings.autoBidPollIntervalSec != null ? storedSettings.autoBidPollIntervalSec : 15), 10);
       settings.AUTO_BID_POLL_SEC = Number.isNaN(pollSec) || pollSec < 5 ? 15 : pollSec;
@@ -891,6 +904,9 @@
       }
       if (typeof BiddingToolRaid !== 'undefined' && BiddingToolRaid.reconfigure) {
         BiddingToolRaid.reconfigure();
+      }
+      if (typeof OpenDkpConnectionHealth !== 'undefined' && OpenDkpConnectionHealth.reconfigure) {
+        OpenDkpConnectionHealth.reconfigure();
       }
       settingsLoaded = true;
     }).catch(function(error) {
@@ -2215,6 +2231,12 @@
               log: log
             });
           }
+          if (typeof OpenDkpConnectionHealth !== 'undefined' && OpenDkpConnectionHealth.init) {
+            OpenDkpConnectionHealth.init({
+              getSettings: function () { return settings; },
+              log: log
+            });
+          }
     
   // Listen for settings updates
   api.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -2244,12 +2266,31 @@
       if (typeof BiddingToolRaid !== 'undefined' && BiddingToolRaid.reconfigure) {
         BiddingToolRaid.reconfigure();
       }
+      if (typeof OpenDkpConnectionHealth !== 'undefined' && OpenDkpConnectionHealth.reconfigure) {
+        OpenDkpConnectionHealth.reconfigure();
+      }
       
       // Send response for settings update (synchronous)
       if (sendResponse) {
         sendResponse({success: true});
       }
       return false; // Synchronous response, no need to return true
+    } else if (message.action === 'simulateDisconnect') {
+      if (typeof OpenDkpConnectionHealth !== 'undefined' && OpenDkpConnectionHealth.simulateDisconnect) {
+        OpenDkpConnectionHealth.simulateDisconnect();
+      }
+      if (sendResponse) sendResponse({ success: true });
+      return false;
+    } else if (message.action === 'forceStaleOverlay') {
+      if (typeof OpenDkpConnectionHealth !== 'undefined') {
+        document.dispatchEvent(
+          new CustomEvent('opendkp-helper-connection-health-cmd', {
+            detail: { cmd: 'forceStaleOverlay' }
+          })
+        );
+      }
+      if (sendResponse) sendResponse({ success: true });
+      return false;
     } else if (message.action === 'testSound') {
       log('Test sound requested from popup');
       // Sound playing might take time, but we respond synchronously

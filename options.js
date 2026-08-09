@@ -157,6 +157,9 @@ const DEFAULT_SETTINGS = {
   opendkpClientSlug: '',
   opendkpRaidListCount: 1,
   opendkpBiddingToolRaidLock: true,
+  opendkpRaidListAutoRefresh: true,
+  opendkpAutoReconnect: true,
+  opendkpStaleUiMode: 'warn-reload',
   opendkpCurrentRaidId: null,
   opendkpCurrentRaidSummaryJson: '',
   opendkpRaidtickUploadEnabled: false,
@@ -423,19 +426,9 @@ document.addEventListener('DOMContentLoaded', async function() {
       if (ffOpenLootBtn) {
         ffOpenLootBtn.addEventListener('click', async function(){
           try {
-            if (typeof browser !== 'undefined' && browser.windows && browser.runtime) {
-              const win = await browser.windows.create({ 
-                url: browser.runtime.getURL('eqlog-monitor.html'), 
-                type: 'popup', 
-                width: 520, 
-                height: 360 
-              });
-              await browser.storage.sync.set({ 
-                eqLogMonitoring: true, 
-                eqLogMonitorWindowId: win.id 
-              });
-            } else {
-              showStatus('Error: Firefox API not available', 'error');
+            const resp = await api.runtime.sendMessage({ type: 'openLootMonitor' });
+            if (resp && resp.ok === false) {
+              throw new Error(resp.error || 'Failed to open loot monitor');
             }
           } catch (error) {
             console.error('Error opening loot monitor:', error);
@@ -463,20 +456,9 @@ document.addEventListener('DOMContentLoaded', async function() {
       if (ffOpenLootBtn) {
         ffOpenLootBtn.addEventListener('click', async function(){
           try {
-            // Chrome: Use chrome API (should work for both Chrome and Firefox, but we're in Chrome branch)
-            if (typeof chrome !== 'undefined' && chrome.windows && chrome.runtime) {
-              const win = await chrome.windows.create({ 
-                url: chrome.runtime.getURL('eqlog-monitor.html'), 
-                type: 'popup', 
-                width: 520, 
-                height: 360 
-              });
-              await chrome.storage.sync.set({ 
-                eqLogMonitoring: true, 
-                eqLogMonitorWindowId: win.id 
-              });
-            } else {
-              showStatus('Error: Chrome API not available', 'error');
+            const resp = await api.runtime.sendMessage({ type: 'openLootMonitor' });
+            if (resp && resp.ok === false) {
+              throw new Error(resp.error || 'Failed to open loot monitor');
             }
           } catch (error) {
             console.error('Error opening loot monitor:', error);
@@ -888,6 +870,9 @@ function applyCriticalSettingsMirror(target, mirror) {
     'opendkpCognitoUsername',
     'opendkpRaidListCount',
     'opendkpBiddingToolRaidLock',
+    'opendkpRaidListAutoRefresh',
+    'opendkpAutoReconnect',
+    'opendkpStaleUiMode',
     'opendkpCurrentRaidId',
     'opendkpCurrentRaidSummaryJson',
     'opendkpRaidtickUploadEnabled',
@@ -927,6 +912,20 @@ function collectCriticalSettingsFromUI() {
       'opendkpBiddingToolRaidLock',
       currentSettings.opendkpBiddingToolRaidLock !== false
     ),
+    opendkpRaidListAutoRefresh: getChecked(
+      'opendkpRaidListAutoRefresh',
+      currentSettings.opendkpRaidListAutoRefresh !== false
+    ),
+    opendkpAutoReconnect: getChecked(
+      'opendkpAutoReconnect',
+      currentSettings.opendkpAutoReconnect !== false
+    ),
+    opendkpStaleUiMode: (function () {
+      var el = document.getElementById('opendkpStaleUiMode');
+      var v = el ? el.value : currentSettings.opendkpStaleUiMode || 'warn-reload';
+      if (v === 'off' || v === 'warn-reload' || v === 'warn') return v;
+      return 'warn-reload';
+    })(),
     opendkpCurrentRaidId: currentSettings.opendkpCurrentRaidId,
     opendkpCurrentRaidSummaryJson: currentSettings.opendkpCurrentRaidSummaryJson || '',
     opendkpRaidtickUploadEnabled: isOpenDkpRaidtickUploadSunset()
@@ -1112,7 +1111,13 @@ function wireCriticalSettingsAutoSave() {
     });
   }
 
-  ['opendkpRaidtickUploadEnabled'].forEach(function(id) {
+  [
+    'opendkpRaidtickUploadEnabled',
+    'opendkpBiddingToolRaidLock',
+    'opendkpRaidListAutoRefresh',
+    'opendkpAutoReconnect',
+    'opendkpStaleUiMode'
+  ].forEach(function(id) {
     const el = document.getElementById(id);
     if (!el) return;
     el.addEventListener('change', schedulePersistCriticalSettings);
@@ -3213,6 +3218,20 @@ function applySettingsToUI() {
   if (odBiddingToolRaidLock) {
     odBiddingToolRaidLock.checked = currentSettings.opendkpBiddingToolRaidLock !== false;
   }
+  const odRaidListAutoRefresh = document.getElementById('opendkpRaidListAutoRefresh');
+  if (odRaidListAutoRefresh) {
+    odRaidListAutoRefresh.checked = currentSettings.opendkpRaidListAutoRefresh !== false;
+  }
+  const odAutoReconnect = document.getElementById('opendkpAutoReconnect');
+  if (odAutoReconnect) {
+    odAutoReconnect.checked = currentSettings.opendkpAutoReconnect !== false;
+  }
+  const odStaleUiMode = document.getElementById('opendkpStaleUiMode');
+  if (odStaleUiMode) {
+    const mode = currentSettings.opendkpStaleUiMode;
+    odStaleUiMode.value =
+      mode === 'off' || mode === 'warn-reload' || mode === 'warn' ? mode : 'warn-reload';
+  }
   openDkpUpdateFetchRaidsButtonLabel();
   const odPayStrategy = document.getElementById('opendkpAuctionPayStrategy');
   if (odPayStrategy) {
@@ -3409,6 +3428,18 @@ function setupEventListeners() {
   });
   const testWatchlistAlarmEl = document.getElementById('testWatchlistAlarm');
   if (testWatchlistAlarmEl) testWatchlistAlarmEl.addEventListener('click', testWatchlistAlarm);
+  const simulateDisconnectBtn = document.getElementById('simulateDisconnectBtn');
+  if (simulateDisconnectBtn) {
+    simulateDisconnectBtn.addEventListener('click', function () {
+      sendActionToOpenDkpTab('simulateDisconnect', 'Simulated disconnect dialog on OpenDKP tab');
+    });
+  }
+  const forceStaleOverlayBtn = document.getElementById('forceStaleOverlayBtn');
+  if (forceStaleOverlayBtn) {
+    forceStaleOverlayBtn.addEventListener('click', function () {
+      sendActionToOpenDkpTab('forceStaleOverlay', 'Stale overlay shown on OpenDKP tab');
+    });
+  }
   
   const testTplEl = document.getElementById('testCustomTemplate');
   if (testTplEl) testTplEl.addEventListener('click', testCustomTemplate);
@@ -4331,6 +4362,29 @@ function updateWatchlistSettings() {
   if (itemsRow) itemsRow.style.display = enabled ? 'flex' : 'none';
 }
 
+function sendActionToOpenDkpTab(action, successMsg) {
+  const tabsApi = api.tabs || chrome.tabs;
+  if (!tabsApi || !tabsApi.query) {
+    showStatus('Open an OpenDKP tab first, then try again.', 'error');
+    return;
+  }
+  tabsApi.query({ url: ['https://opendkp.com/*', 'https://*.opendkp.com/*'] }, function (tabs) {
+    const tab = tabs && tabs.length > 0 ? tabs[0] : null;
+    if (!tab || tab.id == null) {
+      showStatus('Open an OpenDKP tab first, then try again.', 'error');
+      return;
+    }
+    tabsApi.sendMessage(tab.id, { action: action }, function () {
+      const err = (api.runtime && api.runtime.lastError) || (chrome.runtime && chrome.runtime.lastError);
+      if (err) {
+        showStatus('Could not reach OpenDKP tab — reload the page and try again.', 'error');
+        return;
+      }
+      showStatus(successMsg || 'Sent to OpenDKP tab', 'success');
+    });
+  });
+}
+
 function testWatchlistAlarm() {
   const enabled = document.getElementById('watchlistAlarmEnabled')?.checked;
   if (!enabled) {
@@ -4895,6 +4949,20 @@ function saveSettings() {
       'opendkpBiddingToolRaidLock',
       currentSettings.opendkpBiddingToolRaidLock !== false
     ),
+    opendkpRaidListAutoRefresh: getChecked(
+      'opendkpRaidListAutoRefresh',
+      currentSettings.opendkpRaidListAutoRefresh !== false
+    ),
+    opendkpAutoReconnect: getChecked(
+      'opendkpAutoReconnect',
+      currentSettings.opendkpAutoReconnect !== false
+    ),
+    opendkpStaleUiMode: (function () {
+      const el = document.getElementById('opendkpStaleUiMode');
+      const v = el ? el.value : currentSettings.opendkpStaleUiMode || 'warn-reload';
+      if (v === 'off' || v === 'warn-reload' || v === 'warn') return v;
+      return 'warn-reload';
+    })(),
     opendkpCurrentRaidId: currentSettings.opendkpCurrentRaidId,
     opendkpCurrentRaidSummaryJson: currentSettings.opendkpCurrentRaidSummaryJson || '',
     opendkpRaidtickUploadEnabled: isOpenDkpRaidtickUploadSunset()

@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versioning follows the **same semver** as `manifest.json` (single version for Firefox and Chrome packages).
 
+## [2.7.0] - 2026-08-09
+
+### Added
+
+- **Connection health** — Detects OpenDKP’s “You've been disconnected!” dialog and auto-clicks Reconnect (or reloads), with a clear banner. Settings → Connection health.
+- **Stale auction UI detection** — Compares API active auctions to the Bidding Tool DOM; shows a hard-to-miss red overlay when the page high bid lags the server. Default: warn then auto-reload (3s countdown). Also: warn only, or off.
+- **Auto-refresh when latest raid is missing** — When Keep Bidding Tool on current raid would ask you to refresh so a newly created raid can be selected, the page reloads automatically (capped) instead of only showing the top banner.
+- **Troubleshoot helpers** in Settings → Connection health (simulate disconnect / preview stale overlay) so you can verify behavior without waiting for a real outage.
+- **Price history auto-bid toggle** — When the selected item matches an auto-bid rule, the popup Price history header shows **Max auto-bid: N DKP** and an **Auto-bid: On/Off** button. Toggling enables or disables the matching rule and saves immediately (same as the Settings checkbox), so you can stop bidding mid-auction without opening Settings.
+
+### Changed
+
+- Shared safe page-reload helper with cooldowns and attempt caps for disconnect, stale UI, and missing-raid refresh.
+- **Loot Monitor singleton open** — Opening Loot Monitor from the popup or Settings focuses an existing monitor window instead of creating a duplicate.
+
 ## [2.6.4] - 2026-07-14
 
 ### Fixed

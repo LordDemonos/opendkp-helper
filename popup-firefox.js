@@ -506,12 +506,12 @@ function initializePopup() {
   if (monitorCheckbox && isFirefox) {
     monitorCheckbox.addEventListener('change', async function() {
       if (this.checked) {
-        // Open monitor window
-        const win = await browser.windows.create({
-          url: browser.runtime.getURL('eqlog-monitor.html'),
-          type: 'popup', width: 520, height: 360
-        });
-        await browser.storage.sync.set({ eqLogMonitoring: true, eqLogMonitorWindowId: win.id });
+        // Open or focus existing monitor window
+        const resp = await browser.runtime.sendMessage({ type: 'openLootMonitor' });
+        if (resp && resp.ok === false) {
+          this.checked = false;
+          console.error('Error opening loot monitor:', resp.error);
+        }
       } else {
         const data = await browser.storage.sync.get(['eqLogMonitorWindowId']);
         if (data.eqLogMonitorWindowId) {
@@ -538,8 +538,10 @@ function initializePopup() {
     if (openLootMonitorBtn) {
       openLootMonitorBtn.style.display = 'inline-flex';
       openLootMonitorBtn.addEventListener('click', async function(){
-        const win = await browser.windows.create({ url: browser.runtime.getURL('eqlog-monitor.html'), type: 'popup', width: 520, height: 360 });
-        await browser.storage.sync.set({ eqLogMonitoring: true, eqLogMonitorWindowId: win.id });
+        const resp = await browser.runtime.sendMessage({ type: 'openLootMonitor' });
+        if (resp && resp.ok === false) {
+          console.error('Error opening loot monitor:', resp.error);
+        }
       });
     }
   } else {

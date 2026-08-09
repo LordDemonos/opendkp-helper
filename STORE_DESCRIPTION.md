@@ -1,4 +1,4 @@
-# Web store listing copy (v2.0.0)
+# Web store listing copy (v2.7.0)
 
 Use these fields when updating the Chrome Web Store and Firefox Add-ons (AMO) listings. Plain language, no emoji.
 
@@ -22,6 +22,20 @@ Works in Chrome and Firefox. Most settings stay on your computer. Raid leader fe
 - Plays a sound when a timer you have been watching reaches zero
 - Avoids repeating the same alert for one auction
 - Only alerts for auctions you actually saw counting down
+
+### Connection health
+
+- Auto-reconnects when OpenDKP shows the websocket disconnect dialog (common after long Bidding Tool sessions)
+- Detects when the Bidding Tool UI stops updating bids while auctions are still live, and shows a clear warning (optionally reloads after a short countdown)
+- Can auto-refresh the Bidding Tool when a newly created raid is missing from the raid list so raid lock can select it
+- Helps avoid losing items because the page looked up to date but was not
+
+### Auto-bid and price history
+
+- Optional per-item auto-bid rules (item name match, max DKP, character, rank) through the OpenDKP API
+- Polls active auctions while an opendkp.com tab is open; speeds up in the last 30 seconds; can place an all-in bid up to your max
+- Popup price history shows past wins, an estimated value, a small chart, and a winner list (Search any item, or browse active auctions)
+- When the selected item matches an auto-bid rule, the price history header shows your max auto-bid and an On/Off toggle that saves immediately
 
 ### Sound alerts
 
@@ -55,6 +69,7 @@ Works in Chrome and Firefox. Most settings stay on your computer. Raid leader fe
 - Point the extension at your EverQuest log file
 - Finds loot lines that contain your configured tag (for example a guild tag before Link Loot)
 - Shows today's loot in the popup and in a dedicated monitor window
+- Opening Loot Monitor again focuses the existing window (no duplicate monitors)
 - Copy item names to the clipboard for the bidding tool
 - Filter out spell lines and specific item names you want to ignore
 

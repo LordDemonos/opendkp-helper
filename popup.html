@@ -1036,10 +1036,54 @@
       border-radius: 6px;
       background: #f6f8fa;
     }
-    .iph-section h3 {
+    .iph-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 6px 8px;
       margin: 0 0 6px;
+    }
+    .iph-section h3 {
+      margin: 0;
       font-size: 13px;
       font-weight: 600;
+    }
+    .iph-autobid {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+      min-width: 0;
+    }
+    .iph-autobid[hidden] {
+      display: none !important;
+    }
+    .iph-autobid-max {
+      font-size: 11px;
+      font-weight: 600;
+      color: #57606a;
+      white-space: nowrap;
+    }
+    .iph-autobid-toggle {
+      padding: 4px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      color: #fff;
+      min-width: 118px;
+      flex-shrink: 0;
+    }
+    .iph-autobid-toggle.off { background: #c62828; }
+    .iph-autobid-toggle.on { background: #2e7d32; }
+    .iph-autobid-toggle:disabled {
+      opacity: 0.6;
+      cursor: wait;
+    }
+    body.dark-mode .iph-autobid-max {
+      color: #8b949e;
     }
     .iph-switcher {
       margin-bottom: 6px;
@@ -1221,7 +1265,13 @@
   </div>
 
   <div id="itemPriceHistorySection" class="iph-section" style="display: none;">
-    <h3>Price history</h3>
+    <div class="iph-header">
+      <h3>Price history</h3>
+      <div id="itemPriceHistoryAutobid" class="iph-autobid" hidden>
+        <span id="itemPriceHistoryAutobidMax" class="iph-autobid-max" title="Maximum DKP this auto-bid rule will bid"></span>
+        <button type="button" id="itemPriceHistoryAutobidToggle" class="iph-autobid-toggle off" title="Toggle auto-bid for this item">Auto-bid: Off</button>
+      </div>
+    </div>
     <div id="itemPriceHistorySwitcher" class="iph-switcher">
       <select id="itemPriceHistorySelect" title="Active auction or search any item"></select>
     </div>

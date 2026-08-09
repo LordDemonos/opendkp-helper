@@ -49,6 +49,7 @@
     await loadScript('lib/opendkp-api.js');
     await loadScript('lib/bid-participation.js');
     await loadScript('lib/item-price-history.js');
+    await loadScript('lib/auto-bid.js');
     await loadScript('lib/raidtick-parse.js');
     await loadScript('lib/loot-queue.js');
     await loadScript('lib/raidtick-queue.js');

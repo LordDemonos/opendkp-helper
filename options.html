@@ -1033,6 +1033,7 @@
             <nav id="settingsToc" class="settings-toc" aria-label="Settings sections">
                 <a href="#autoBidGroup">Bidding</a>
                 <span class="toc-sep" aria-hidden="true">·</span>
+                <a href="#connectionHealthGroup">Connection health</a>
                 <a href="#alertsSoundsGroup">Alerts &amp; Sounds</a>
                 <span class="toc-sep" data-toc-leader aria-hidden="true">·</span>
                 <a href="#openDkpApiGroup" data-toc-leader>OpenDKP Raids</a>
@@ -1057,7 +1058,7 @@
                     <input type="checkbox" id="itemPriceHistoryEnabled" checked>
                 </div>
                 <div class="description" id="itemPriceHistoryDescription">
-                    Shows past Bid Results wins (Include All) for active auctions, with an estimated value and a small price chart. Use Search… in the dropdown to look up any item. Requires API sign-in.
+                    Shows past Bid Results wins (Include All) for active auctions, with an estimated value and a small price chart. Use Search… in the dropdown to look up any item. When the selected item matches an auto-bid rule, the popup header shows Max auto-bid and an Auto-bid On/Off toggle that enables or disables that rule and saves immediately. Requires API sign-in.
                 </div>
                 <div id="autoBidDetails" style="display:none;">
                     <div id="autoBidRaiderApiBlock">
@@ -1100,7 +1101,7 @@
                         <button type="button" class="test-button" id="autoBidAddRule">Add item rule</button>
                     </div>
                     <div class="description" id="autoBidDesc">
-                        While an opendkp.com tab is open, polls active auctions and bids in increments until you are in a winning slot (top bid for single items, top N for quantity N), your max DKP for that item is reached, or you run out of DKP. If a full increment would overshoot your max, it bids the remaining amount up to that max (e.g. leader at 380, increment 50, max 400 → bids 400). When a matching auction has 30 seconds or less remaining, polling speeds up to every 2 seconds. Character rank comes from Refresh characters. Rank max bids come from Bidding Tool → Bid Rules (select each rank once; values merge into a local cache and are included in Backup &amp; Restore). When your character is called as the winner for a matching item, that rule is automatically disabled (re-enable the checkbox to bid on the same item again).
+                        While an opendkp.com tab is open, polls active auctions and bids in increments until you are in a winning slot (top bid for single items, top N for quantity N), your max DKP for that item is reached, or you run out of DKP. If a full increment would overshoot your max, it bids the remaining amount up to that max (e.g. leader at 380, increment 50, max 400 → bids 400). When a matching auction has 30 seconds or less remaining, polling speeds up to every 2 seconds. Character rank comes from Refresh characters. Rank max bids come from Bidding Tool → Bid Rules (select each rank once; values merge into a local cache and are included in Backup &amp; Restore). When your character is called as the winner for a matching item, that rule is automatically disabled (re-enable the checkbox, or use Auto-bid On/Off in the popup Price history header, to bid on the same item again).
                     </div>
                 </div>
                 <div class="setting-row" id="smartBiddingRow" style="margin-top: 16px;">
@@ -1110,6 +1111,40 @@
                 <div class="description" id="smartBiddingDescription">
                     Only alerts when you win an auction (detects your characters from the header). Automatically enabled for Raider profile.
                 </div>
+            </div>
+
+            <div class="setting-group" id="connectionHealthGroup">
+                <h3>Connection health</h3>
+                <p class="description">
+                    OpenDKP can drop its websocket (~every 2 hours) or stop updating the Bidding Tool while still looking fine.
+                    These options help you notice and recover before a bid is lost.
+                </p>
+                <div class="setting-row" style="margin-top: 4px;">
+                    <label style="display:flex; align-items:flex-start; gap:8px; max-width: 640px;">
+                        <input type="checkbox" id="opendkpAutoReconnect" checked>
+                        <span><strong>Auto-reconnect when OpenDKP disconnects</strong> — Detects the “You've been disconnected!” dialog and clicks Reconnect (or reloads). Recommended on.</span>
+                    </label>
+                </div>
+                <div class="setting-row" style="margin-top: 8px; flex-wrap: wrap; gap: 10px; align-items: center;">
+                    <label for="opendkpStaleUiMode"><strong>Stale auction UI detection</strong></label>
+                    <select id="opendkpStaleUiMode" style="margin-left: 0; min-width: 200px;">
+                        <option value="warn-reload">Warn then auto-reload (default)</option>
+                        <option value="warn">Warn only</option>
+                        <option value="off">Off</option>
+                    </select>
+                </div>
+                <p class="description">
+                    Compares live auction data from the API to what the Bidding Tool shows. Warn then auto-reload shows a red overlay and reloads after 3 seconds.
+                    Warn only shows the overlay without reloading. May false-positive on slow networks. Requires API sign-in.
+                </p>
+                <h4 style="margin-top: 16px;">Troubleshoot</h4>
+                <div class="setting-row" style="flex-wrap: wrap; gap: 10px;">
+                    <button type="button" class="test-button" id="simulateDisconnectBtn">Simulate disconnect</button>
+                    <button type="button" class="test-button" id="forceStaleOverlayBtn">Preview stale overlay</button>
+                </div>
+                <p class="description">
+                    Optional. Open an OpenDKP tab first, then use these to confirm reconnect / stale warning behavior without waiting for a real outage.
+                </p>
             </div>
 
             <div class="setting-group" id="alertsSoundsGroup">
@@ -1314,6 +1349,12 @@
                         <span><strong>Keep Bidding Tool on current raid</strong> — When enabled, the extension selects the most recent raid on the Bidding Tool page whenever it is empty or out of date. Turn off to manually pick an older raid.</span>
                     </label>
                 </div>
+                <div class="setting-row" style="margin-top: 4px;">
+                    <label style="display:flex; align-items:flex-start; gap:8px; max-width: 640px;">
+                        <input type="checkbox" id="opendkpRaidListAutoRefresh" checked>
+                        <span><strong>Auto-refresh Bidding Tool when latest raid is missing</strong> — Instead of only showing a “please refresh” banner, reload so a newly created raid can be selected. Caps attempts to avoid loops. Only applies when Keep Bidding Tool on current raid is enabled.</span>
+                    </label>
+                </div>
                 <div class="setting-row" style="flex-wrap: wrap; gap: 10px;">
                     <button type="button" id="opendkpFetchRaids">Refresh raid list (last 1)</button>
                 </div>
@@ -1398,6 +1439,7 @@
                         On Chrome, use the system file picker so the monitor gets a <strong>live log link</strong> (it can keep reading while EverQuest is running).
                         On Firefox, snapshot mode is used — re-choose the log if new loot does not appear after you post.
                         The monitor checks every few seconds and pushes new loot lines into the popup automatically.
+                        If a monitor is already open, <strong>Open Loot Monitor</strong> focuses that window instead of opening another.
                     </p>
                     <div class="setting-description">
                         In game, put your identifier at the start or end of the loot message (Zeal Link Loot works either way). The parser will detect log lines containing your identifier and push the items to the popup.
@@ -1405,7 +1447,7 @@
                     <div class="setting-row" style="margin-top: 10px;">
                         <button id="ffOpenLootMonitor" class="btn btn-primary">Open Loot Monitor</button>
                     </div>
-                    <div class="description">Close the monitor window to stop; reopen it to resume. Nothing is uploaded—all processing stays local.</div>
+                    <div class="description">Close the monitor window to stop; reopen it (or use Open Loot Monitor again) to resume — only one monitor window is kept. Nothing is uploaded—all processing stays local.</div>
                 </div>
                 <h4>Loot monitor exceptions</h4>
                 <p class="description">Items matching these rules are ignored — never captured, listed, or queued. One rule per line. End a line with <code>:</code> for a prefix (e.g. <code>Spell:</code>). Otherwise the full item name must match exactly (case-insensitive).</p>
@@ -1515,7 +1557,7 @@
 
         <div class="footer">
             <div class="footer-content">
-                <span class="footer-text">OpenDKP Helper v2.6.4</span>
+                <span class="footer-text">OpenDKP Helper v2.7.0</span>
                 <span class="footer-separator">•</span>
                 <a href="https://github.com/LordDemonos/opendkp-helper" target="_blank" rel="noopener" class="footer-link">GitHub</a>
                 <span class="footer-separator">•</span>

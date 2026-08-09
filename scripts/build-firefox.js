@@ -115,6 +115,8 @@ const REQUIRED_FILES = [
   'lib/raidtick-queue.js',
   'lib/auto-bid.js',
   'lib/bid-participation.js',
+  'lib/page-reload.js',
+  'lib/connection-health.js',
   'lib/item-price-history.js',
   'lib/popup-item-price-history.js',
   'lib/popup-notify.js',
