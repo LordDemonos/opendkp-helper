@@ -159,7 +159,7 @@ const DEFAULT_SETTINGS = {
   opendkpBiddingToolRaidLock: true,
   opendkpRaidListAutoRefresh: true,
   opendkpAutoReconnect: true,
-  opendkpStaleUiMode: 'warn-reload',
+  opendkpStaleUiMode: 'warn',
   opendkpCurrentRaidId: null,
   opendkpCurrentRaidSummaryJson: '',
   opendkpRaidtickUploadEnabled: false,
@@ -922,9 +922,9 @@ function collectCriticalSettingsFromUI() {
     ),
     opendkpStaleUiMode: (function () {
       var el = document.getElementById('opendkpStaleUiMode');
-      var v = el ? el.value : currentSettings.opendkpStaleUiMode || 'warn-reload';
+      var v = el ? el.value : currentSettings.opendkpStaleUiMode || 'warn';
       if (v === 'off' || v === 'warn-reload' || v === 'warn') return v;
-      return 'warn-reload';
+      return 'warn';
     })(),
     opendkpCurrentRaidId: currentSettings.opendkpCurrentRaidId,
     opendkpCurrentRaidSummaryJson: currentSettings.opendkpCurrentRaidSummaryJson || '',
@@ -3230,7 +3230,7 @@ function applySettingsToUI() {
   if (odStaleUiMode) {
     const mode = currentSettings.opendkpStaleUiMode;
     odStaleUiMode.value =
-      mode === 'off' || mode === 'warn-reload' || mode === 'warn' ? mode : 'warn-reload';
+      mode === 'off' || mode === 'warn-reload' || mode === 'warn' ? mode : 'warn';
   }
   openDkpUpdateFetchRaidsButtonLabel();
   const odPayStrategy = document.getElementById('opendkpAuctionPayStrategy');
@@ -4959,9 +4959,9 @@ function saveSettings() {
     ),
     opendkpStaleUiMode: (function () {
       const el = document.getElementById('opendkpStaleUiMode');
-      const v = el ? el.value : currentSettings.opendkpStaleUiMode || 'warn-reload';
+      const v = el ? el.value : currentSettings.opendkpStaleUiMode || 'warn';
       if (v === 'off' || v === 'warn-reload' || v === 'warn') return v;
-      return 'warn-reload';
+      return 'warn';
     })(),
     opendkpCurrentRaidId: currentSettings.opendkpCurrentRaidId,
     opendkpCurrentRaidSummaryJson: currentSettings.opendkpCurrentRaidSummaryJson || '',

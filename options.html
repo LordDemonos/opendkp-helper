@@ -1122,20 +1122,22 @@
                 <div class="setting-row" style="margin-top: 4px;">
                     <label style="display:flex; align-items:flex-start; gap:8px; max-width: 640px;">
                         <input type="checkbox" id="opendkpAutoReconnect" checked>
-                        <span><strong>Auto-reconnect when OpenDKP disconnects</strong> — Detects the “You've been disconnected!” dialog and clicks Reconnect (or reloads). Recommended on.</span>
+                        <span><strong>Auto-reconnect when OpenDKP disconnects</strong> — Detects the “You've been disconnected!” dialog and clicks Reconnect. Reloads only as a last resort (rate-limited). Recommended on.</span>
                     </label>
                 </div>
                 <div class="setting-row" style="margin-top: 8px; flex-wrap: wrap; gap: 10px; align-items: center;">
                     <label for="opendkpStaleUiMode"><strong>Stale auction UI detection</strong></label>
                     <select id="opendkpStaleUiMode" style="margin-left: 0; min-width: 200px;">
-                        <option value="warn-reload">Warn then auto-reload (default)</option>
-                        <option value="warn">Warn only</option>
+                        <option value="warn" selected>Warn only (recommended)</option>
+                        <option value="warn-reload">Warn then auto-reload</option>
                         <option value="off">Off</option>
                     </select>
                 </div>
                 <p class="description">
-                    Compares live auction data from the API to what the Bidding Tool shows. Warn then auto-reload shows a red overlay and reloads after 3 seconds.
-                    Warn only shows the overlay without reloading. May false-positive on slow networks. Requires API sign-in.
+                    Compares live auction data from the API to what the Bidding Tool shows.
+                    <strong>Warn only</strong> shows a red overlay so you can reload when ready (best on busy raid nights).
+                    <strong>Warn then auto-reload</strong> waits ~20 seconds, then reloads (limited to once per 15 minutes).
+                    May false-positive on slow networks. Requires API sign-in.
                 </p>
                 <h4 style="margin-top: 16px;">Troubleshoot</h4>
                 <div class="setting-row" style="flex-wrap: wrap; gap: 10px;">
@@ -1557,7 +1559,7 @@
 
         <div class="footer">
             <div class="footer-content">
-                <span class="footer-text">OpenDKP Helper v2.7.0</span>
+                <span class="footer-text">OpenDKP Helper v2.7.1</span>
                 <span class="footer-separator">•</span>
                 <a href="https://github.com/LordDemonos/opendkp-helper" target="_blank" rel="noopener" class="footer-link">GitHub</a>
                 <span class="footer-separator">•</span>

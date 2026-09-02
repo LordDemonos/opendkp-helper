@@ -68,7 +68,7 @@ Built-in bell, chime, ding, and optional Warcraft-style clips; up to three custo
 OpenDKP’s live Bidding Tool can drop its websocket (~every 2 hours) or stop updating while still looking fine — which is how people lose bids they thought they were winning. Settings → **Connection health** can:
 
 - **Auto-reconnect** when the “You've been disconnected!” dialog appears (clicks Reconnect, or reloads).
-- **Detect a stale auction UI** by comparing API auction state to what the page shows, then show a hard-to-miss red overlay. Default is **warn then auto-reload** (3 second countdown); you can switch to warn-only or off.
+- **Detect a stale auction UI** by comparing API auction state to what the page shows, then show a hard-to-miss red overlay. Default is **warn only** (you reload when ready); optional warn-then-auto-reload uses a longer countdown and strict rate limits.
 - **Auto-refresh the Bidding Tool** when the latest raid (e.g. one you just created) is missing from the raid dropdown, instead of only asking you to refresh manually.
 
 Requires API sign-in for stale detection. Reloads are capped so they cannot loop.

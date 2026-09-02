@@ -38,7 +38,7 @@
     BIDDING_TOOL_RAID_LOCK: true,
     AUTO_RECONNECT: true,
     RAID_LIST_AUTO_REFRESH: true,
-    STALE_UI_MODE: 'warn-reload', // 'warn' | 'warn-reload' | 'off'
+    STALE_UI_MODE: 'warn', // 'warn' | 'warn-reload' | 'off'
     // Auction readout defaults (Issue #2: day-of-week filter)
     ANNOUNCE_NEW_AUCTIONS: false,
     ANNOUNCE_START: '19:00',
@@ -813,7 +813,8 @@
       opendkpBiddingToolRaidLock: true,
       opendkpAutoReconnect: true,
       opendkpRaidListAutoRefresh: true,
-      opendkpStaleUiMode: 'warn-reload'
+      opendkpStaleUiMode: 'warn',
+      opendkpStaleUiSoftened: false
     }).then(function(storedSettings) {
       // Handle case where storedSettings might be undefined due to storage API issues
       if (!storedSettings) {
@@ -831,7 +832,22 @@
           disableVisuals: false
         };
       }
-      
+
+      // One-time soften: prior default warn-reload caused mid-raid lockups / 404s.
+      if (
+        storedSettings.opendkpStaleUiMode === 'warn-reload' &&
+        storedSettings.opendkpStaleUiSoftened !== true
+      ) {
+        storedSettings.opendkpStaleUiMode = 'warn';
+        storedSettings.opendkpStaleUiSoftened = true;
+        try {
+          api.storage.sync.set({
+            opendkpStaleUiMode: 'warn',
+            opendkpStaleUiSoftened: true
+          });
+        } catch (_) {}
+        log('Migrated stale UI mode from warn-reload to warn (softer raid-night default)');
+      }
       settings = {
         ...CONFIG,
         CHECK_INTERVAL: CONFIG.CHECK_INTERVAL,

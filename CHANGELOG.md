@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here. The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versioning follows the **same semver** as `manifest.json` (single version for Firefox and Chrome packages).
 
+## [2.7.1] - 2026-09-01
+
+### Changed
+
+- **Softer connection health on busy raid nights** — Default stale UI mode is now **warn only** (existing installs on warn-then-auto-reload migrate once). Auto-reload, when enabled, uses a longer countdown and stricter rate limits.
+- **Disconnect recovery** — Prefers clicking OpenDKP’s Reconnect button; no longer force-reloads when the dialog lingers after a click.
+- **Reload cooldowns** — Longer global cooldown, post-reload grace period, and lower attempt caps to avoid reload loops that could hang the Bidding Tool or show 404s.
+- **Lighter page watchers** — Debounced disconnect detection and less aggressive MutationObservers so auction timer text updates do not thrash the main thread.
+
 ## [2.7.0] - 2026-08-09
 
 ### Added
